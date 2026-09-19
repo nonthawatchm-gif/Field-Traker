@@ -1905,8 +1905,8 @@ function App() {
         // not the whole screen — otherwise the ready-screen panels hide most of it
         const wr = wrap.getBoundingClientRect();
         let topCss = 0, botCss = wr.height;
-        wrap.querySelectorAll('[data-hud]').forEach((el) => { topCss = Math.max(topCss, el.getBoundingClientRect().bottom - wr.top); });
-        const dockEl = wrap.querySelector('[data-dock]');
+        document.querySelectorAll('[data-hud]').forEach((el) => { topCss = Math.max(topCss, el.getBoundingClientRect().bottom - wr.top); });
+        const dockEl = document.querySelector('[data-dock]');
         if (dockEl) botCss = Math.min(botCss, dockEl.getBoundingClientRect().top - wr.top);
         topCss += 8; botCss -= 8;
         if (botCss - topCss > 120) {
