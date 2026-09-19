@@ -881,8 +881,16 @@ const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && windo
 const nativePluginCache = {};
 const nativePlugin = (name) => {
   if (!NATIVE) return null;
-  // registerPlugin (not Capacitor.Plugins[name]) so callback-style methods like addWatcher return a Promise
-  try { return nativePluginCache[name] || (nativePluginCache[name] = window.Capacitor.registerPlugin(name)); } catch (e) { return null; }
+  // The injected runtime exposes plugins as Capacitor.Plugins.<Name> (no registerPlugin); callback-style
+  // methods such as addWatcher may return a plain callback id rather than a Promise, so callers wrap
+  // results in Promise.resolve().
+  try {
+    if (!nativePluginCache[name]) {
+      const C = window.Capacitor;
+      nativePluginCache[name] = (C.Plugins && C.Plugins[name]) || (C.registerPlugin ? C.registerPlugin(name) : null);
+    }
+    return nativePluginCache[name];
+  } catch (e) { return null; }
 };
 let alertChannelReady = false;
 let alertNotifId = 1000;
@@ -2018,12 +2026,14 @@ function App() {
     // requestAnimationFrame while the screen is on, and headlessly straight from each GPS fix
     // while the screen is off / the app is backgrounded (rAF and timers are suspended then).
     const frame = (t, headless) => {
-      const dt = Math.min(document.hidden ? 5 : 0.1, (t - last) / 1000); last = t;
+      const rawDt = (t - last) / 1000;
+      const dt = Math.min(document.hidden ? 5 : 0.1, rawDt); last = t;
       const sim = simRef.current, field = fieldRef.current;
       const ph = phaseRef.current, sm = srcModeRef.current;
       const missionActive = (ph === 'running' || ph === 'paused');
 
-      if (ph === 'running') sim.elapsed += dt * (sm === 'sim' ? multRef.current : 1);
+      // wall-clock elapsed (not the clamped dt), so time keeps counting even if frames were suspended
+      if (ph === 'running') sim.elapsed += Math.min(rawDt, 6 * 3600) * (sm === 'sim' ? multRef.current : 1);
 
       // Live pace — an exponential moving average of frame-to-frame movement,
       // mode-agnostic (sim.pos is the single source of truth either way) so
