@@ -878,9 +878,11 @@ function advance(sim, field, sdt, swath, paint, armed) {
 
 /* Native (Capacitor) bridge helpers — inert in a plain browser. */
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const nativePluginCache = {};
 const nativePlugin = (name) => {
   if (!NATIVE) return null;
-  try { return (window.Capacitor.Plugins && window.Capacitor.Plugins[name]) || window.Capacitor.registerPlugin(name); } catch (e) { return null; }
+  // registerPlugin (not Capacitor.Plugins[name]) so callback-style methods like addWatcher return a Promise
+  try { return nativePluginCache[name] || (nativePluginCache[name] = window.Capacitor.registerPlugin(name)); } catch (e) { return null; }
 };
 let alertChannelReady = false;
 let alertNotifId = 1000;
@@ -1897,14 +1899,14 @@ function App() {
     if (BG) {
       setGpsStatus('requesting');
       let watcherId = null, cancelled = false;
-      BG.addWatcher(
+      Promise.resolve(BG.addWatcher(
         { backgroundTitle: 'Agras Field Tracker', backgroundMessage: 'Tracking spray coverage — tap to return to the app', requestPermissions: true, stale: false, distanceFilter: 0 },
         (loc, err) => {
           if (err) { setGpsStatus(err.code === 'NOT_AUTHORIZED' ? 'denied' : 'unavailable'); return; }
           if (loc) onPosition(loc.latitude, loc.longitude, loc.accuracy, loc.speed, loc.bearing, loc.altitude);
         }
-      ).then((id) => { if (cancelled) BG.removeWatcher({ id }); else watcherId = id; }).catch(() => setGpsStatus('unavailable'));
-      return () => { cancelled = true; if (watcherId != null) BG.removeWatcher({ id: watcherId }); };
+      )).then((id) => { if (cancelled) BG.removeWatcher({ id }); else watcherId = id; }).catch(() => setGpsStatus('unavailable'));
+      return () => { cancelled = true; if (watcherId != null) { try { BG.removeWatcher({ id: watcherId }); } catch (e) { /* ignore */ } } };
     }
 
     if (!navigator.geolocation) { setGpsStatus('unavailable'); return; }
@@ -3889,7 +3891,22 @@ function MiniMap({ field, sim, gridCanvas, station }) {
   return <canvas ref={ref} className="w-full h-full" />;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center bg-[#0A0E10] text-[#D3DEDC]">
+        <p className="font-display text-lg font-bold">Something went wrong</p>
+        <p className="font-mono text-[11px] text-[#7C8C8C] max-w-[300px] break-words">{String(this.state.err && this.state.err.message || this.state.err)}</p>
+        <p className="text-xs text-[#9AABAA] max-w-[300px]">Your mission progress was autosaved — reopening will offer to resume it.</p>
+        <button onClick={() => location.reload()} className="min-h-[48px] px-6 rounded-xl bg-[#2EE6C7] text-[#06231D] font-semibold">Reload</button>
+      </div>
+    );
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
 </body>
 </html>
