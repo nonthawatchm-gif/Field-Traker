@@ -3,5 +3,8 @@
   "appName": "Agras Field Tracker",
   "webDir": "www",
   "backgroundColor": "#0A0E10",
-  "android": { "allowMixedContent": false }
+  "android": {
+    "allowMixedContent": false,
+    "useLegacyBridge": true
+  }
 }

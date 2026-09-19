@@ -876,6 +876,30 @@ function advance(sim, field, sdt, swath, paint, armed) {
   if (sim.done) sim.track.push({ ...sim.pos });
 }
 
+/* Native (Capacitor) bridge helpers — inert in a plain browser. */
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const nativePlugin = (name) => {
+  if (!NATIVE) return null;
+  try { return (window.Capacitor.Plugins && window.Capacitor.Plugins[name]) || window.Capacitor.registerPlugin(name); } catch (e) { return null; }
+};
+let alertChannelReady = false;
+let alertNotifId = 1000;
+/** Sound + (when the screen is off / app backgrounded) a vibration and a heads-up notification. */
+function alertUser(freqs, title, body) {
+  playTone(freqs);
+  if (!NATIVE || !document.hidden) return;
+  try {
+    const H = nativePlugin('Haptics'), LN = nativePlugin('LocalNotifications');
+    if (H) H.vibrate({ duration: 600 });
+    if (LN) {
+      const send = () => LN.schedule({ notifications: [{ id: alertNotifId++ % 2000000000, title, body, channelId: 'agras-alerts' }] });
+      if (alertChannelReady) send();
+      else LN.createChannel({ id: 'agras-alerts', name: 'Mission alerts', importance: 5, vibration: true, visibility: 1 }).catch(() => {}).then(() => { alertChannelReady = true; send(); });
+    }
+  } catch (e) { /* best-effort */ }
+}
+let tileVersion = 0; // bumped whenever a satellite tile finishes (or fails) loading, so the redraw guard knows to repaint
+
 function playTone(freqs) {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -1023,12 +1047,12 @@ function looksLikeNoDataTile(img) {
  *  Esri path produces.) */
 function loadTileEntry(entry, z, tx, ty, cacheStore) {
   const tryGoogleSat = () => {
-    entry.img.onload = () => { entry.loaded = true; entry.provider = 'google-sat'; };
-    entry.img.onerror = () => { entry.failed = true; };
+    entry.img.onload = () => { entry.loaded = true; entry.provider = 'google-sat'; tileVersion++; };
+    entry.img.onerror = () => { entry.failed = true; tileVersion++; };
     entry.img.src = googleTileUrl(z, tx, ty);
   };
   const tryGoogleHybrid = () => {
-    entry.img.onload = () => { entry.loaded = true; entry.provider = 'google-hybrid'; };
+    entry.img.onload = () => { entry.loaded = true; entry.provider = 'google-hybrid'; tileVersion++; };
     entry.img.onerror = tryGoogleSat;
     entry.img.src = googleHybridTileUrl(z, tx, ty);
   };
@@ -1042,7 +1066,7 @@ function loadTileEntry(entry, z, tx, ty, cacheStore) {
         tryGoogleHybrid();
         return;
       }
-      entry.loaded = true; entry.provider = 'esri';
+      entry.loaded = true; entry.provider = 'esri'; tileVersion++;
     };
     entry.img.onerror = tryGoogleHybrid;
     entry.img.src = objUrl;
@@ -1429,6 +1453,8 @@ function App() {
   const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('agras_dev') === '1'; } catch (e) { return false; } });
   const devTapsRef = useRef({ n: 0, t: 0 });
   const freeDyRef = useRef(0); // px offset of the free map zone's centre from the canvas centre (ready/running screens)
+  const gridVersionRef = useRef(0);
+  const headlessFrameRef = useRef(null); // runs one simulation frame without painting (screen-off GPS fixes)
   const lastSigRef = useRef(''); // static-redraw guard; cleared whenever the canvas is wiped or the coverage grid is rebuilt
   const secretDevTap = () => {
     const d = devTapsRef.current, now = Date.now();
@@ -1816,7 +1842,7 @@ function App() {
    *  window so it never fires during boundary plotting or the ready screen. */
   useEffect(() => {
     if (phase !== 'running' && phase !== 'paused') return;
-    const id = setInterval(saveSessionNow, 5000);
+    const id = setInterval(saveSessionNow, 15000);
     autosaveTimerRef.current = id;
     return () => { clearInterval(id); autosaveTimerRef.current = null; };
   }, [phase]);
@@ -1827,6 +1853,7 @@ function App() {
   useEffect(() => {
     const handler = () => {
       if (phaseRef.current === 'running' || phaseRef.current === 'paused') saveSessionNow();
+      lastSigRef.current = ''; // force a repaint when the app comes back to the foreground
     };
     document.addEventListener('visibilitychange', handler);
     window.addEventListener('pagehide', handler);
@@ -1841,25 +1868,51 @@ function App() {
      person flips the OS/browser toggle back to Allow (in another tab, the
      site-settings panel, etc.) and resubscribe immediately, no page reload
      or manual "switch to Sim and back" dance required. */
+  const missionOn = phase === 'running' || phase === 'paused';
   useEffect(() => {
     if (srcMode !== 'gps') { if (watchIdRef.current != null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; } return; }
     if (!window.isSecureContext) { setGpsStatus('insecure'); return; }
+
+    // One place that turns a raw fix (from either source below) into app state.
+    const onPosition = (latitude, longitude, accuracy, speed, heading, altitude) => {
+      if (!projectorRef.current) {
+        projectorRef.current = makeProjector(latitude, longitude);
+        unprojectRef.current = makeUnprojector(latitude, longitude);
+        originLatLngRef.current = { lat: latitude, lng: longitude };
+      }
+      const { x, y } = projectorRef.current(latitude, longitude);
+      gpsLiveRef.current = { lat: latitude, lng: longitude, accuracy, x, y, seq: gpsLiveRef.current.seq + 1 };
+      gpsExtraRef.current = { speed, heading, altitude };
+      // Screen off / app backgrounded: rAF and timers are suspended, so drive the mission
+      // simulation (stamping, geofence, refill logic, alerts) straight from the fix.
+      if (document.hidden) { if (headlessFrameRef.current) headlessFrameRef.current(); return; }
+      setGpsStatus('active');
+      const now = performance.now();
+      if (now - gpsInfoThrottleRef.current > 400) { gpsInfoThrottleRef.current = now; setGpsInfo({ lat: latitude, lng: longitude, accuracy }); }
+    };
+
+    // During a mission on the phone: a native foreground-service location watcher, which keeps
+    // delivering fixes with the screen off (Android shows a small "tracking" notification).
+    const BG = missionOn ? nativePlugin('BackgroundGeolocation') : null;
+    if (BG) {
+      setGpsStatus('requesting');
+      let watcherId = null, cancelled = false;
+      BG.addWatcher(
+        { backgroundTitle: 'Agras Field Tracker', backgroundMessage: 'Tracking spray coverage — tap to return to the app', requestPermissions: true, stale: false, distanceFilter: 0 },
+        (loc, err) => {
+          if (err) { setGpsStatus(err.code === 'NOT_AUTHORIZED' ? 'denied' : 'unavailable'); return; }
+          if (loc) onPosition(loc.latitude, loc.longitude, loc.accuracy, loc.speed, loc.bearing, loc.altitude);
+        }
+      ).then((id) => { if (cancelled) BG.removeWatcher({ id }); else watcherId = id; }).catch(() => setGpsStatus('unavailable'));
+      return () => { cancelled = true; if (watcherId != null) BG.removeWatcher({ id: watcherId }); };
+    }
+
     if (!navigator.geolocation) { setGpsStatus('unavailable'); return; }
     setGpsStatus('requesting');
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy, speed, heading, altitude } = pos.coords;
-        if (!projectorRef.current) {
-          projectorRef.current = makeProjector(latitude, longitude);
-          unprojectRef.current = makeUnprojector(latitude, longitude);
-          originLatLngRef.current = { lat: latitude, lng: longitude };
-        }
-        const { x, y } = projectorRef.current(latitude, longitude);
-        gpsLiveRef.current = { lat: latitude, lng: longitude, accuracy, x, y, seq: gpsLiveRef.current.seq + 1 };
-        gpsExtraRef.current = { speed, heading, altitude };
-        setGpsStatus('active');
-        const now = performance.now();
-        if (now - gpsInfoThrottleRef.current > 400) { gpsInfoThrottleRef.current = now; setGpsInfo({ lat: latitude, lng: longitude, accuracy }); }
+        onPosition(latitude, longitude, accuracy, speed, heading, altitude);
       },
       (err) => setGpsStatus(err.code === 1 ? 'denied' : 'unavailable'),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
@@ -1881,7 +1934,26 @@ function App() {
       navigator.geolocation.clearWatch(id); watchIdRef.current = null;
       if (permStatus) { permStatus.removeEventListener ? permStatus.removeEventListener('change', onPermChange) : (permStatus.onchange = null); }
     };
-  }, [srcMode, gpsRetryTick]);
+  }, [srcMode, gpsRetryTick, missionOn]);
+
+  // First time a mission starts on the phone: make sure notifications are allowed (the tracking
+  // notification + alerts) and offer the battery-optimisation exemption, without which some
+  // phones stop the location service shortly after the screen turns off.
+  useEffect(() => {
+    if (phase !== 'running' || !NATIVE) return;
+    const LN = nativePlugin('LocalNotifications');
+    if (LN) LN.requestPermissions().catch(() => {});
+    const P = nativePlugin('Power');
+    let asked = false;
+    try { asked = localStorage.getItem('agras_batt_asked') === '1'; } catch (e) { /* ignore */ }
+    if (P && !asked) {
+      P.isIgnoringBatteryOptimizations().then((r) => {
+        if (r && r.ignoring) return;
+        try { localStorage.setItem('agras_batt_asked', '1'); } catch (e) { /* ignore */ }
+        if (window.confirm('To keep tracking with the screen off, allow Agras Field Tracker to run without battery restrictions?\n\nเพื่อให้ติดตามต่อเนื่องตอนปิดหน้าจอ อนุญาตให้แอพทำงานโดยไม่จำกัดแบตเตอรี่?')) P.requestIgnoreBatteryOptimizations().catch(() => {});
+      }).catch(() => {});
+    }
+  }, [phase === 'running']);
 
   /* switching into GPS mode with a boundary that isn't real-world anchored: re-map it first */
   useEffect(() => {
@@ -1939,8 +2011,11 @@ function App() {
   /* main loop */
   useEffect(() => {
     let raf, last = performance.now(), lastTickT = 0;
-    const step = (t) => {
-      const dt = Math.min(0.1, (t - last) / 1000); last = t;
+    // `frame` is the whole per-frame simulation + (optionally) the paint. It runs from
+    // requestAnimationFrame while the screen is on, and headlessly straight from each GPS fix
+    // while the screen is off / the app is backgrounded (rAF and timers are suspended then).
+    const frame = (t, headless) => {
+      const dt = Math.min(document.hidden ? 5 : 0.1, (t - last) / 1000); last = t;
       const sim = simRef.current, field = fieldRef.current;
       const ph = phaseRef.current, sm = srcModeRef.current;
       const missionActive = (ph === 'running' || ph === 'paused');
@@ -2039,7 +2114,7 @@ function App() {
         if (flagged !== oobRef.current) {
           oobRef.current = flagged; setOob(flagged);
           if (flagged) {
-            playTone([880, 880]);
+            alertUser([880, 880], 'Out of bounds', 'Spraying auto-cut off — walk back inside the field.');
             // key-event autosave: out-of-bounds is exactly the moment an
             // operator might set the phone down mid-mission to sort out why
             try {
@@ -2081,7 +2156,7 @@ function App() {
           if (dBp <= BREAKPOINT_RADIUS) {
             opModeRef.current = 'spray'; setOpMode('spray');
             sim.epoch += 1; sim.breakpoint = null;
-            setResumeFlash(true); playTone([1180]);
+            setResumeFlash(true); alertUser([1180], 'Back on track', 'Resumed at the breakpoint — spraying.');
             setTimeout(() => setResumeFlash(false), 2200);
           } else if (sm === 'sim' && !manualPathRef.current) {
             driveTo(sim.breakpoint || sim.pos);
@@ -2096,13 +2171,17 @@ function App() {
       if (dirtyRef.current && gridCanvasRef.current && imgDataRef.current) {
         flushGridDirty(gridCanvasRef.current, imgDataRef.current, dirtyRef.current);
         dirtyRef.current = null;
+        gridVersionRef.current++;
       }
       frameCountRef.current++;
-      if (frameCountRef.current % 180 === 0 && gridCanvasRef.current && imgDataRef.current) {
+      if (frameCountRef.current % 600 === 0 && gridCanvasRef.current && imgDataRef.current) {
         flushGridFull(gridCanvasRef.current, imgDataRef.current);
+        gridVersionRef.current++;
       }
 
-      if (t - lastTickT >= 200) { lastTickT = t; setTick((n) => n + 1); }
+      const tickEvery = document.hidden ? 1000 : (ph === 'running' ? 500 : 1000);
+      if (t - lastTickT >= tickEvery) { lastTickT = t; setTick((n) => n + 1); }
+      if (headless || document.hidden) return;
 
       const cv = canvasRef.current;
       if (cv) {
@@ -2113,10 +2192,17 @@ function App() {
         else if (ph === 'running' && om === 'toBreakpoint') navLine = { from: sim.pos, to: sim.breakpoint, color: 'rgba(255,182,72,.85)' };
 
         const vv = viewRef.current, lv = gpsLiveRef.current;
-        const sig = (ph === 'ready' || ph === 'boundary') && !satelliteOnRef.current
-          ? [ph, cv.width, cv.height, vv.s, vv.ox, vv.oy, vv.angle, draftRef.current.length, lv.lat, lv.lng, oobRef.current, field.poly.length, field.poly[0] && field.poly[0].x, stationRef.current.x, stationRef.current.y, sim.pos.x, sim.pos.y, sim.fixes.length, field.area, field.gpsAnchored].join('|')
-          : null;
-        if (sig !== null && sig === lastSigRef.current) { raf = requestAnimationFrame(step); return; }
+        // Repaint only when something drawScene actually depends on changed (nothing in it is
+        // time-animated except the station-placement ring), so a running mission repaints at
+        // GPS-fix rate instead of 60 fps — a big battery saving.
+        const bp = sim.breakpoint;
+        const sig = ph === 'station' ? null
+          : [ph, cv.width, cv.height, vv.s, vv.ox, vv.oy, vv.angle, draftRef.current.length, lv.lat, lv.lng, lv.accuracy,
+             oobRef.current, om, field.area, field.poly.length, stationRef.current.x, stationRef.current.y,
+             sim.pos.x, sim.pos.y, sim.heading, sim.fixes.length, sim.sprayedCells, sim.overlapCells, sim.done,
+             bp ? bp.x : '', bp ? bp.y : '', gridVersionRef.current, satelliteOnRef.current, tileVersion,
+             satelliteOnRef.current && zoomCeilingRef.current].join('|');
+        if (sig !== null && sig === lastSigRef.current) return;
         lastSigRef.current = sig || '';
         drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, stationRef.current, {
           plotting: ph === 'boundary', drafting: draftRef.current,
@@ -2137,10 +2223,11 @@ function App() {
           ctx.restore();
         }
       }
-      raf = requestAnimationFrame(step);
     };
+    const step = (t) => { frame(t, false); raf = requestAnimationFrame(step); };
+    headlessFrameRef.current = () => frame(performance.now(), true);
     raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    return () => { cancelAnimationFrame(raf); headlessFrameRef.current = null; };
   }, [paintCell]);
 
   const toFieldCoords = (clientX, clientY) => {
@@ -2719,14 +2806,14 @@ function App() {
   // Auto-pause: tank hits 0 mid-spray → same breakpoint/refill-station flow
   // as a manual "TANK EMPTY" tap, with no operator input needed.
   useEffect(() => {
-    if (phase === 'running' && opMode === 'spray' && tankCapacity > 0 && tankLevel <= 0) tankEmpty();
+    if (phase === 'running' && opMode === 'spray' && tankCapacity > 0 && tankLevel <= 0) { alertUser([880, 660, 440], 'Tank empty', 'Spraying paused — go back to the station to refill.'); tankEmpty(); }
   }, [phase, opMode, tankLevel <= 0]);
 
   // One-shot low-liquid tone as the gauge crosses into the red zone; re-arms
   // once the tank is topped back up above it (refill, or a fresh mission).
   useEffect(() => {
     if (phase !== 'running') return;
-    if (tankLow && tankPct > 0 && !lowLiquidWarnedRef.current) { lowLiquidWarnedRef.current = true; playTone([660, 440]); }
+    if (tankLow && tankPct > 0 && !lowLiquidWarnedRef.current) { lowLiquidWarnedRef.current = true; alertUser([660, 440], 'Tank running low', 'Under 10% left in the tank.'); }
     else if (!tankLow) lowLiquidWarnedRef.current = false;
   }, [phase, tankLow, tankPct > 0]);
 
