@@ -1301,8 +1301,8 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
 /* ============================================================== *
  *  HUD chrome                                                     *
  * ============================================================== */
-const Glass = ({ className = '', style, children }) => (
-  <div style={style} className={'rounded-xl bg-[#131A1D]/95 border border-[#2A363A] shadow-[0_2px_18px_rgba(0,0,0,.45)] ' + className}>{children}</div>
+const Glass = ({ className = '', style, onClick, children }) => (
+  <div style={style} onClick={onClick} className={'rounded-xl bg-[#131A1D]/95 border border-[#2A363A] shadow-[0_2px_18px_rgba(0,0,0,.45)] ' + className}>{children}</div>
 );
 const Tile = ({ icon: Icon, label, value, unit, accent }) => (
   <Glass className="px-3 py-2 min-w-[104px]">
@@ -1369,7 +1369,7 @@ const Stepper = ({ label, value, unit, dec, step = 1, min = 0, max = 999, onChan
     </div>
   </div>
 );
-const Toggle2_unused = ({ value, onChange, options }) => (
+const Toggle2 = ({ value, onChange, options }) => (
   <div className="flex rounded-lg bg-[#0A0E10] border border-[#2A363A] p-0.5">
     {options.map((o) => (
       <button key={o.v} onClick={() => onChange(o.v)}
@@ -1426,6 +1426,19 @@ const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
 function App() {
   const [phase, setPhase] = useState('ready');       // boundary | station | ready | running | paused | done
   const [opMode, setOpMode] = useState('spray');      // spray | toStation | refilling | toBreakpoint
+  const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('agras_dev') === '1'; } catch (e) { return false; } });
+  const devTapsRef = useRef({ n: 0, t: 0 });
+  const secretDevTap = () => {
+    const d = devTapsRef.current, now = Date.now();
+    d.n = now - d.t < 1500 ? d.n + 1 : 1; d.t = now;
+    if (d.n >= 7) {
+      d.n = 0;
+      const next = !devMode;
+      setDevMode(next);
+      if (!next) setSrcMode('gps');
+      try { localStorage.setItem('agras_dev', next ? '1' : '0'); } catch (e) { /* ignore */ }
+    }
+  };
   const [srcMode, setSrcMode] = useState('gps');      // gps only (sim mode removed)
   const [gpsStatus, setGpsStatus] = useState('idle'); // idle | requesting | active | denied | unavailable | insecure
   const [gpsInfo, setGpsInfo] = useState(null);       // { lat, lng, accuracy }
@@ -1991,12 +2004,14 @@ function App() {
           const newPos = { x: live.x, y: live.y };
           sim.heading = Math.atan2(newPos.y - from.y, newPos.x - from.x) || sim.heading;
           const spraying = ph === 'running' && opModeRef.current === 'spray';
-          const armed = spraying && !oobRef.current;
-          if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, sim.epoch, paintCell);
+          const teleport = dist(from, newPos) > 30; // first fix / GPS jump: reposition only, never paint a line across the field
+          const armed = spraying && !oobRef.current && !teleport && pointInPoly(newPos, field.poly);
+          if (teleport) { /* no stamp */ }
+          else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, sim.epoch, paintCell);
           else if (spraying) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
           sim.pos = newPos;
           sim.track.push({ ...newPos }); sim.fixes.push({ ...newPos });
-          if (lastLatLngRef.current) sim.distance += haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
+          if (lastLatLngRef.current && !teleport) sim.distance += haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
           lastLatLngRef.current = { lat: live.lat, lng: live.lng };
         }
       }
@@ -2362,7 +2377,6 @@ function App() {
   const undoPoint = () => { setConfirmCloseField(false); setDraft((d) => d.slice(0, -1)); };
   const closeBoundary = () => {
     if (draft.length < 3) return;
-    if (!confirmCloseField) { setConfirmCloseField(true); setTimeout(() => setConfirmCloseField(false), 4000); return; }
     setConfirmCloseField(false);
     resetField(draft, swath);
   };
@@ -2828,7 +2842,7 @@ function App() {
               each side capped with min-w-0 + truncate so long field names or
               GPS numbers never wrap onto (or push into) the other side. */}
           <div className="flex items-start justify-between gap-2">
-            <Glass className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 max-w-[54%]">
+            <Glass className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 max-w-[54%]" onClick={secretDevTap}>
               <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#FF5252]' : running ? 'text-[#2EE6C7]' : 'text-[#7C8C8C]')} />
               <div className="leading-tight min-w-0">
                 <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#FF5252]' : '')}>{statusLabel}</p>
@@ -2837,6 +2851,27 @@ function App() {
             </Glass>
 
             <Glass className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0">
+              {devMode && <Toggle2 value={srcMode} onChange={setSrcMode} options={[{ v: 'sim', label: 'SIM' }, { v: 'gps', label: 'GPS' }]} />}
+{devMode && srcMode === 'sim' && (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <Switch on={autoWalk} onChange={setAutoWalk} label="AUTO-WALK" />
+                    <div className="flex gap-1">
+                      {[1, 20, 60].map((s) => (
+                        <button key={s} onClick={() => setMult(s)}
+                          className={'font-mono text-[10px] min-w-[30px] min-h-[30px] px-1 rounded ' + (mult === s ? 'bg-[#2EE6C7] text-[#06231D] font-bold' : 'text-[#7C8C8C]')}>{s}×</button>
+                      ))}
+                    </div>
+                  </div>
+                  {phase === 'running' && (
+                    <button onClick={simulateExcursion} disabled={excursionActive || opMode !== 'spray'}
+                      className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#FFB648] border border-[#2A363A] rounded py-1 disabled:opacity-40">
+                      <AlertTriangle size={11} className="shrink-0" /> <span className="truncate">{excursionActive ? 'DEMO RUNNING…' : 'TEST OUT-OF-BOUNDS'}</span>
+                    </button>
+                  )}
+                </>
+              )}
+              {srcMode === 'gps' && (
                 <button onClick={() => setGpsCardOpen((v) => !v)} className="flex items-center justify-between gap-1.5 min-w-0 w-full">
                   <span className="text-[9px] font-mono text-[#7C8C8C] truncate">
                     {gpsStatus === 'active' && gpsInfo ? `±${gpsInfo.accuracy.toFixed(1)}m` : gpsStatus === 'requesting' ? 'locating…' : gpsStatus}
@@ -2846,6 +2881,7 @@ function App() {
                     <ChevronDown size={11} className={'text-[#7C8C8C] transition-transform ' + (gpsCardOpen ? 'rotate-180' : '')} />
                   </span>
                 </button>
+              )}
 
               {/* Ready-phase station access moved into the consolidated
                   "Field setup" menu below (less clutter up here) — kept as a
@@ -3137,7 +3173,7 @@ function App() {
                   sprays the same setup every day never has to open this at all —
                   the values shown are already right, and START is one tap below. */}
               <button onClick={() => setShowSpraySettings(true)}
-                className="w-full flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/70 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
+                className="w-full flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/92 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate text-[#9AABAA]">
                   <Fuel size={13} className="text-[#2EE6C7] shrink-0" />
                   <span className="truncate text-[#D3DEDC] font-bold">{tankCapacity}L tank · {rateLRai} L/rai · {swath.toFixed(1)}m swath</span>
@@ -3175,7 +3211,7 @@ function App() {
                   });
                 };
                 return (
-                  <div className="rounded-xl border border-[#2A363A] bg-[#131A1D]/70">
+                  <div className="rounded-xl border border-[#2A363A] bg-[#131A1D]/92">
                     <button onClick={() => setChecklistExpanded((v) => !v)}
                       className="w-full flex items-center justify-between gap-2 px-3.5 py-3 min-h-[44px]">
                       <span className="flex items-center gap-2 min-w-0">
@@ -3256,7 +3292,7 @@ function App() {
                   now one summary row that opens a small sheet, so the Ready
                   screen's default state shows far less at once. */}
               <button onClick={() => setShowFieldSetupMenu(true)}
-                className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/70 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
+                className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/92 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate">
                   <MapPinned size={13} className="text-[#2EE6C7] shrink-0" />
                   <span className="truncate text-[#9AABAA]">Field setup</span>
@@ -3264,7 +3300,7 @@ function App() {
                 <span className="text-[#5C6C6C] shrink-0 text-[9.5px] font-mono">Plot · Station · Save</span>
               </button>
               <button onClick={() => setShowToolsMenu(true)}
-                className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/70 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
+                className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/92 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate">
                   <Layers size={13} className="text-[#2EE6C7] shrink-0" />
                   <span className="truncate text-[#9AABAA]">Tools</span>
