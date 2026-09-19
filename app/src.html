@@ -2926,7 +2926,7 @@ function App() {
                   ? 'Walk the real edges and tap Mark Corner at each one, or tap the map.'
                   : 'Tap the field edges in order, ' + Math.max(0, 3 - draft.length) + ' more to close.'}
               </p>
-              <p className="font-mono text-[10px] text-[#7C8C8C] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{srcMode === 'gps' && !fieldRef.current.gpsAnchored ? ' · switched to GPS Mode, map a real boundary to continue' : ''}</p>
+              <p className="font-mono text-[10px] text-[#7C8C8C] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{srcMode === 'gps' && !fieldRef.current.gpsAnchored ? ' · map a real boundary to continue' : ''}</p>
             </Glass>
           )}
           {topHint === 'station' && (
