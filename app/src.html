@@ -1039,14 +1039,18 @@ function loadTileEntry(entry, z, tx, ty, cacheStore) {
       if (looksLikeNoDataTile(entry.img)) {
         URL.revokeObjectURL(objUrl);
         if (entry.objUrl === objUrl) entry.objUrl = null;
+        // Past z18 Google's "no imagery" tile is a flat colour we can't detect (no CORS → tainted
+        // canvas), so it showed up as a blank map. Mark the tile missing instead: the zoom ceiling
+        // ratchets down and the last real tile is stretched.
+        if (z > 18) { entry.failed = true; return; }
         tryGoogleHybrid();
         return;
       }
       entry.loaded = true; entry.provider = 'esri';
     };
-    entry.img.onerror = tryGoogleHybrid;
+    entry.img.onerror = z > 18 ? () => { entry.failed = true; } : tryGoogleHybrid;
     entry.img.src = objUrl;
-  }).catch(tryGoogleHybrid);
+  }).catch(z > 18 ? () => { entry.failed = true; } : tryGoogleHybrid);
 }
 
 /** Get-or-create the cache entry for one z/x/y tile and kick off its load
