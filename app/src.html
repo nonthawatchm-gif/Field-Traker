@@ -1428,6 +1428,7 @@ function App() {
   const [opMode, setOpMode] = useState('spray');      // spray | toStation | refilling | toBreakpoint
   const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('agras_dev') === '1'; } catch (e) { return false; } });
   const devTapsRef = useRef({ n: 0, t: 0 });
+  const lastSigRef = useRef(''); // static-redraw guard; cleared whenever the canvas is wiped or the coverage grid is rebuilt
   const secretDevTap = () => {
     const d = devTapsRef.current, now = Date.now();
     d.n = now - d.t < 1500 ? d.n + 1 : 1; d.t = now;
@@ -1576,7 +1577,7 @@ function App() {
 
   const initGrid = useCallback((field) => {
     const gc = document.createElement('canvas');
-    gc.width = field.GW; gc.height = field.GH;
+    gc.width = field.GW; gc.height = field.GH; lastSigRef.current = '';
     const ctx = gc.getContext('2d');
     const img = ctx.createImageData(field.GW, field.GH);
     gridCanvasRef.current = gc; imgDataRef.current = img;
@@ -1897,6 +1898,7 @@ function App() {
       const c = canvasRef.current;
       c.width = r.width * dpr; c.height = r.height * dpr;
       c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+      lastSigRef.current = ''; // resizing (even to the same size) wipes the canvas
       if (phaseRef.current !== 'boundary') {
         viewRef.current = computeFitView(c.width, c.height, fieldRef.current.poly, 4);
       } else if (srcModeRef.current === 'sim') {
@@ -1921,7 +1923,7 @@ function App() {
 
   /* main loop */
   useEffect(() => {
-    let raf, last = performance.now(), lastTickT = 0, lastSig = '';
+    let raf, last = performance.now(), lastTickT = 0;
     const step = (t) => {
       const dt = Math.min(0.1, (t - last) / 1000); last = t;
       const sim = simRef.current, field = fieldRef.current;
@@ -2099,8 +2101,8 @@ function App() {
         const sig = (ph === 'ready' || ph === 'boundary') && !satelliteOnRef.current
           ? [ph, cv.width, cv.height, vv.s, vv.ox, vv.oy, vv.angle, draftRef.current.length, lv.lat, lv.lng, oobRef.current, field.poly.length, field.poly[0] && field.poly[0].x, stationRef.current.x, stationRef.current.y, sim.pos.x, sim.pos.y, sim.fixes.length, field.area, field.gpsAnchored].join('|')
           : null;
-        if (sig !== null && sig === lastSig) { raf = requestAnimationFrame(step); return; }
-        lastSig = sig || '';
+        if (sig !== null && sig === lastSigRef.current) { raf = requestAnimationFrame(step); return; }
+        lastSigRef.current = sig || '';
         drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, stationRef.current, {
           plotting: ph === 'boundary', drafting: draftRef.current,
           live: ph === 'boundary' && sm === 'gps' && gpsLiveRef.current.lat != null ? gpsLiveRef.current : null,
@@ -2241,7 +2243,10 @@ function App() {
   // (the inverse of drawScene's ctx.rotate(-v.angle)); boundary/station
   // views never carry an angle, so this is a no-op there, same as before.
   useEffect(() => {
-    if (satelliteOn && PANNABLE_PHASES[phase] && !panRef.current) {
+    if (!satelliteOn) { panRef.current = null; setMaxZoomLock(false); return; }
+    // wait a beat so the auto-fit view for the new phase exists before seeding the camera from it
+    const tid = setTimeout(() => {
+    if (PANNABLE_PHASES[phase] && !panRef.current) {
       const c = canvasRef.current, v = viewRef.current;
       if (c && v.s > 0) {
         let sx = c.width / 2, sy = c.height / 2;
@@ -2254,7 +2259,8 @@ function App() {
         panRef.current = { x: (sx - v.ox) / v.s, y: (sy - v.oy) / v.s, s: v.s };
       }
     }
-    if (!satelliteOn) { panRef.current = null; setMaxZoomLock(false); }
+    }, 150);
+    return () => clearTimeout(tid);
   }, [satelliteOn, phase]);
 
   /** Convert the active field's local-metre bbox (padded so panning near an
@@ -2378,6 +2384,7 @@ function App() {
   const closeBoundary = () => {
     if (draft.length < 3) return;
     setConfirmCloseField(false);
+    panRef.current = null;
     resetField(draft, swath);
   };
   const cancelPlotting = () => { setConfirmCloseField(false); if (fieldRef.current.gpsAnchored || srcMode === 'sim') { setDraft([]); setPhase('ready'); } };
@@ -2850,7 +2857,7 @@ function App() {
               </div>
             </Glass>
 
-            <Glass className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0">
+            <Glass className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0 overflow-hidden">
               {devMode && <Toggle2 value={srcMode} onChange={setSrcMode} options={[{ v: 'sim', label: 'SIM' }, { v: 'gps', label: 'GPS' }]} />}
 {devMode && srcMode === 'sim' && (
                 <>
@@ -2859,7 +2866,7 @@ function App() {
                     <div className="flex gap-1">
                       {[1, 20, 60].map((s) => (
                         <button key={s} onClick={() => setMult(s)}
-                          className={'font-mono text-[10px] min-w-[30px] min-h-[30px] px-1 rounded ' + (mult === s ? 'bg-[#2EE6C7] text-[#06231D] font-bold' : 'text-[#7C8C8C]')}>{s}×</button>
+                          className={'font-mono text-[10px] min-w-[26px] min-h-[30px] px-0.5 rounded ' + (mult === s ? 'bg-[#2EE6C7] text-[#06231D] font-bold' : 'text-[#7C8C8C]')}>{s}×</button>
                       ))}
                     </div>
                   </div>
@@ -2958,7 +2965,9 @@ function App() {
             <Glass className="pointer-events-auto px-3.5 py-3">
               <p className="font-display text-sm font-bold tracking-wide text-[#2EE6C7]">MAP THE PERIMETER</p>
               <p className="text-xs text-[#9AABAA] mt-1 leading-snug">
-                {srcMode === 'gps'
+                {satelliteOn
+                  ? 'Drag the map so the crosshair sits on each corner, then tap Add at Crosshair.'
+                  : srcMode === 'gps'
                   ? 'Walk the real edges and tap Mark Corner at each one, or tap the map.'
                   : 'Tap the field edges in order, ' + Math.max(0, 3 - draft.length) + ' more to close.'}
               </p>
