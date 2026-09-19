@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Agras Field Tracker</string>
+    <string name="title_activity_main">Agras Field Tracker</string>
+    <string name="package_name">com.agras.fieldtracker</string>
+    <string name="custom_url_scheme">com.agras.fieldtracker</string>
+</resources>

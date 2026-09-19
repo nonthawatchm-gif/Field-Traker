@@ -1,0 +1,7 @@
+{
+  "appId": "com.agras.fieldtracker",
+  "appName": "Agras Field Tracker",
+  "webDir": "www",
+  "backgroundColor": "#0A0E10",
+  "android": { "allowMixedContent": false }
+}
