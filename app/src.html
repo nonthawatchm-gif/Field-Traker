@@ -1301,8 +1301,8 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
 /* ============================================================== *
  *  HUD chrome                                                     *
  * ============================================================== */
-const Glass = ({ className = '', style, onClick, children }) => (
-  <div style={style} onClick={onClick} className={'rounded-xl bg-[#131A1D]/95 border border-[#2A363A] shadow-[0_2px_18px_rgba(0,0,0,.45)] ' + className}>{children}</div>
+const Glass = ({ className = '', style, onClick, children, ...rest }) => (
+  <div style={style} onClick={onClick} {...rest} className={'rounded-xl bg-[#131A1D]/95 border border-[#2A363A] shadow-[0_2px_18px_rgba(0,0,0,.45)] ' + className}>{children}</div>
 );
 const Tile = ({ icon: Icon, label, value, unit, accent }) => (
   <Glass className="px-3 py-2 min-w-[104px]">
@@ -1428,6 +1428,7 @@ function App() {
   const [opMode, setOpMode] = useState('spray');      // spray | toStation | refilling | toBreakpoint
   const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('agras_dev') === '1'; } catch (e) { return false; } });
   const devTapsRef = useRef({ n: 0, t: 0 });
+  const freeDyRef = useRef(0); // px offset of the free map zone's centre from the canvas centre (ready/running screens)
   const lastSigRef = useRef(''); // static-redraw guard; cleared whenever the canvas is wiped or the coverage grid is rebuilt
   const secretDevTap = () => {
     const d = devTapsRef.current, now = Date.now();
@@ -1900,7 +1901,22 @@ function App() {
       c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
       lastSigRef.current = ''; // resizing (even to the same size) wipes the canvas
       if (phaseRef.current !== 'boundary') {
-        viewRef.current = computeFitView(c.width, c.height, fieldRef.current.poly, 4);
+        // fit the field into the free zone between the top HUD cards and the bottom dock,
+        // not the whole screen — otherwise the ready-screen panels hide most of it
+        const wr = wrap.getBoundingClientRect();
+        let topCss = 0, botCss = wr.height;
+        wrap.querySelectorAll('[data-hud]').forEach((el) => { topCss = Math.max(topCss, el.getBoundingClientRect().bottom - wr.top); });
+        const dockEl = wrap.querySelector('[data-dock]');
+        if (dockEl) botCss = Math.min(botCss, dockEl.getBoundingClientRect().top - wr.top);
+        topCss += 8; botCss -= 8;
+        if (botCss - topCss > 120) {
+          const v = computeFitView(c.width, (botCss - topCss) * dpr, fieldRef.current.poly, 4);
+          viewRef.current = { ...v, oy: v.oy + topCss * dpr };
+          freeDyRef.current = ((topCss + botCss) / 2) * dpr - c.height / 2;
+        } else {
+          viewRef.current = computeFitView(c.width, c.height, fieldRef.current.poly, 4);
+          freeDyRef.current = 0;
+        }
       } else if (srcModeRef.current === 'sim') {
         viewRef.current = computeView(c.width, c.height, { minX: BOUND_FRAME.minX, minY: BOUND_FRAME.minY, w: BOUND_FRAME.maxX, h: BOUND_FRAME.maxY }, 3);
       }
@@ -1973,7 +1989,7 @@ function App() {
         const c = canvasRef.current;
         if (c) {
           const p = panRef.current;
-          viewRef.current = { s: p.s, ox: c.width / 2 - p.x * p.s, oy: c.height / 2 - p.y * p.s };
+          viewRef.current = { s: p.s, ox: c.width / 2 - p.x * p.s, oy: c.height / 2 + freeDyRef.current - p.y * p.s };
         }
       }
 
@@ -2249,7 +2265,7 @@ function App() {
     if (PANNABLE_PHASES[phase] && !panRef.current) {
       const c = canvasRef.current, v = viewRef.current;
       if (c && v.s > 0) {
-        let sx = c.width / 2, sy = c.height / 2;
+        let sx = c.width / 2, sy = c.height / 2 + (phase === 'boundary' ? 0 : freeDyRef.current);
         if (v.angle) {
           const cosA = Math.cos(v.angle), sinA = Math.sin(v.angle);
           const dx = sx - v.ox, dy = sy - v.oy;
@@ -2849,7 +2865,7 @@ function App() {
               each side capped with min-w-0 + truncate so long field names or
               GPS numbers never wrap onto (or push into) the other side. */}
           <div className="flex items-start justify-between gap-2">
-            <Glass className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 max-w-[54%]" onClick={secretDevTap}>
+            <Glass data-hud className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 max-w-[54%]" onClick={secretDevTap}>
               <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#FF5252]' : running ? 'text-[#2EE6C7]' : 'text-[#7C8C8C]')} />
               <div className="leading-tight min-w-0">
                 <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#FF5252]' : '')}>{statusLabel}</p>
@@ -2857,7 +2873,7 @@ function App() {
               </div>
             </Glass>
 
-            <Glass className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0 overflow-hidden">
+            <Glass data-hud className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0 overflow-hidden">
               {devMode && <Toggle2 value={srcMode} onChange={setSrcMode} options={[{ v: 'sim', label: 'SIM' }, { v: 'gps', label: 'GPS' }]} />}
 {devMode && srcMode === 'sim' && (
                 <>
@@ -3124,7 +3140,7 @@ function App() {
         {/* ---------- BOTTOM DOCK — fixed safe-area strip, always last ----------
             Not flex-1, so it always renders at its natural height and is
             never squeezed or overlapped by anything above it. */}
-        <div className="shrink-0 pointer-events-auto p-3" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+        <div data-dock className="shrink-0 pointer-events-auto p-3" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
           {phase === 'boundary' && (
             <Dock>
               <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={cancelPlotting} disabled={srcMode === 'gps' && !fieldRef.current.gpsAnchored} />
