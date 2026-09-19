@@ -876,6 +876,67 @@ function advance(sim, field, sdt, swath, paint, armed) {
   if (sim.done) sim.track.push({ ...sim.pos });
 }
 
+/* ============================================================== *
+ *  Field-test log — a persistent ring buffer (localStorage) of the  *
+ *  events that matter when debugging a real spray run: GPS fixes    *
+ *  and gaps, screen on/off, phase changes, geofence, alerts, saves  *
+ *  and errors. Exported from Tools → Test log, or via adb logcat    *
+ *  (lines are also console.log'd with an AGRASLOG prefix).          *
+ * ============================================================== */
+const APP_BUILD = '__BUILD__';
+const LOG_KEY = 'agras_log_v1', LOG_MAX = 6000;
+const AgrasLog = (() => {
+  let buf = [];
+  try { buf = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); if (!Array.isArray(buf)) buf = []; } catch (e) { buf = []; }
+  let dirty = false, sinceFlush = 0;
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const stamp = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}${document.hidden ? ' H' : '  '}`;
+  };
+  const flush = () => {
+    if (!dirty) return;
+    dirty = false; sinceFlush = 0;
+    try { localStorage.setItem(LOG_KEY, JSON.stringify(buf)); }
+    catch (e) { try { buf.splice(0, buf.length >> 1); localStorage.setItem(LOG_KEY, JSON.stringify(buf)); } catch (e2) { /* storage full — keep in memory only */ } }
+  };
+  const add = (tag, msg) => {
+    const line = `${stamp()} ${tag} ${msg}`;
+    buf.push(line);
+    if (buf.length > LOG_MAX) buf.splice(0, buf.length - LOG_MAX);
+    dirty = true;
+    try { console.log('AGRASLOG ' + line); } catch (e) { /* ignore */ }
+    if (++sinceFlush >= (document.hidden ? 5 : 40)) flush();
+  };
+  setInterval(flush, 8000);
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => { add('VIS', document.hidden ? 'screen off / app hidden' : 'visible'); flush(); });
+  window.addEventListener('error', (e) => add('ERR', `${e.message} @${String(e.filename || '').split('/').pop()}:${e.lineno}`));
+  window.addEventListener('unhandledrejection', (e) => add('ERR', 'promise: ' + ((e.reason && e.reason.message) || e.reason)));
+  return {
+    add, flush, lines: () => buf, text: () => buf.join('\n'),
+    clear: () => { buf.length = 0; dirty = true; flush(); add('LOG', 'cleared'); flush(); },
+  };
+})();
+function logBattery(tag) {
+  try { if (navigator.getBattery) navigator.getBattery().then((b) => AgrasLog.add('BATT', `${tag} ${Math.round(b.level * 100)}% ${b.charging ? 'charging' : 'on battery'}`)).catch(() => {}); } catch (e) { /* ignore */ }
+}
+async function shareTestLog() {
+  AgrasLog.flush();
+  const text = `Agras Field Tracker test log · build ${APP_BUILD}\n` + AgrasLog.text() + '\n';
+  const name = 'agras-log-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '') + '.txt';
+  const FS = nativePlugin('Filesystem'), SH = nativePlugin('Share');
+  if (FS && SH) {
+    const r = await FS.writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
+    await SH.share({ title: 'Agras test log', text: name, url: r.uri, dialogTitle: 'Send test log' });
+    return 'Shared ' + name;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  return 'Downloaded ' + name;
+}
+
 /* Native (Capacitor) bridge helpers — inert in a plain browser. */
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const nativePluginCache = {};
@@ -892,10 +953,13 @@ const nativePlugin = (name) => {
     return nativePluginCache[name];
   } catch (e) { return null; }
 };
+AgrasLog.add('APP', `start build=${APP_BUILD} native=${NATIVE} ua=${navigator.userAgent.slice(0, 90)}`);
+logBattery('start');
 let alertChannelReady = false;
 let alertNotifId = 1000;
 /** Sound + (when the screen is off / app backgrounded) a vibration and a heads-up notification. */
 function alertUser(freqs, title, body) {
+  AgrasLog.add('ALERT', `${title} (hidden=${document.hidden})`);
   playTone(freqs);
   if (!NATIVE || !document.hidden) return;
   try {
@@ -1464,6 +1528,8 @@ function App() {
   const devTapsRef = useRef({ n: 0, t: 0 });
   const freeDyRef = useRef(0); // px offset of the free map zone's centre from the canvas centre (ready/running screens)
   const gridVersionRef = useRef(0);
+  const lastFixMsRef = useRef(0);
+  const [logMsg, setLogMsg] = useState('');
   const headlessFrameRef = useRef(null); // runs one simulation frame without painting (screen-off GPS fixes)
   const lastSigRef = useRef(''); // static-redraw guard; cleared whenever the canvas is wiped or the coverage grid is rebuilt
   const secretDevTap = () => {
@@ -1880,12 +1946,18 @@ function App() {
      site-settings panel, etc.) and resubscribe immediately, no page reload
      or manual "switch to Sim and back" dance required. */
   const missionOn = phase === 'running' || phase === 'paused';
+  useEffect(() => { AgrasLog.add('PHASE', `${phase} src=${srcMode} field=${fieldRef.current.area ? (fieldRef.current.area / 1600).toFixed(2) : '?'}rai`); if (phase === 'running' || phase === 'paused') logBattery('phase ' + phase); AgrasLog.flush(); }, [phase]);
+  useEffect(() => { AgrasLog.add('OPMODE', opMode); }, [opMode]);
+  useEffect(() => { AgrasLog.add('GPSSTATUS', gpsStatus); }, [gpsStatus]);
   useEffect(() => {
     if (srcMode !== 'gps') { if (watchIdRef.current != null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; } return; }
     if (!window.isSecureContext) { setGpsStatus('insecure'); return; }
 
     // One place that turns a raw fix (from either source below) into app state.
-    const onPosition = (latitude, longitude, accuracy, speed, heading, altitude) => {
+    const onPosition = (latitude, longitude, accuracy, speed, heading, altitude, src) => {
+      const nowMs = Date.now(), gap = lastFixMsRef.current ? nowMs - lastFixMsRef.current : 0;
+      lastFixMsRef.current = nowMs;
+      AgrasLog.add('FIX', `${latitude.toFixed(6)},${longitude.toFixed(6)} acc=${Math.round(accuracy)}m spd=${speed == null ? '-' : Number(speed).toFixed(1)} src=${src} gap=${gap}ms${gap > 3000 ? ' GAP' : ''}`);
       if (!projectorRef.current) {
         projectorRef.current = makeProjector(latitude, longitude);
         unprojectRef.current = makeUnprojector(latitude, longitude);
@@ -1907,15 +1979,16 @@ function App() {
     const BG = missionOn ? nativePlugin('BackgroundGeolocation') : null;
     if (BG) {
       setGpsStatus('requesting');
+      AgrasLog.add('GPS', 'bg watcher start');
       let watcherId = null, cancelled = false;
       Promise.resolve(BG.addWatcher(
         { backgroundTitle: 'Agras Field Tracker', backgroundMessage: 'Tracking spray coverage — tap to return to the app', requestPermissions: true, stale: false, distanceFilter: 0 },
         (loc, err) => {
-          if (err) { setGpsStatus(err.code === 'NOT_AUTHORIZED' ? 'denied' : 'unavailable'); return; }
-          if (loc) onPosition(loc.latitude, loc.longitude, loc.accuracy, loc.speed, loc.bearing, loc.altitude);
+          if (err) { AgrasLog.add('GPS', 'bg error ' + (err.code || '') + ' ' + (err.message || '')); setGpsStatus(err.code === 'NOT_AUTHORIZED' ? 'denied' : 'unavailable'); return; }
+          if (loc) onPosition(loc.latitude, loc.longitude, loc.accuracy, loc.speed, loc.bearing, loc.altitude, 'bg');
         }
-      )).then((id) => { if (cancelled) BG.removeWatcher({ id }); else watcherId = id; }).catch(() => setGpsStatus('unavailable'));
-      return () => { cancelled = true; if (watcherId != null) { try { BG.removeWatcher({ id: watcherId }); } catch (e) { /* ignore */ } } };
+      )).then((id) => { AgrasLog.add('GPS', 'bg watcher id=' + id); if (cancelled) BG.removeWatcher({ id }); else watcherId = id; }).catch((e) => { AgrasLog.add('GPS', 'bg watcher failed: ' + (e && e.message)); setGpsStatus('unavailable'); });
+      return () => { AgrasLog.add('GPS', 'bg watcher stop'); cancelled = true; if (watcherId != null) { try { BG.removeWatcher({ id: watcherId }); } catch (e) { /* ignore */ } } };
     }
 
     if (!navigator.geolocation) { setGpsStatus('unavailable'); return; }
@@ -1923,12 +1996,13 @@ function App() {
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy, speed, heading, altitude } = pos.coords;
-        onPosition(latitude, longitude, accuracy, speed, heading, altitude);
+        onPosition(latitude, longitude, accuracy, speed, heading, altitude, 'web');
       },
-      (err) => setGpsStatus(err.code === 1 ? 'denied' : 'unavailable'),
+      (err) => { AgrasLog.add('GPS', 'web error code=' + err.code + ' ' + err.message); setGpsStatus(err.code === 1 ? 'denied' : 'unavailable'); },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
     );
     watchIdRef.current = id;
+    AgrasLog.add('GPS', 'web watch start');
 
     // Auto-recover: watch the browser's own permission record for this page
     // and resubscribe the instant it flips to "granted", without waiting on
@@ -1942,6 +2016,7 @@ function App() {
       }).catch(() => {});
     }
     return () => {
+      AgrasLog.add('GPS', 'web watch stop');
       navigator.geolocation.clearWatch(id); watchIdRef.current = null;
       if (permStatus) { permStatus.removeEventListener ? permStatus.removeEventListener('change', onPermChange) : (permStatus.onchange = null); }
     };
@@ -1953,12 +2028,13 @@ function App() {
   useEffect(() => {
     if (phase !== 'running' || !NATIVE) return;
     const LN = nativePlugin('LocalNotifications');
-    if (LN) LN.requestPermissions().catch(() => {});
+    if (LN) LN.requestPermissions().then((r) => AgrasLog.add('PERM', 'notifications=' + (r && r.display))).catch(() => {});
     const P = nativePlugin('Power');
     let asked = false;
     try { asked = localStorage.getItem('agras_batt_asked') === '1'; } catch (e) { /* ignore */ }
     if (P && !asked) {
       P.isIgnoringBatteryOptimizations().then((r) => {
+        AgrasLog.add('PERM', 'battery-optimisation exempt=' + (r && r.ignoring));
         if (r && r.ignoring) return;
         try { localStorage.setItem('agras_batt_asked', '1'); } catch (e) { /* ignore */ }
         if (window.confirm('To keep tracking with the screen off, allow Agras Field Tracker to run without battery restrictions?\n\nเพื่อให้ติดตามต่อเนื่องตอนปิดหน้าจอ อนุญาตให้แอพทำงานโดยไม่จำกัดแบตเตอรี่?')) P.requestIgnoreBatteryOptimizations().catch(() => {});
@@ -2021,11 +2097,12 @@ function App() {
 
   /* main loop */
   useEffect(() => {
-    let raf, last = performance.now(), lastTickT = 0;
+    let raf, last = performance.now(), lastTickT = 0, lastStatT = 0, nHeadless = 0, nFrames = 0;
     // `frame` is the whole per-frame simulation + (optionally) the paint. It runs from
     // requestAnimationFrame while the screen is on, and headlessly straight from each GPS fix
     // while the screen is off / the app is backgrounded (rAF and timers are suspended then).
     const frame = (t, headless) => {
+      headless ? nHeadless++ : nFrames++;
       const rawDt = (t - last) / 1000;
       const dt = Math.min(document.hidden ? 5 : 0.1, rawDt); last = t;
       const sim = simRef.current, field = fieldRef.current;
@@ -2034,6 +2111,13 @@ function App() {
 
       // wall-clock elapsed (not the clamped dt), so time keeps counting even if frames were suspended
       if (ph === 'running') sim.elapsed += Math.min(rawDt, 6 * 3600) * (sm === 'sim' ? multRef.current : 1);
+
+      if (missionActive && t - lastStatT >= 60000) {
+        lastStatT = t;
+        AgrasLog.add('STAT', `t=${Math.round(sim.elapsed)}s dist=${Math.round(sim.distance)}m sprayed=${Math.round((sim.sprayedCells + sim.overlapCells) * CELL * CELL)}m2 overlap=${sim.overlapCells} fixes=${sim.fixes.length} headlessFrames=${nHeadless} rafFrames=${nFrames} oob=${oobRef.current} hidden=${document.hidden}`);
+        nHeadless = 0; nFrames = 0;
+        logBattery('mission');
+      }
 
       // Live pace — an exponential moving average of frame-to-frame movement,
       // mode-agnostic (sim.pos is the single source of truth either way) so
@@ -2112,7 +2196,7 @@ function App() {
           // first fix after start/resume, or a GPS jump: reposition only, never paint a line from the stale position
           const teleport = !lastLatLngRef.current || dist(from, newPos) > 30;
           const armed = spraying && !oobRef.current && !teleport && pointInPoly(newPos, field.poly);
-          if (teleport) { /* no stamp */ }
+          if (teleport) { AgrasLog.add('FIXAPPLY', `re-anchor, no paint (jump ${Math.round(dist(from, newPos))}m)`); }
           else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, sim.epoch, paintCell);
           else if (spraying) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
           sim.pos = newPos;
@@ -2127,6 +2211,7 @@ function App() {
         const flagged = !pointInPoly(sim.pos, field.poly);
         if (flagged !== oobRef.current) {
           oobRef.current = flagged; setOob(flagged);
+          AgrasLog.add('OOB', `${flagged ? 'left' : 'back inside'} field at ${sim.pos.x.toFixed(1)},${sim.pos.y.toFixed(1)} (hidden=${document.hidden})`);
           if (flagged) {
             alertUser([880, 880], 'Out of bounds', 'Spraying auto-cut off — walk back inside the field.');
             // key-event autosave: out-of-bounds is exactly the moment an
@@ -2510,6 +2595,7 @@ function App() {
    *  and from the explicit "Save & Pause" dock button. Reads everything off
    *  refs, so it's always safe to call regardless of which render defined it. */
   const saveSessionNow = () => {
+    const saveT0 = performance.now();
     try {
       saveActiveSession(buildSessionSnapshot({
         field: fieldRef.current, sim: simRef.current, station: stationRef.current,
@@ -2518,7 +2604,8 @@ function App() {
         tankBaselineArea: tankBaselineAreaRef.current, imgData: imgDataRef.current,
         originLatLng: originLatLngRef.current,
       }));
-    } catch (e) { /* best-effort — autosave never blocks spraying */ }
+      if (phaseRef.current === 'running' || phaseRef.current === 'paused') AgrasLog.add('SAVE', `autosave ${Math.round(performance.now() - saveT0)}ms`);
+    } catch (e) { AgrasLog.add('ERR', 'autosave failed: ' + (e && e.message)); }
   };
 
   /** Restore a saved session record — see the ordering note above initGrid:
@@ -3778,6 +3865,15 @@ function App() {
                 </span>
                 {missions.length > 0 && <span className="text-[#34C76F] shrink-0">{missions.reduce((a, m) => a + m.raiDec, 0).toFixed(2)} rai total →</span>}
               </button>
+              <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#9AABAA] bg-[#0A0E10] border border-[#2A363A] rounded-lg pl-3.5 pr-1.5 min-h-[44px]">
+                <span className="truncate">{logMsg || `Test log · ${AgrasLog.lines().length} lines`}</span>
+                <span className="flex gap-1 shrink-0">
+                  <button onClick={() => { setLogMsg('Preparing…'); shareTestLog().then(setLogMsg).catch((e) => setLogMsg('Share failed: ' + ((e && e.message) || e))); }}
+                    className="min-h-[36px] px-2.5 rounded-md bg-[#2EE6C7] text-[#06231D] font-bold">SHARE</button>
+                  <button onClick={() => { AgrasLog.clear(); setLogMsg('Log cleared'); }}
+                    className="min-h-[36px] px-2 rounded-md border border-[#3A464B] text-[#9AABAA]">CLEAR</button>
+                </span>
+              </div>
               <button onClick={tryResumeSession}
                 className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#0A0E10] border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate">
@@ -3906,6 +4002,7 @@ function MiniMap({ field, sim, gridCanvas, station }) {
 class ErrorBoundary extends React.Component {
   constructor(p) { super(p); this.state = { err: null }; }
   static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) { AgrasLog.add('ERR', 'render crash: ' + (err && err.message)); AgrasLog.flush(); }
   render() {
     if (!this.state.err) return this.props.children;
     return (

@@ -9,7 +9,9 @@ let html = fs.readFileSync('src.html', 'utf8');
 // 1. Precompile the JSX block
 const m = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/);
 const js = babel.transformSync(m[1], { presets: [['@babel/preset-react',{runtime:'classic',development:false}]], compact: true }).code;
-fs.writeFileSync(W + '/app.js', js);
+let buildId = 'dev'; try { buildId = cp.execSync('git rev-parse --short HEAD').toString().trim(); } catch (e) {}
+buildId += ' ' + new Date().toISOString().slice(0, 16);
+fs.writeFileSync(W + '/app.js', js.replace('__BUILD__', buildId));
 
 // 2. Vendor React
 fs.copyFileSync('node_modules/react/umd/react.production.min.js', W + '/react.js');
