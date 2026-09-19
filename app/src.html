@@ -2166,7 +2166,7 @@ function App() {
    * only go in via "Mark Corner" / "Add Point at Crosshair" in this mode) —
    * kept as a *separate* gesture path from the existing tap-to-place flow
    * above so ordinary Sim/GPS plotting behaves exactly as it always has. */
-  const MAX_ZOOM_S = 10;     // view-scale ceiling — screen-px per field-metre (~100 m across a phone screen); past this the satellite imagery is just a blur
+  const MAX_ZOOM_S = 5;      // view-scale ceiling — screen-px per field-metre (~200 m across a phone screen, roughly the sharpest the free imagery supports); past this the satellite imagery is just a blur
   const MIN_ZOOM_S = 0.3;
 
   const zoomMap = (dir) => {
