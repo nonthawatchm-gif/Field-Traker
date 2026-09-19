@@ -1534,6 +1534,7 @@ function App() {
   const gpsLiveRef = useRef({ lat: null, lng: null, accuracy: null, x: 0, y: 0, seq: 0 });
   const appliedSeqRef = useRef(0);
   const lastLatLngRef = useRef(null);
+  useEffect(() => { lastLatLngRef.current = null; }, [phase]); // every phase change re-anchors on the next fix
   const gpsInfoThrottleRef = useRef(0);
   const tankBaselineAreaRef = useRef(0);   // cumulative spray-pass area (sqm) at last "refilled" tap
   const lowLiquidWarnedRef = useRef(false);
@@ -2098,7 +2099,8 @@ function App() {
           const newPos = { x: live.x, y: live.y };
           sim.heading = Math.atan2(newPos.y - from.y, newPos.x - from.x) || sim.heading;
           const spraying = ph === 'running' && opModeRef.current === 'spray';
-          const teleport = dist(from, newPos) > 30; // first fix / GPS jump: reposition only, never paint a line across the field
+          // first fix after start/resume, or a GPS jump: reposition only, never paint a line from the stale position
+          const teleport = !lastLatLngRef.current || dist(from, newPos) > 30;
           const armed = spraying && !oobRef.current && !teleport && pointInPoly(newPos, field.poly);
           if (teleport) { /* no stamp */ }
           else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, sim.epoch, paintCell);
