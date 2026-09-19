@@ -1039,18 +1039,14 @@ function loadTileEntry(entry, z, tx, ty, cacheStore) {
       if (looksLikeNoDataTile(entry.img)) {
         URL.revokeObjectURL(objUrl);
         if (entry.objUrl === objUrl) entry.objUrl = null;
-        // Past z18 Google's "no imagery" tile is a flat colour we can't detect (no CORS → tainted
-        // canvas), so it showed up as a blank map. Mark the tile missing instead: the zoom ceiling
-        // ratchets down and the last real tile is stretched.
-        if (z > 18) { entry.failed = true; return; }
         tryGoogleHybrid();
         return;
       }
       entry.loaded = true; entry.provider = 'esri';
     };
-    entry.img.onerror = z > 18 ? () => { entry.failed = true; } : tryGoogleHybrid;
+    entry.img.onerror = tryGoogleHybrid;
     entry.img.src = objUrl;
-  }).catch(z > 18 ? () => { entry.failed = true; } : tryGoogleHybrid);
+  }).catch(tryGoogleHybrid);
 }
 
 /** Get-or-create the cache entry for one z/x/y tile and kick off its load
@@ -1479,7 +1475,6 @@ function App() {
   const [gpsCardOpen, setGpsCardOpen] = useState(false);   // expandable raw-telemetry card
   const [pendingResume, setPendingResume] = useState(null); // unfinished-session summary, shown at startup
   const [noSavedSessionFlash, setNoSavedSessionFlash] = useState(false); // brief "nothing to resume" feedback for the manual Resume Session tap
-  const [maxZoomLock, setMaxZoomLock] = useState(false);   // pins the map at MAX_MAP_ZOOM for one-tap deep-zoom inspection
   const [checklist, setChecklist] = useState(() => loadChecklist()); // Spec §4B preflight checklist
   const [checklistExpanded, setChecklistExpanded] = useState(false); // collapsed by default — declutters the Ready screen; tap the summary row to open
   const [sprayWeather, setSprayWeather] = useState(null);      // { windKmh, gustKmh, rainSoonProb, ... } from Open-Meteo, or null until fetched
@@ -2166,22 +2161,16 @@ function App() {
    * only go in via "Mark Corner" / "Add Point at Crosshair" in this mode) —
    * kept as a *separate* gesture path from the existing tap-to-place flow
    * above so ordinary Sim/GPS plotting behaves exactly as it always has. */
-  const MAX_ZOOM_S = 5;      // view-scale ceiling — screen-px per field-metre (~200 m across a phone screen, roughly the sharpest the free imagery supports); past this the satellite imagery is just a blur
+  const MAX_ZOOM_S = 2200;   // view-scale ceiling — screen-px per field-metre at full digital zoom (sub-metre crop rows)
   const MIN_ZOOM_S = 0.3;
 
   const zoomMap = (dir) => {
-    if (!panRef.current || maxZoomLock) return;
+    if (!panRef.current) return;
     const factor = dir > 0 ? 1.3 : 1 / 1.3;
     panRef.current = { ...panRef.current, s: Math.max(MIN_ZOOM_S, Math.min(MAX_ZOOM_S, panRef.current.s * factor)) };
     // (tile-fetch zoom is no longer tracked separately here — drawSatelliteTiles
     // derives it fresh from panRef/viewRef's own scale every frame, so it can
     // never drift out of sync with whatever gesture just changed that scale)
-  };
-  const toggleMaxZoomLock = () => {
-    setMaxZoomLock((locked) => {
-      if (!locked && panRef.current) { panRef.current = { ...panRef.current, s: MAX_ZOOM_S }; }
-      return !locked;
-    });
   };
   const centerOnMyLocation = () => {
     const live = gpsLiveRef.current;
@@ -2212,7 +2201,7 @@ function App() {
     try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* unsupported — gestures still work */ }
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    if (activePointersRef.current.size === 2 && !maxZoomLock) {
+    if (activePointersRef.current.size === 2) {
       dragRef.current = null;
       const pts = [...activePointersRef.current.values()];
       const dist2 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -2238,7 +2227,7 @@ function App() {
       const dist2 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const scaleFactor = dist2 / pinchRef.current.startDist;
       const targetS = Math.max(MIN_ZOOM_S, Math.min(MAX_ZOOM_S, pinchRef.current.startS * scaleFactor));
-      if (!maxZoomLock) panRef.current = { x: pinchRef.current.centerField.x, y: pinchRef.current.centerField.y, s: targetS };
+      panRef.current = { x: pinchRef.current.centerField.x, y: pinchRef.current.centerField.y, s: targetS };
       return;
     }
     const d = dragRef.current;
@@ -2263,7 +2252,7 @@ function App() {
   // (the inverse of drawScene's ctx.rotate(-v.angle)); boundary/station
   // views never carry an angle, so this is a no-op there, same as before.
   useEffect(() => {
-    if (!satelliteOn) { panRef.current = null; setMaxZoomLock(false); return; }
+    if (!satelliteOn) { panRef.current = null; return; }
     // wait a beat so the auto-fit view for the new phase exists before seeding the camera from it
     const tid = setTimeout(() => {
     if (PANNABLE_PHASES[phase] && !panRef.current) {
@@ -3048,8 +3037,6 @@ function App() {
                     <MapCtrlBtn icon={LocateFixed} onClick={centerOnMyLocation} disabled={gpsStatus !== 'active'} title="Center on my location" />
                     <MapCtrlBtn icon={followMe ? Move : Compass} active={!followMe} onClick={() => setFollowMe((v) => !v)}
                       title={followMe ? 'Following — tap for Free Pan' : 'Free Pan — tap to Follow Me'} />
-                    <MapCtrlBtn icon={Lock} active={maxZoomLock} onClick={toggleMaxZoomLock}
-                      title={maxZoomLock ? `Locked at max zoom (z${MAX_MAP_ZOOM}) — tap to unlock` : `Lock at max zoom (z${MAX_MAP_ZOOM})`} />
                   </>
                 )}
               </div>
