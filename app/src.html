@@ -1302,7 +1302,7 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
  *  HUD chrome                                                     *
  * ============================================================== */
 const Glass = ({ className = '', style, children }) => (
-  <div style={style} className={'rounded-xl bg-[#131A1D]/85 backdrop-blur-md border border-[#2A363A] shadow-[0_2px_18px_rgba(0,0,0,.45)] ' + className}>{children}</div>
+  <div style={style} className={'rounded-xl bg-[#131A1D]/95 border border-[#2A363A] shadow-[0_2px_18px_rgba(0,0,0,.45)] ' + className}>{children}</div>
 );
 const Tile = ({ icon: Icon, label, value, unit, accent }) => (
   <Glass className="px-3 py-2 min-w-[104px]">
@@ -1357,19 +1357,19 @@ const PaceTile = ({ kmh, label, color, flowLMin }) => (
     <p className="text-[8.5px] text-[#7C8C8C] mt-0.5 whitespace-nowrap">{flowLMin.toFixed(2)} L/min flow</p>
   </Glass>
 );
-const Stepper = ({ label, value, unit, step = 1, min = 0, max = 999, onChange }) => (
+const Stepper = ({ label, value, unit, dec, step = 1, min = 0, max = 999, onChange }) => (
   <div className="flex items-center justify-between px-1">
     <span className="text-[10px] tracking-[.12em] uppercase font-mono text-[#7C8C8C]">{label}</span>
     <div className="flex items-center gap-1.5">
       <button onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))}
         className="w-11 h-11 rounded-lg border border-[#3A464B] text-[#D3DEDC] font-bold text-base leading-none flex items-center justify-center active:bg-[#1A2226]">−</button>
-      <span className="font-mono tnum text-sm font-bold text-[#D3DEDC] w-[54px] text-center">{value}{unit}</span>
+      <span className="font-mono tnum text-sm font-bold text-[#D3DEDC] w-[64px] text-center">{dec != null ? Number(value).toFixed(dec) : value}{unit}</span>
       <button onClick={() => onChange(Math.min(max, +(value + step).toFixed(2)))}
         className="w-11 h-11 rounded-lg border border-[#3A464B] text-[#D3DEDC] font-bold text-base leading-none flex items-center justify-center active:bg-[#1A2226]">+</button>
     </div>
   </div>
 );
-const Toggle2 = ({ value, onChange, options }) => (
+const Toggle2_unused = ({ value, onChange, options }) => (
   <div className="flex rounded-lg bg-[#0A0E10] border border-[#2A363A] p-0.5">
     {options.map((o) => (
       <button key={o.v} onClick={() => onChange(o.v)}
@@ -1389,7 +1389,7 @@ const Switch = ({ on, onChange, label }) => (
   </button>
 );
 const Dock = ({ children }) => (
-  <div className="flex items-stretch gap-2 px-2.5 py-2.5 rounded-2xl bg-[#131A1D]/92 backdrop-blur-md border border-[#2A363A] shadow-[0_6px_28px_rgba(0,0,0,.55)]">{children}</div>
+  <div className="flex items-stretch gap-2 px-2.5 py-2.5 rounded-2xl bg-[#131A1D]/96 border border-[#2A363A] shadow-[0_6px_28px_rgba(0,0,0,.55)]">{children}</div>
 );
 const DockBtn = ({ icon: Icon, label, tone = 'teal', big, onClick, disabled }) => {
   const tones = {
@@ -1414,8 +1414,8 @@ const DockBtn = ({ icon: Icon, label, tone = 'teal', big, onClick, disabled }) =
  *  middle zone below), never absolutely pinned, so it can't overlap anything. */
 const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
   <button onClick={onClick} disabled={disabled} title={title} aria-label={title}
-    className={'w-11 h-11 rounded-full flex items-center justify-center border shadow-[0_2px_14px_rgba(0,0,0,.5)] backdrop-blur-md transition-colors disabled:opacity-40 ' +
-      (active ? 'bg-[#2EE6C7] border-[#2EE6C7] text-[#06231D]' : 'bg-[#131A1D]/90 border-[#2A363A] text-[#D3DEDC]')}>
+    className={'w-11 h-11 rounded-full flex items-center justify-center border shadow-[0_2px_14px_rgba(0,0,0,.5)] transition-colors disabled:opacity-40 ' +
+      (active ? 'bg-[#2EE6C7] border-[#2EE6C7] text-[#06231D]' : 'bg-[#131A1D]/95 border-[#2A363A] text-[#D3DEDC]')}>
     <Icon size={18} strokeWidth={2.2} />
   </button>
 );
@@ -1426,7 +1426,7 @@ const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
 function App() {
   const [phase, setPhase] = useState('ready');       // boundary | station | ready | running | paused | done
   const [opMode, setOpMode] = useState('spray');      // spray | toStation | refilling | toBreakpoint
-  const [srcMode, setSrcMode] = useState('sim');      // sim | gps
+  const [srcMode, setSrcMode] = useState('gps');      // gps only (sim mode removed)
   const [gpsStatus, setGpsStatus] = useState('idle'); // idle | requesting | active | denied | unavailable | insecure
   const [gpsInfo, setGpsInfo] = useState(null);       // { lat, lng, accuracy }
   const [gpsRetryTick, setGpsRetryTick] = useState(0); // bumped to re-run GPS acquisition without a full mode toggle
@@ -1908,7 +1908,7 @@ function App() {
 
   /* main loop */
   useEffect(() => {
-    let raf, last = performance.now();
+    let raf, last = performance.now(), lastTickT = 0, lastSig = '';
     const step = (t) => {
       const dt = Math.min(0.1, (t - last) / 1000); last = t;
       const sim = simRef.current, field = fieldRef.current;
@@ -2070,7 +2070,7 @@ function App() {
         flushGridFull(gridCanvasRef.current, imgDataRef.current);
       }
 
-      setTick((n) => n + 1);
+      if (t - lastTickT >= 200) { lastTickT = t; setTick((n) => n + 1); }
 
       const cv = canvasRef.current;
       if (cv) {
@@ -2080,6 +2080,12 @@ function App() {
         else if (ph === 'running' && om === 'refilling') navLine = { from: stationRef.current, to: sim.breakpoint, color: 'rgba(255,182,72,.85)' };
         else if (ph === 'running' && om === 'toBreakpoint') navLine = { from: sim.pos, to: sim.breakpoint, color: 'rgba(255,182,72,.85)' };
 
+        const vv = viewRef.current, lv = gpsLiveRef.current;
+        const sig = (ph === 'ready' || ph === 'boundary') && !satelliteOnRef.current
+          ? [ph, cv.width, cv.height, vv.s, vv.ox, vv.oy, vv.angle, draftRef.current.length, lv.lat, lv.lng, oobRef.current, field.poly.length, field.poly[0] && field.poly[0].x, stationRef.current.x, stationRef.current.y, sim.pos.x, sim.pos.y, sim.fixes.length, field.area, field.gpsAnchored].join('|')
+          : null;
+        if (sig !== null && sig === lastSig) { raf = requestAnimationFrame(step); return; }
+        lastSig = sig || '';
         drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, stationRef.current, {
           plotting: ph === 'boundary', drafting: draftRef.current,
           live: ph === 'boundary' && sm === 'gps' && gpsLiveRef.current.lat != null ? gpsLiveRef.current : null,
@@ -2831,27 +2837,6 @@ function App() {
             </Glass>
 
             <Glass className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0">
-              <Toggle2 value={srcMode} onChange={setSrcMode} options={[{ v: 'sim', label: 'SIM' }, { v: 'gps', label: 'GPS' }]} />
-
-              {srcMode === 'sim' ? (
-                <>
-                  <div className="flex items-center justify-between gap-2">
-                    <Switch on={autoWalk} onChange={setAutoWalk} label="AUTO-WALK" />
-                    <div className="flex gap-1">
-                      {[1, 20, 60].map((s) => (
-                        <button key={s} onClick={() => setMult(s)}
-                          className={'font-mono text-[10px] min-w-[30px] min-h-[30px] px-1 rounded ' + (mult === s ? 'bg-[#2EE6C7] text-[#06231D] font-bold' : 'text-[#7C8C8C]')}>{s}×</button>
-                      ))}
-                    </div>
-                  </div>
-                  {phase === 'running' && (
-                    <button onClick={simulateExcursion} disabled={excursionActive || opMode !== 'spray'}
-                      className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#FFB648] border border-[#2A363A] rounded py-1 disabled:opacity-40">
-                      <AlertTriangle size={11} className="shrink-0" /> <span className="truncate">{excursionActive ? 'DEMO RUNNING…' : 'TEST OUT-OF-BOUNDS'}</span>
-                    </button>
-                  )}
-                </>
-              ) : (
                 <button onClick={() => setGpsCardOpen((v) => !v)} className="flex items-center justify-between gap-1.5 min-w-0 w-full">
                   <span className="text-[9px] font-mono text-[#7C8C8C] truncate">
                     {gpsStatus === 'active' && gpsInfo ? `±${gpsInfo.accuracy.toFixed(1)}m` : gpsStatus === 'requesting' ? 'locating…' : gpsStatus}
@@ -2861,7 +2846,6 @@ function App() {
                     <ChevronDown size={11} className={'text-[#7C8C8C] transition-transform ' + (gpsCardOpen ? 'rotate-180' : '')} />
                   </span>
                 </button>
-              )}
 
               {/* Ready-phase station access moved into the consolidated
                   "Field setup" menu below (less clutter up here) — kept as a
@@ -2931,7 +2915,6 @@ function App() {
               </p>
               <div className="mt-2 flex items-center gap-4">
                 {gpsStatus === 'denied' && <button onClick={() => setGpsRetryTick((n) => n + 1)} className="min-h-[30px] text-xs font-mono text-[#FFB648] underline">Try Again</button>}
-                <button onClick={() => setSrcMode('sim')} className="min-h-[30px] text-xs font-mono text-[#2EE6C7] underline">Switch back to Sim Mode</button>
               </div>
             </Glass>
           )}
@@ -3308,7 +3291,7 @@ function App() {
       </div>
 
       {phase === 'done' && (
-        <div className="absolute inset-0 z-20 bg-[#0A0E10]/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-20 bg-[#0A0E10]/80 flex items-center justify-center p-4">
           <div className="w-full max-w-[380px] rounded-2xl bg-[#131A1D] border border-[#2A363A] overflow-hidden max-h-[92vh] overflow-y-auto">
             <div className="flex items-start justify-between px-4 pt-4 pb-2">
               <div>
@@ -3546,7 +3529,7 @@ function App() {
 
       {/* Save-current-field prompt — names the field before it lands in the library above. */}
       {showSaveField && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
             <p className="font-display text-[15px] font-bold tracking-wide">SAVE FIELD TO LIBRARY</p>
             <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Save this field to reuse it next time · {(fieldRef.current.area / 1600).toFixed(2)} rai</p>
@@ -3567,7 +3550,7 @@ function App() {
           swath picker), now tucked behind one tap since most visits need
           zero changes here (see loadLastSettings/saveLastSettings). */}
       {showSpraySettings && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
             <div className="flex items-center justify-between">
               <p className="font-display text-[15px] font-bold tracking-wide">SPRAY SETTINGS</p>
@@ -3577,16 +3560,8 @@ function App() {
             <Glass className="px-2 py-2 flex flex-col gap-1">
               <Stepper label="Tank" value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
               <Stepper label="Rate" value={rateLRai} unit=" L/rai" step={1} min={1} max={100} onChange={setRateLRai} />
+              <Stepper label="Width" value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
             </Glass>
-            <div className="flex items-center justify-between px-1 mt-2 gap-2">
-              <span className="text-[10px] tracking-[.12em] uppercase font-mono text-[#7C8C8C] shrink-0">Spray width</span>
-              <div className="flex gap-1.5 flex-wrap justify-end">
-                {[1.5, 2.0, 2.5, 3.0].map((w) => (
-                  <button key={w} onClick={() => { setSwath(w); resetSim(w); }}
-                    className={'font-mono text-xs min-h-[40px] px-2.5 rounded-lg border ' + (swath === w ? 'bg-[#2EE6C7] text-[#06231D] border-[#2EE6C7] font-bold' : 'border-[#3A464B] text-[#D3DEDC]')}>{w.toFixed(1)}m</button>
-                ))}
-              </div>
-            </div>
             <div className="flex items-center justify-between px-1 mt-3 pt-3 border-t border-[#2A363A]">
               <div className="min-w-0 pr-2">
                 <span className="text-[10px] tracking-[.12em] uppercase font-mono text-[#7C8C8C]">Navigation-style HUD</span>
@@ -3594,8 +3569,8 @@ function App() {
               </div>
               <Switch on={navHud} onChange={setNavHud} label="" />
             </div>
-            <div className="mt-4">
-              <DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} />
+            <div className="mt-4 flex justify-center">
+              <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
             </div>
           </div>
         </div>
@@ -3605,7 +3580,7 @@ function App() {
           Ready screen's default view into one sheet (see the summary row
           above); same three actions, same handlers, just tucked away. */}
       {showFieldSetupMenu && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
             <div className="flex items-center justify-between">
               <p className="font-display text-[15px] font-bold tracking-wide">FIELD SETUP</p>
@@ -3629,7 +3604,7 @@ function App() {
           consolidated the same way. Each row keeps its own live status text
           exactly as it showed on the Ready screen before. */}
       {showToolsMenu && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
             <div className="flex items-center justify-between">
               <p className="font-display text-[15px] font-bold tracking-wide">TOOLS</p>
@@ -3673,7 +3648,7 @@ function App() {
           moment the live map notices; on-screen zoom past that ceiling is
           pure digital stretch of the deepest real tile, same as online. */}
       {showOfflineMap && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[360px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
             <div className="flex items-center justify-between">
               <p className="font-display text-[15px] font-bold tracking-wide">OFFLINE MAP</p>
@@ -3728,7 +3703,7 @@ function App() {
       {/* "Unfinished Mission Detected" — checked once at startup, before
           anything else is touched. Sits above every other overlay (z-40). */}
       {pendingResume && (
-        <div className="absolute inset-0 z-40 bg-[#0A0E10]/92 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-40 bg-[#0A0E10]/92 flex items-center justify-center p-4">
           <div className="w-full max-w-[380px] rounded-2xl bg-[#131A1D] border border-[#2A363A] overflow-hidden">
             <div className="px-5 pt-5 pb-3 flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[#FFB648]/15 flex items-center justify-center shrink-0">
