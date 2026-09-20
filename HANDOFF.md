@@ -10,8 +10,9 @@ lives in `app/test/`, and every claim here has a check behind it.
 React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Today's session ran five scenarios against it, found
 three bugs, fixed all three in `src.html`, and left four smaller items open.
-A later session picked this up: `www/` is rebuilt, open item 1 (the wind reset)
-is fixed and has a check of its own, and everything is committed.
+A later session cleared open items 1 and 3, and an on-device SIM walkthrough
+plus the tests written for them turned up four more bugs (5–8), all fixed.
+`www/` is rebuilt and everything is committed.
 
 ## Start here
 
@@ -19,10 +20,10 @@ is fixed and has a check of its own, and everything is committed.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 18 checks, ~7 min, expect 18/18
+node test/run.js                     # 25 checks, ~9 min, expect 25/25
 ```
 
-If `test/run.js` is not 18/18 on a clean checkout, something in the fixes below
+If `test/run.js` is not 25/25 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -95,10 +96,10 @@ straight into the next pre-flight — the fastest path between two back-to-back
 missions, and exactly the case the 4-hour PPE memory exists for. SAVE SESSION
 and a page reload always reset it correctly, which is why it hid for so long.
 
-Fixed by resetting wind (and the weather note) in `finishMission()`, which is
-the one handler every manual mission exit goes through. `saveMission()` keeps
-its own reset: the SIM route-follower's auto-complete sets `phase = 'done'`
-directly and never calls `finishMission()`.
+Fixed by resetting wind (and the weather note) when the mission ends. The first
+attempt put that in `finishMission()`; BUGs 5 and 6 below are the two things
+that turned out to be wrong with it, and the reset now lives on a
+`phase === 'done'` effect. Read those two before touching this again.
 
 `resetSim()` was the other candidate and is the wrong one — the width stepper
 calls it on every adjustment, so the reset would fire while the operator was
@@ -107,7 +108,54 @@ still setting up, wiping a tick they had just made.
 Covered by three new checks (`windReset` in `test/run.js`): that the tick
 registers, that FINISH → START NEW clears it, and that PPE is *not* cleared with
 it. Verified as a real regression test — with the fix reverted the middle check
-fails (`wind=true`) and the other seventeen still pass.
+fails (`wind=true`) and the others still pass.
+
+### BUG 5 — the wind reset erased the compliance record it was meant to outlive
+
+Introduced by BUG 4's first fix and caught before it shipped anywhere real.
+`saveMission()` builds the Spec §5 compliance log from the live `checklist`, but
+by the time the operator taps SAVE SESSION on the summary the reset has already
+fired — so a mission where Wind *was* checked filed a record saying it wasn't.
+
+`missionChecklistRef` now snapshots the checklist on entry to `'done'`, before
+the reset, and `saveMission()` builds the record from that.
+
+### BUG 6 — wind survived the SIM route-follower's auto-finish
+
+The reset lived in `finishMission()`, which is only the manual FINISH button.
+When the SIM route-follower walks the last leg it sets `phase = 'done'` itself,
+so that path kept the tick. Moved the reset onto a `phase === 'done'` effect,
+which covers every way a mission can end, and dropped the now-dead copies in
+`finishMission()` and `saveMission()`. GPS-mode operators could not reach this —
+`'done'` has no other entrance there — but it made the on-device SIM walkthrough
+disagree with the test suite, which is reason enough.
+
+### BUG 7 — a touch-up credited nothing for re-spraying covered ground
+
+Found by writing the test for BUG 8 below. `startTouchUp()` seeds the new sim's
+`lastPass` from the finished mission but `makeSim()` restarts `epoch` at 0, and
+`stamp()` only credits overlap when a cell's stored id *differs* from the
+incoming one. So the touch-up's first lane reused ids the previous mission had
+already written: walking back over ground you had just sprayed added no new area
+(the cells are not virgin) and no overlap (the id matched). It vanished.
+
+Fixed with `fresh.epoch = prev.epoch + 1`. Ids only increase, so that is past
+every seeded id and past the `-1`/`-2` sentinels for unsprayed and restored
+ground. This is the same class as BUG 2 — a pass-id collision — in the one code
+path that manufactures its own seeded grid.
+
+### BUG 8 — "0% of sprayed area" under a non-zero overlap figure
+
+A touch-up over a field already at 100 % breaks no new ground, so the overlap
+percentage (`mOverlapCells / mSprayedCells`) divides by zero and the guard
+returned a flat `0`. The summary then showed `0.90 rai` overlapped and `0% of
+sprayed area` on the line below it.
+
+The sub-line is now built once as `overlapSub`: the percentage when there is new
+ground, `re-sprayed over ground already covered` when there is not, and `no
+ground covered twice` when there is no overlap at all. The `≈ N L wasted`
+estimate rides along in the first two, and stays omitted until a tank has
+actually been closed, since it is derived from the measured rai-per-tank.
 
 ### Smaller changes in the same commit
 

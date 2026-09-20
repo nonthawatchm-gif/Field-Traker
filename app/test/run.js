@@ -201,8 +201,68 @@ async function windReset() {
   await browser.close();
 }
 
+/* 8. Expiring the wind tick on the way into the summary must not erase it from
+ *    the compliance record the operator then files. saveMission() reads a
+ *    snapshot taken before the reset; reading the live checklist there would
+ *    log Wind as never checked on a mission where it was. */
+async function complianceLog() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'Pre-flight checklist', { wait: 500 });
+  await tap(page, 'PPE worn', { wait: 400 });
+  await tap(page, 'Wind checked', { wait: 500 });
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 30], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await tap(page, 'FINISH', { wait: 1500 });
+  await tap(page, 'SAVE SESSION', { wait: 1800 });
+  const saved = await page.evaluate(() => {
+    try { return JSON.parse(localStorage.getItem('agras-tracker-missions') || '[]')[0] || null; } catch (e) { return null; }
+  });
+  check('the mission is filed in history', !!saved, saved ? 'record present' : 'no record');
+  check('the compliance log keeps the wind tick', saved?.checklist?.wind === true, `logged wind=${saved?.checklist?.wind}`);
+  check('the compliance log keeps PPE', saved?.checklist?.ppe === true, `logged ppe=${saved?.checklist?.ppe}`);
+  const live = await checklistState(page);
+  check('the live checklist still expired wind for the next mission', live.wind === false, `wind=${live.wind}`);
+  await browser.close();
+}
+
+/* 9. A touch-up over ground that is already fully covered breaks no new ground,
+ *    so the overlap percentage has a zero denominator. It must not render as a
+ *    flat "0% of sprayed area" under a non-zero rai figure. */
+async function overlapSubLine() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 60], 2, 100);          // lay a lane down at x=40
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  // virgin ground crossed while paused flags missed spots, which is what puts
+  // the TOUCH-UP button on the summary. Finish standing back on the lane, so
+  // the touch-up run can start without crossing anything new.
+  await walk(ctx, page, [40, 60], [20, 60], 2, 100);
+  await walk(ctx, page, [20, 60], [20, 20], 2, 100);
+  await walk(ctx, page, [20, 20], [40, 20], 2, 100);
+  await tap(page, 'FINISH', { wait: 1500 });
+  await tap(page, 'TOUCH-UP MISSED SPOTS', { wait: 2000 });
+  await walk(ctx, page, [40, 20], [40, 55], 2, 100);          // strictly over ground already sprayed
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await tap(page, 'FINISH', { wait: 1500 });
+  const s = await summary(page);
+  const sub = s.match(/OVERLAPPED \| [^|]+\| ([^|]+)/)?.[1]?.trim() || '';
+  const newRai = num(s.match(/AREA SPRAYED \| [^|]+\| ([\d.]+) rai/)?.[1]);
+  const ovRai = num(s.match(/OVERLAPPED \| ([\d.]+) rai/)?.[1]);
+  check('a touch-up over covered ground breaks no new ground', newRai === 0, `AREA SPRAYED ${newRai} rai`);
+  check('it still reports the overlapped rai', ovRai > 0, `${ovRai} rai`);
+  check('the overlap sub-line is not a bare 0%', !/^0% of sprayed area/.test(sub), sub);
+  await browser.close();
+}
+
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset })) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine })) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

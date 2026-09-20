@@ -2111,6 +2111,34 @@ function App() {
      site-settings panel, etc.) and resubscribe immediately, no page reload
      or manual "switch to Sim and back" dance required. */
   useEffect(() => { if (phase === 'done') persistCoverage(activeFieldIdRef.current, true); }, [phase]);
+
+  /** The checklist as it stood when the mission ended. saveMission() runs from
+   *  the summary screen, by which point the wind reset below has already fired,
+   *  so reading the live checklist there would file a compliance record saying
+   *  Wind was never checked on a mission where it was. The snapshot is taken
+   *  before the reset and is what the record is built from. */
+  const missionChecklistRef = useRef(null);
+
+  /** Wind (and the operator's weather note) expire the moment a mission ends:
+   *  Spec §4B keeps PPE/mix-rate/nozzle for 4 hours but deliberately excludes
+   *  wind, because a reading from the last run is not still true.
+   *
+   *  This hangs off phase === 'done' rather than off finishMission() so that it
+   *  covers EVERY way a mission can end. finishMission() is only the manual
+   *  FINISH button; the SIM route-follower sets phase = 'done' directly when it
+   *  walks the last leg, and that path used to leave Wind ticked. */
+  useEffect(() => {
+    if (phase !== 'done') return;
+    // read through the updater so this needs no `checklist` dependency — with
+    // one, the reset it performs would retrigger the effect and loop.
+    setChecklist((c) => {
+      if (!c.wind && !c.weather) return c;   // nothing to expire; leave the snapshot alone
+      missionChecklistRef.current = { ...c };
+      const next = { ...c, wind: false, weather: '' };
+      saveChecklist(next);
+      return next;
+    });
+  }, [phase]);
   const missionOn = phase === 'running'; // native foreground GPS service only while spraying — paused mission = no service, no wake-ups
   useEffect(() => { if (phase === 'running') { refillArmedRef.current = false; enteredFieldRef.current = false; } }, [phase]);
   useEffect(() => { if (phase === 'running' && camModeRef.current === 'fit') return; if (phase === 'ready' || phase === 'boundary' || phase === 'station') { navHeadingRef.current = null; setCamMode('follow'); } }, [phase]);
@@ -3026,19 +3054,9 @@ function App() {
     };
   };
 
-  /** Ending the mission is the moment the wind reading expires (Spec §4B: a
-   *  reading from hours ago is not still true). It used to be reset only in
-   *  saveMission, so FINISH -> START NEW — the fastest path between two
-   *  back-to-back missions, and exactly the case the 4-hour PPE memory exists
-   *  for — carried the previous mission's Wind tick straight into the next
-   *  pre-flight. Resetting here covers every exit from a mission; saveMission
-   *  keeps its own reset for the SIM route-follower's auto-done, which reaches
-   *  the summary without ever calling this. */
-  const finishMission = () => {
-    manualPathRef.current = null; clearAlerts(); resetOpMode(); clearActiveSession();
-    setChecklistField('wind', false); setChecklistField('weather', '');
-    setPhase('done');
-  };
+  /* The wind/weather reset that used to sit here now hangs off phase === 'done'
+     (see the effect above), so the SIM route-follower's auto-done gets it too. */
+  const finishMission = () => { manualPathRef.current = null; clearAlerts(); resetOpMode(); clearActiveSession(); setPhase('done'); };
 
   /** Snapshot the finished mission — coverage thumbnail, physical-quantity
    *  summary, and compliance record (PPE/user/weather, Spec §5) — into the
@@ -3061,6 +3079,11 @@ function App() {
     const missedRaiNow = (missedCellsNow * CELL * CELL) / 1600;
     const overlapRaiNow = (mOverlap * CELL * CELL) / 1600;
 
+    // the checklist as it stood when the mission ended; falls back to the live
+    // one for a mission that ended before this snapshot existed (a restored
+    // session) or that had nothing to expire.
+    const mc = missionChecklistRef.current || checklist;
+
     let thumb = null;
     try {
       const off = document.createElement('canvas');
@@ -3077,9 +3100,11 @@ function App() {
       overlapRai: overlapRaiNow,
       missedRai: missedRaiNow,
       litres: litresNow, tanks: tanksUsedNow, tankAreas: tankAreasRef.current, tankCapacity, swath, fieldRai: f.area / 1600, thumb,
-      // Compliance log (Spec §5): PPE checklist state, operator, weather.
-      checklist: { ppe: checklist.ppe, mixedRate: checklist.mixedRate, nozzle: checklist.nozzle, wind: checklist.wind, checkedAt: checklist.checkedAt },
-      operator: checklist.operator || '', weather: checklist.weather || '',
+      // Compliance log (Spec §5): PPE checklist state, operator, weather — read
+      // from the snapshot taken when the mission ended, since reaching this
+      // screen has already expired the wind tick and the weather note.
+      checklist: { ppe: mc.ppe, mixedRate: mc.mixedRate, nozzle: mc.nozzle, wind: mc.wind, checkedAt: mc.checkedAt },
+      operator: mc.operator || '', weather: mc.weather || '',
       // Live wind/rain reading from Open-Meteo at the time this mission was
       // saved, if one was fetched — a source-verified figure alongside the
       // operator's own manual weather note, not a replacement for it.
@@ -3095,10 +3120,9 @@ function App() {
       return next;
     });
     touchFieldLastSprayed(activeFieldId); // stamp the saved field's "last sprayed" date, if this mission ran against one
-    // Wind is a point-in-time reading, so it (and the weather note) reset
-    // for the NEXT mission even though PPE/mix-rate/nozzle keep their
-    // 4-hour memory — same rule the checklist load already applies.
-    setChecklistField('wind', false); setChecklistField('weather', '');
+    // wind/weather already expired on entry to 'done' — this screen cannot be
+    // reached any other way, so there is nothing left to reset here.
+    missionChecklistRef.current = null;
     resetSim(swath);
   };
 
@@ -3117,6 +3141,15 @@ function App() {
     fresh.missed.set(prev.missed);
     fresh.sprayedCells = prev.sprayedCells;
     fresh.overlapCells = prev.overlapCells;
+    // Carry the pass-id counter past everything the seeded lastPass holds.
+    // makeSim() restarts epoch at 0, and stamp() only credits overlap when a
+    // cell's stored id DIFFERS from the incoming one — so with a fresh counter
+    // the touch-up's first lane collided with the ids the finished mission had
+    // written, and walking back over ground you had just sprayed credited
+    // nothing at all: no new area (the cells are not virgin) and no overlap
+    // (the id matched). Ids only ever increase, so prev.epoch + 1 is past all
+    // of them, and past the -1/-2 sentinels for unsprayed and restored ground.
+    fresh.epoch = prev.epoch + 1;
     simRef.current = fresh;
     initGrid(field);
     const img = imgDataRef.current;
@@ -3135,7 +3168,9 @@ function App() {
     tankAreasRef.current = []; tankOpenRef.current = true;
     tankBaselineAreaRef.current = (fresh.sprayedCells + fresh.overlapCells) * CELL * CELL; lowLiquidWarnedRef.current = false;
     refillArmedRef.current = false; lastLatLngRef.current = null;
-    setChecklistField('wind', false); setChecklistField('weather', '');
+    // touch-up is only reachable from the summary, which already expired
+    // wind/weather on the way in; the snapshot belonged to the finished mission
+    missionChecklistRef.current = null;
     setPhase('running');
   };
 
@@ -3233,6 +3268,21 @@ function App() {
   const tankNumber = tankAreasRef.current.length + 1;
   const avgTankRai = tankAreasRef.current.length ? tankAreasRef.current.reduce((x, y) => x + y, 0) / tankAreasRef.current.length / 1600 : null;
   const tanksUsed = tanksUsedCount();
+
+  // Summary sub-line for OVERLAPPED. The percentage is overlap as a share of
+  // NEW ground, so a run that broke no new ground — a touch-up over a field
+  // already at 100 % — has a zero denominator and used to render a flat "0% of
+  // sprayed area" directly under a non-zero rai figure, which reads as a bug.
+  // There, say what actually happened instead of printing a meaningless rate.
+  // Litres are only ever an estimate off the measured rai-per-tank average, so
+  // they stay omitted until at least one tank has actually been closed.
+  const wastedLitres = avgTankRai ? mOverlapRai * tankCapacity / avgTankRai : null;
+  const wastedSuffix = wastedLitres != null ? ` · ≈${wastedLitres.toFixed(1)} L wasted` : '';
+  const overlapSub = mSprayedCells > 0
+    ? `${mOverlapRate.toFixed(0)}% of sprayed area${wastedSuffix}`
+    : mOverlapCells > 0
+      ? `re-sprayed over ground already covered${wastedSuffix}`
+      : 'no ground covered twice';
 
   const statusLabel = oob ? 'SPRAY OFF / OUT OF FIELD' : (
     phase === 'boundary' ? 'PLOT BOUNDARY' :
@@ -3895,7 +3945,7 @@ function App() {
                 ['DISTANCE', `${sim.distance.toFixed(0)} m`, `swath ${swath.toFixed(1)} m`],
                 ['AREA SPRAYED', `${mRai.rai}-${mRai.ngan}-${mRai.wa} rai`, `${mRaiDec.toFixed(2)} rai · ${mArea.toFixed(0)} m²${cbase.sprayed > 0 ? ` · field ${coveragePct.toFixed(0)}% done` : ''}`],
                 // Spec §4D "Metrics Rule": physical quantities, not bare percentages.
-                ['OVERLAPPED', `${mOverlapRai.toFixed(2)} rai`, `${mOverlapRate.toFixed(0)}% of sprayed area${avgTankRai ? ` · ≈${(mOverlapRai * tankCapacity / avgTankRai).toFixed(1)} L wasted` : ''}`],
+                ['OVERLAPPED', `${mOverlapRai.toFixed(2)} rai`, overlapSub],
                 ['MISSED SPOTS', `${missedRai.toFixed(2)} rai`, missedCellsCount > 0 ? 'flagged red on the map — touch up below' : 'none flagged'],
                 ['TANKS USED', `${tanksUsed}`, `${tankCapacity}L tank${avgTankRai != null ? ` · avg ${avgTankRai.toFixed(2)} rai/tank` : ''}`]
               ].map(([label, val, sub]) => (
