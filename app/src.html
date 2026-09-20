@@ -2638,7 +2638,13 @@ function App() {
       // Rotation is deliberate: ignore small twists while pinch-zooming, and only start turning the map
       // once the fingers have twisted past ~20 degrees (then it follows smoothly from that point).
       const dAng = normAngle(ang - g.ang0);
-      if (!g.rotUnlocked && Math.abs(dAng) > 0.35) { g.rotUnlocked = true; g.angOff = dAng; }
+      // Real fingers twist 20+ degrees while pinching, so: once the fingers have clearly changed distance
+      // (a zoom gesture), rotation is locked out for the rest of that gesture; a real rotate needs a >30 degree
+      // twist while the distance stays roughly the same.
+      if (!g.rotUnlocked && !g.rotBlocked) {
+        if (Math.abs(Math.log(dist2 / g.dist0)) > 0.18) g.rotBlocked = true;
+        else if (Math.abs(dAng) > 0.52) { g.rotUnlocked = true; g.angOff = dAng; }
+      }
       if (g.rotUnlocked && !g.rotLogged) { g.rotLogged = true; AgrasLog.add('GESTURE', `rotation unlocked twist=${Math.round(dAng * 57.3)}deg zoom=${(dist2 / g.dist0).toFixed(2)}x`); }
       const a = g.rotUnlocked ? g.cam0.a - (dAng - g.angOff) : g.cam0.a;
       const Mc = canvasPoint((ptrs[0].x + ptrs[1].x) / 2, (ptrs[0].y + ptrs[1].y) / 2);
