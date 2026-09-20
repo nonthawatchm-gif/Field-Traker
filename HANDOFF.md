@@ -127,17 +127,19 @@ fails (`wind=true`) and the other seventeen still pass.
 
 In the order I'd do them.
 
-1. **Overlap can read over 100 %.** It is `overlapCells / sprayedCells × 100`
-   and counts overlap *events*, so ground covered three times reads 200 %. That
-   is the right number for "chemical wasted as a share of the field" and the
-   summary frames it that way (`≈20.0 L wasted`), but it may read as a bug to an
-   operator. Decide: keep, cap the display at 100 %, or relabel. This was
-   reachable before today's fix too (a post-refill retrace already hit 100 %) —
-   the fix just makes it common. **Needs a product call, not a code call.**
-
-2. **Outbound nav-line colour.** The leg to the station is teal
+1. **Outbound nav-line colour.** The leg to the station is teal
    (`rgba(46,230,199,.85)`); only the return legs are amber. The test plan
    expected amber outbound. Cosmetic, unclear which is intended.
+
+## Decided, do not reopen
+
+- **Overlap reading over 100 % is intended.** It is
+  `overlapCells / sprayedCells × 100` counting overlap *events*, so ground
+  covered three times reads 200 %, and a single retrace of a lane reads 100 %
+  (measured). The owner's call was to keep it exactly as is — not capped, not
+  relabelled, not converted to a "×2.0 passes" figure. It is the right number
+  for "chemical wasted as a share of the field", which is how the summary frames
+  it, alongside the `≈ N L wasted` estimate.
 
 ## Things worth knowing before you edit
 
