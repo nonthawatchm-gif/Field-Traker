@@ -2625,6 +2625,8 @@ function App() {
     if (!g || !c) return;
     const ptrs = [...activePointersRef.current.values()];
     const ph = phaseRef.current, navigating = (ph === 'running' || ph === 'paused');
+    // any deliberate pan/zoom takes the camera off "follow my GPS" (Google-Maps style); LocateFixed brings it back
+    if (followMeRef.current && ph === 'boundary' && (g.two || Math.hypot(ptrs[0].x - g.startX, ptrs[0].y - g.startY) > 6)) setFollowMe(false);
     if (g.two && ptrs.length >= 2 && !g.logged) { g.logged = true; AgrasLog.add('GESTURE', `two-finger start dist=${Math.round(g.dist0)} phase=${ph} mode=${camModeRef.current}`); }
     if (g.two && ptrs.length >= 2) {
       const dist2 = Math.max(1, Math.hypot(ptrs[1].x - ptrs[0].x, ptrs[1].y - ptrs[0].y));
