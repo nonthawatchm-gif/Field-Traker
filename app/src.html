@@ -1528,6 +1528,8 @@ function App() {
   const devTapsRef = useRef({ n: 0, t: 0 });
   const freeDyRef = useRef(0); // px offset of the free map zone's centre from the canvas centre (ready/running screens)
   const gridVersionRef = useRef(0);
+  const refillArmedRef = useRef(false);    // refill-at-station only triggers after the operator has first walked away from it
+  const enteredFieldRef = useRef(false);   // out-of-bounds alerts only after the operator has been inside the field once
   const lastFixMsRef = useRef(0);
   const [logMsg, setLogMsg] = useState('');
   const headlessFrameRef = useRef(null); // runs one simulation frame without painting (screen-off GPS fixes)
@@ -1945,7 +1947,8 @@ function App() {
      person flips the OS/browser toggle back to Allow (in another tab, the
      site-settings panel, etc.) and resubscribe immediately, no page reload
      or manual "switch to Sim and back" dance required. */
-  const missionOn = phase === 'running' || phase === 'paused';
+  const missionOn = phase === 'running'; // native foreground GPS service only while spraying — paused mission = no service, no wake-ups
+  useEffect(() => { if (phase === 'running') { refillArmedRef.current = false; enteredFieldRef.current = false; } }, [phase]);
   useEffect(() => { AgrasLog.add('PHASE', `${phase} src=${srcMode} field=${fieldRef.current.area ? (fieldRef.current.area / 1600).toFixed(2) : '?'}rai`); if (phase === 'running' || phase === 'paused') logBattery('phase ' + phase); AgrasLog.flush(); }, [phase]);
   useEffect(() => { AgrasLog.add('OPMODE', opMode); }, [opMode]);
   useEffect(() => { AgrasLog.add('GPSSTATUS', gpsStatus); }, [gpsStatus]);
@@ -1955,6 +1958,7 @@ function App() {
 
     // One place that turns a raw fix (from either source below) into app state.
     const onPosition = (latitude, longitude, accuracy, speed, heading, altitude, src) => {
+      if (accuracy > 40 && gpsLiveRef.current.lat != null) { AgrasLog.add('FIXDROP', `acc=${Math.round(accuracy)}m ignored`); return; }
       const nowMs = Date.now(), gap = lastFixMsRef.current ? nowMs - lastFixMsRef.current : 0;
       lastFixMsRef.current = nowMs;
       AgrasLog.add('FIX', `${latitude.toFixed(6)},${longitude.toFixed(6)} acc=${Math.round(accuracy)}m spd=${speed == null ? '-' : Number(speed).toFixed(1)} src=${src} gap=${gap}ms${gap > 3000 ? ' GAP' : ''}`);
@@ -2201,7 +2205,7 @@ function App() {
           else if (spraying) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
           sim.pos = newPos;
           sim.track.push({ ...newPos }); sim.fixes.push({ ...newPos });
-          if (lastLatLngRef.current && !teleport) sim.distance += haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
+          if (lastLatLngRef.current && !teleport && ph === 'running') sim.distance += haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
           lastLatLngRef.current = { lat: live.lat, lng: live.lng };
         }
       }
@@ -2209,11 +2213,12 @@ function App() {
       // geofence — only meaningful while actively spraying a mission (not en route to/from the depot)
       if (missionActive && opModeRef.current === 'spray') {
         const flagged = !pointInPoly(sim.pos, field.poly);
+        if (!flagged) enteredFieldRef.current = true;
         if (flagged !== oobRef.current) {
           oobRef.current = flagged; setOob(flagged);
           AgrasLog.add('OOB', `${flagged ? 'left' : 'back inside'} field at ${sim.pos.x.toFixed(1)},${sim.pos.y.toFixed(1)} (hidden=${document.hidden})`);
           if (flagged) {
-            alertUser([880, 880], 'Out of bounds', 'Spraying auto-cut off — walk back inside the field.');
+            if (enteredFieldRef.current) alertUser([880, 880], 'Out of bounds', 'Spraying auto-cut off — walk back inside the field.');
             // key-event autosave: out-of-bounds is exactly the moment an
             // operator might set the phone down mid-mission to sort out why
             try {
@@ -2231,7 +2236,9 @@ function App() {
       if (ph === 'running') {
         const om = opModeRef.current;
         const dStation = dist(sim.pos, stationRef.current);
-        if (om === 'spray' && dStation <= REFILL_RADIUS) {
+        if (om === 'spray' && !refillArmedRef.current && dStation > REFILL_RADIUS * 2) refillArmedRef.current = true;
+        if (om === 'spray' && refillArmedRef.current && dStation <= REFILL_RADIUS) {
+          refillArmedRef.current = false;
           sim.breakpoint = { ...sim.pos };
           opModeRef.current = 'refilling'; setOpMode('refilling');
           refillDeadlineRef.current = t + REFILL_DWELL_MS;
@@ -2254,7 +2261,7 @@ function App() {
           const dBp = sim.breakpoint ? dist(sim.pos, sim.breakpoint) : Infinity;
           if (dBp <= BREAKPOINT_RADIUS) {
             opModeRef.current = 'spray'; setOpMode('spray');
-            sim.epoch += 1; sim.breakpoint = null;
+            sim.epoch += 1; sim.breakpoint = null; refillArmedRef.current = false;
             setResumeFlash(true); alertUser([1180], 'Back on track', 'Resumed at the breakpoint — spraying.');
             setTimeout(() => setResumeFlash(false), 2200);
           } else if (sm === 'sim' && !manualPathRef.current) {
@@ -2323,7 +2330,13 @@ function App() {
         }
       }
     };
-    const step = (t) => { frame(t, false); raf = requestAnimationFrame(step); };
+    let lastStepT = 0;
+    const step = (t) => {
+      const ph = phaseRef.current;
+      if ((ph === 'running' || ph === 'paused') && !dragRef.current && t - lastStepT < 30) { raf = requestAnimationFrame(step); return; }
+      lastStepT = t;
+      frame(t, false); raf = requestAnimationFrame(step);
+    };
     headlessFrameRef.current = () => frame(performance.now(), true);
     raf = requestAnimationFrame(step);
     return () => { cancelAnimationFrame(raf); headlessFrameRef.current = null; };
