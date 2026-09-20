@@ -41,12 +41,12 @@ Two notes on running it:
 
 - Commits: `283cb4a`, `612cbde`, `b45e263` on `main`, all pushed.
 - `build-37` is the APK built from `b45e263` and is installed on the phone.
-- `app/package.json` and `app/package-lock.json` are **modified and
-  uncommitted** — they carry `playwright` as a devDependency, added to run the
-  harness. The owner scoped the commit to `src.html` / `app/test/` / this file,
-  so they were deliberately left out. CI is unaffected: it runs `npm ci` against
-  the committed pair, which are still in sync with each other. Commit them if
-  you want `npm i` alone to set a new clone up for the tests.
+- The working tree is clean. `playwright` is a committed devDependency, so
+  `npm i` on a fresh clone is enough to run the harness — only the browser
+  binaries are still separate (`npx playwright install chromium`, or point
+  `CHROME_PATH` at an installed Chrome). The APK workflow is unaffected: neither
+  `playwright` nor `playwright-core` declares a postinstall, so `npm ci` pulls
+  the tarballs without downloading browsers.
 
 ## What changed
 

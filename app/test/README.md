@@ -9,7 +9,7 @@ on this build; `srcMode` is hard-defaulted to `'gps'`).
 
 ```bash
 cd app
-npm i -D playwright && npx playwright install chromium   # first time only
+npm i && npx playwright install chromium   # first time only; playwright is already a devDependency
 node build.js
 npx http-server www -p 8080          # or: python -m http.server 8080 --directory www
 node test/run.js
