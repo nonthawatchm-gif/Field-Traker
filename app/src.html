@@ -813,7 +813,7 @@ function makeSim(field, swath) {
     // cleared the moment a real stamp lands on that cell.
     passes: new Uint8Array(field.GW * field.GH),
     missed: new Uint8Array(field.GW * field.GH),
-    sprayedCells: 0, overlapCells: 0, epoch: 0,
+    sprayedCells: 0, overlapCells: 0, epoch: 0, passHeading: null,
     track: [{ ...route[0] }], fixes: [{ ...route[0] }],
     distance: 0, elapsed: 0, sampleAcc: 0, trackAcc: 0,
     done: route.length < 2, breakpoint: null
@@ -848,6 +848,34 @@ function stamp(sim, field, a, b, r, passId, paint) {
       else if (prev !== passId) { sim.overlapCells++; lastPass[idx] = passId; passes[idx] = Math.min(255, passes[idx] + 1); paint(i, j, passes[idx]); }
     }
   }
+}
+
+/** Lane tracking for real-GPS spraying. The sim route-follower gets its pass
+ *  ids from the route legs it walks; a live GPS track has no legs to read, so
+ *  it needs its own. This matters because stamp() only credits overlap when a
+ *  cell's last pass id differs from the current one — feed it one unchanging
+ *  id for the whole run (which is what sim.epoch alone did: it moves only at a
+ *  refill breakpoint) and walking straight back down the row you just sprayed
+ *  reads as the same pass, so no overlap is ever counted.
+ *
+ *  A lane ends at a real turn: a heading change past PASS_TURN_RAD on a segment
+ *  long enough to be movement rather than GPS jitter. Gentle curves — following
+ *  an irregular field edge — are absorbed by the EMA and never split a lane; a
+ *  headland U-turn always does. sim.epoch stays the id carrier, so the refill
+ *  resume keeps bumping it and save/restore needs no new field. */
+const PASS_TURN_RAD = 2.0944;   // 120° — a turn, not a curve
+const PASS_MIN_SEG_M = 1.5;     // below this it's jitter at ±4m accuracy, not a heading
+function gpsPassId(sim, from, to) {
+  if (dist(from, to) >= PASS_MIN_SEG_M) {
+    const h = Math.atan2(to.y - from.y, to.x - from.x);
+    if (sim.passHeading == null) sim.passHeading = h;
+    else {
+      const turn = normAngle(h - sim.passHeading);
+      if (Math.abs(turn) > PASS_TURN_RAD) { sim.epoch += 1; sim.passHeading = h; }
+      else sim.passHeading += turn * 0.3;   // track slow drift, don't split on it
+    }
+  }
+  return sim.epoch;
 }
 
 /** Missed-spot detection (Spec §3C: "Red striped ONLY if the spray line has
@@ -2368,12 +2396,20 @@ function App() {
           const newPos = { x: live.x, y: live.y };
           sim.heading = Math.atan2(newPos.y - from.y, newPos.x - from.x) || sim.heading;
           const spraying = ph === 'running' && opModeRef.current === 'spray';
+          /* A PAUSED mission is still on a spray lane — the operator stopped
+             mid-field, they did not head for the tank. Ground crossed while
+             paused was passed over and skipped, which is exactly what §3C
+             calls a missed spot, so paused fixes feed markMissed even though
+             only a running mission ever lays real spray down. The refill legs
+             (toStation / refilling / toBreakpoint) stay excluded: the walk to
+             the tank is not a skipped pass and must never hatch the map red. */
+          const onSprayLane = missionActive && opModeRef.current === 'spray';
           // first fix after start/resume, or a GPS jump: reposition only, never paint a line from the stale position
           const teleport = !lastLatLngRef.current || dist(from, newPos) > 30;
           const armed = spraying && !oobRef.current && !teleport && pointInPoly(newPos, field.poly);
           if (teleport) { AgrasLog.add('FIXAPPLY', `re-anchor, no paint (jump ${Math.round(dist(from, newPos))}m)`); }
-          else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, sim.epoch, paintCell);
-          else if (spraying) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
+          else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, gpsPassId(sim, from, newPos), paintCell);
+          else if (onSprayLane) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
           sim.pos = newPos;
           sim.track.push({ ...newPos }); sim.fixes.push({ ...newPos });
           if (lastLatLngRef.current && !teleport && ph === 'running') sim.distance += haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
@@ -2432,7 +2468,7 @@ function App() {
           const dBp = sim.breakpoint ? dist(sim.pos, sim.breakpoint) : Infinity;
           if (dBp <= BREAKPOINT_RADIUS) {
             opModeRef.current = 'spray'; setOpMode('spray');
-            sim.epoch += 1; sim.breakpoint = null; refillArmedRef.current = false;
+            sim.epoch += 1; sim.passHeading = null; sim.breakpoint = null; refillArmedRef.current = false;
             setResumeFlash(true); alertUser([1180], 'Back on track', 'Resumed at the breakpoint — spraying.');
             setTimeout(() => setResumeFlash(false), 2200);
           } else if (sm === 'sim' && !manualPathRef.current) {
@@ -2956,8 +2992,13 @@ function App() {
    *  snapping the live gauge back to 100% without touching the mission-wide
    *  totals (distance, elapsed time, overall litres) used in the summary. */
   const refillTank = () => {
-    const s = simRef.current;
-    openTank();
+    // Arriving at the station already opened a fresh tank (the hands-free
+    // refill lifecycle in the frame loop). This button is the operator
+    // CONFIRMING that tank is full, not a second refill — so opening again
+    // here would make openTank()'s closeTank() push a phantom 0.00-rai tank
+    // and inflate both TANKS USED and the rai/tank average. Only open when
+    // no tank is actually running.
+    if (!tankOpenRef.current) openTank();
     lowLiquidWarnedRef.current = false;
     setTick((n) => n + 1);
   };
@@ -2985,7 +3026,19 @@ function App() {
     };
   };
 
-  const finishMission = () => { manualPathRef.current = null; clearAlerts(); resetOpMode(); clearActiveSession(); setPhase('done'); };
+  /** Ending the mission is the moment the wind reading expires (Spec §4B: a
+   *  reading from hours ago is not still true). It used to be reset only in
+   *  saveMission, so FINISH -> START NEW — the fastest path between two
+   *  back-to-back missions, and exactly the case the 4-hour PPE memory exists
+   *  for — carried the previous mission's Wind tick straight into the next
+   *  pre-flight. Resetting here covers every exit from a mission; saveMission
+   *  keeps its own reset for the SIM route-follower's auto-done, which reaches
+   *  the summary without ever calling this. */
+  const finishMission = () => {
+    manualPathRef.current = null; clearAlerts(); resetOpMode(); clearActiveSession();
+    setChecklistField('wind', false); setChecklistField('weather', '');
+    setPhase('done');
+  };
 
   /** Snapshot the finished mission — coverage thumbnail, physical-quantity
    *  summary, and compliance record (PPE/user/weather, Spec §5) — into the
@@ -3077,7 +3130,11 @@ function App() {
     }
     field.__ctx.lastPass = fresh.lastPass;
     manualPathRef.current = null; setExcursionActive(false); resetOpMode(); clearAlerts();
-    tankBaselineAreaRef.current = 0; lowLiquidWarnedRef.current = false;
+    // the seeded coverage is the new mission's starting point, so its metrics and first tank count only what is sprayed from here on
+    coverageBaseRef.current = { sprayed: fresh.sprayedCells, overlap: fresh.overlapCells };
+    tankAreasRef.current = []; tankOpenRef.current = true;
+    tankBaselineAreaRef.current = (fresh.sprayedCells + fresh.overlapCells) * CELL * CELL; lowLiquidWarnedRef.current = false;
+    refillArmedRef.current = false; lastLatLngRef.current = null;
     setChecklistField('wind', false); setChecklistField('weather', '');
     setPhase('running');
   };
@@ -3707,7 +3764,7 @@ function App() {
                       className="w-full flex items-center justify-between gap-2 px-3.5 py-3 min-h-[44px]">
                       <span className="flex items-center gap-2 min-w-0">
                         <span className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C] shrink-0">Pre-flight checklist</span>
-                        <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#7C8C8C]' : 'text-[#34C76F]')}>{checkedCount}/{items.length} checked</span>
+                        <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#7C8C8C]' : 'text-[#34C76F]')}>{uncheckedCount > 0 ? `${uncheckedCount} item${uncheckedCount === 1 ? '' : 's'} unchecked` : 'All checked'}</span>
                         {wxRisk && <AlertTriangle size={12} className="text-[#E6B22E] shrink-0" />}
                       </span>
                       <ChevronDown size={13} className={'text-[#7C8C8C] shrink-0 transition-transform ' + (checklistExpanded ? 'rotate-180' : '')} />
@@ -3838,7 +3895,7 @@ function App() {
                 ['DISTANCE', `${sim.distance.toFixed(0)} m`, `swath ${swath.toFixed(1)} m`],
                 ['AREA SPRAYED', `${mRai.rai}-${mRai.ngan}-${mRai.wa} rai`, `${mRaiDec.toFixed(2)} rai · ${mArea.toFixed(0)} m²${cbase.sprayed > 0 ? ` · field ${coveragePct.toFixed(0)}% done` : ''}`],
                 // Spec §4D "Metrics Rule": physical quantities, not bare percentages.
-                ['OVERLAPPED', `${mOverlapRai.toFixed(2)} rai`, `${mOverlapRate.toFixed(0)}% of sprayed area`],
+                ['OVERLAPPED', `${mOverlapRai.toFixed(2)} rai`, `${mOverlapRate.toFixed(0)}% of sprayed area${avgTankRai ? ` · ≈${(mOverlapRai * tankCapacity / avgTankRai).toFixed(1)} L wasted` : ''}`],
                 ['MISSED SPOTS', `${missedRai.toFixed(2)} rai`, missedCellsCount > 0 ? 'flagged red on the map — touch up below' : 'none flagged'],
                 ['TANKS USED', `${tanksUsed}`, `${tankCapacity}L tank${avgTankRai != null ? ` · avg ${avgTankRai.toFixed(2)} rai/tank` : ''}`]
               ].map(([label, val, sub]) => (
