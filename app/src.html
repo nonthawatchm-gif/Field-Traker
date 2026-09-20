@@ -1631,7 +1631,7 @@ function App() {
   const [rateLRai, setRateLRai] = useState(() => { const s = loadLastSettings(); return s && s.rateLRai ? s.rateLRai : DEFAULT_RATE_L_PER_RAI; });
   const [showSpraySettings, setShowSpraySettings] = useState(false); // compact summary row -> this sheet, instead of two always-expanded panels
   const [satelliteOn, setSatelliteOn] = useState(true);    // Esri World Imagery underlay — on by default; only actually renders once a real-world geo-reference (GPS fix or a saved field's stored origin) is available
-  const [followMe, setFollowMe] = useState(true);          // true: pan auto-centers on the operator; false: free pan
+  const [followMe, setFollowMe] = useState(false);          // true: pan auto-centers on the operator; false: free pan
   const [gpsCardOpen, setGpsCardOpen] = useState(false);   // expandable raw-telemetry card
   const [pendingResume, setPendingResume] = useState(null); // unfinished-session summary, shown at startup
   const [noSavedSessionFlash, setNoSavedSessionFlash] = useState(false); // brief "nothing to resume" feedback for the manual Resume Session tap
@@ -3499,9 +3499,7 @@ function App() {
                     <MapCtrlBtn icon={ZoomIn} onClick={() => zoomMap(1)} title="Zoom in" />
                     <MapCtrlBtn icon={ZoomOut} onClick={() => zoomMap(-1)} title="Zoom out" />
                     <MapCtrlBtn icon={LocateFixed} onClick={centerOnMyLocation} disabled={gpsStatus !== 'active'} title="Center on my location" />
-                    {phase === 'boundary' && <MapCtrlBtn icon={followMe ? Move : Compass} active={!followMe} onClick={() => setFollowMe((v) => !v)}
-                      title={followMe ? 'Following — tap for Free Pan' : 'Free Pan — tap to Follow Me'} />}
-                  </>
+</>
                 )}
                 {/* compass: only when the map has been rotated; tap = north up */}
                 {panRef.current && Math.abs(panRef.current.a || 0) > 0.03 && (phase !== 'running' && phase !== 'paused' || camMode === 'free') && (
