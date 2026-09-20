@@ -3428,25 +3428,25 @@ function App() {
             overflow-y-auto means that on a genuinely cramped screen this
             column scrolls internally rather than ever pushing the bottom
             dock off-screen or sliding under it. */}
-        <div className="flex-1 min-h-0 flex items-start justify-between gap-2 px-3 py-2 overflow-y-auto" style={navHud && running && !showStats ? { visibility: 'hidden' } : undefined}>
+        <div className="flex-1 min-h-0 flex items-start justify-between gap-2 px-3 py-2 overflow-y-auto"> 
           {/* Spec §4C "Dim all numbers" while Auto-Paused out-of-bounds. */}
           <div className={'flex flex-col gap-2 pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
-              <>
+              <div className="flex flex-col gap-2" style={navHud && running && !showStats ? { display: 'none' } : undefined}>
                 <Tile icon={TimerIcon} label="Time" value={fmtTime(sim.elapsed)} />
                 <Tile icon={Footprints} label="Distance" value={sim.distance.toFixed(0)} unit="m" />
                 <PaceTile kmh={liveSpeedKmh} label={paceLabel} color={paceColor} />
-              </>
+              </div>
             )}
           </div>
           <div className={'flex flex-col gap-2 items-end pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
-              <>
+              <div className="flex flex-col gap-2 items-end" style={navHud && running && !showStats ? { display: 'none' } : undefined}>
                 <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} />
                 <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#34C76F]" />
                 <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#FFB648]' : undefined} />
                 {srcMode === 'gps' && gpsInfo && <Tile icon={Satellite} label="GPS" value={gpsInfo.lat.toFixed(4)} unit={gpsInfo.lng.toFixed(4)} accent={gpsColorClass} />}
-              </>
+              </div>
             )}
             {/* Satellite toggle: available on every screen that shows the map
                 (not just while plotting a boundary), so a field that already
