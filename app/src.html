@@ -2218,7 +2218,17 @@ function App() {
           viewRef.current = phaseRef.current === 'station' ? { ...computeView(c.width, c.height, polyBBox(fieldRef.current.poly), 4), angle: 0 } : computeFitView(c.width, c.height, fieldRef.current.poly, 4);
           freeDyRef.current = 0; freeRectRef.current = { top: 0, h: c.height };
         }
-      } else if (srcModeRef.current === 'sim') {
+      } else {
+        const wr = wrap.getBoundingClientRect();
+        let topCss = 0, botCss = wr.height;
+        document.querySelectorAll('[data-hud]').forEach((el) => { topCss = Math.max(topCss, el.getBoundingClientRect().bottom - wr.top); });
+        const dockEl = document.querySelector('[data-dock]');
+        if (dockEl) botCss = Math.min(botCss, dockEl.getBoundingClientRect().top - wr.top);
+        topCss += 8; botCss -= 8;
+        if (botCss - topCss > 120) { freeRectRef.current = { top: topCss * dpr, h: (botCss - topCss) * dpr }; freeDyRef.current = ((topCss + botCss) / 2) * dpr - c.height / 2; }
+        else { freeRectRef.current = { top: 0, h: c.height }; freeDyRef.current = 0; }
+      }
+      if (phaseRef.current === 'boundary' && srcModeRef.current === 'sim') {
         viewRef.current = computeView(c.width, c.height, { minX: BOUND_FRAME.minX, minY: BOUND_FRAME.minY, w: BOUND_FRAME.maxX, h: BOUND_FRAME.maxY }, 3);
       }
     };
@@ -2287,8 +2297,7 @@ function App() {
             if (followMeRef.current && sm === 'gps' && gpsLiveRef.current.lat != null && !dragRef.current) {
               panRef.current = { ...panRef.current, x: gpsLiveRef.current.x, y: gpsLiveRef.current.y };
             }
-            if (panRef.current.a) panRef.current = { ...panRef.current, a: 0 };
-            viewRef.current = viewFromCam(panRef.current, c.width, c.height, 0);
+            viewRef.current = viewFromCam(panRef.current, c.width, c.height, freeDyRef.current);
           } else if (sm === 'gps') {
             viewRef.current = computeView(c.width, c.height, liveDraftBBox(gpsLiveRef.current.lat != null ? [...draftRef.current, gpsLiveRef.current] : draftRef.current), 5);
           }
@@ -2325,7 +2334,6 @@ function App() {
         const c = canvasRef.current;
         if (c) {
           if (!panRef.current) panRef.current = camFromView(viewRef.current, c.width, c.height, freeDyRef.current);
-          if (ph === 'station' && panRef.current.a) panRef.current = { ...panRef.current, a: 0 };
           viewRef.current = viewFromCam(panRef.current, c.width, c.height, freeDyRef.current);
         }
       }
@@ -2542,7 +2550,7 @@ function App() {
     const wrap = wrapRef.current;
     if (!wrap) return;
     const r = wrap.getBoundingClientRect();
-    setDraft((d) => [...d, toFieldCoords(r.left + r.width / 2, r.top + r.height / 2)]);
+    setDraft((d) => [...d, toFieldCoords(r.left + r.width / 2, r.top + r.height / 2 + freeDyRef.current / Math.min(2, window.devicePixelRatio || 1))]);
   };
 
   /* Satellite-assisted map gestures — one finger drags to pan, two fingers
@@ -2563,7 +2571,7 @@ function App() {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     return { x: (clientX - r.left) * dpr, y: (clientY - r.top) * dpr };
   };
-  const camDy = () => (phaseRef.current === 'boundary' ? 0 : freeDyRef.current);
+  const camDy = () => freeDyRef.current;
   const gesturesActive = () => {
     const ph = phaseRef.current;
     if (ph === 'running' || ph === 'paused') return true;
@@ -2627,9 +2635,7 @@ function App() {
       // once the fingers have twisted past ~20 degrees (then it follows smoothly from that point).
       const dAng = normAngle(ang - g.ang0);
       if (!g.rotUnlocked && Math.abs(dAng) > 0.35) { g.rotUnlocked = true; g.angOff = dAng; }
-      // plotting screens stay north-up: rotating there made corner placement confusing
-      const plotting = ph === 'boundary' || ph === 'station';
-      const a = plotting ? 0 : (g.rotUnlocked ? g.cam0.a - (dAng - g.angOff) : g.cam0.a);
+      const a = g.rotUnlocked ? g.cam0.a - (dAng - g.angOff) : g.cam0.a;
       const Mc = canvasPoint((ptrs[0].x + ptrs[1].x) / 2, (ptrs[0].y + ptrs[1].y) / 2);
       const off = rotOut(Mc.x - c.width / 2, Mc.y - (c.height / 2 + camDy()), a);
       panRef.current = { x: g.P0.x - off.x / s, y: g.P0.y - off.y / s, s, a };
@@ -2671,9 +2677,7 @@ function App() {
     if (PANNABLE_PHASES[phase] && !panRef.current) {
       const c = canvasRef.current, v = viewRef.current;
       if (c && v.s > 0) {
-        const cam = camFromView(v, c.width, c.height, phase === 'boundary' ? 0 : freeDyRef.current);
-        if (phase === 'boundary' || phase === 'station') cam.a = 0;
-        panRef.current = cam;
+        panRef.current = camFromView(v, c.width, c.height, freeDyRef.current);
       }
     }
     }, 150);
@@ -3233,7 +3237,7 @@ function App() {
           );
         })()}
         {phase === 'boundary' && satelliteOn && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="absolute inset-x-0 flex items-center justify-center pointer-events-none" style={{ top: 0, height: '100%', transform: `translateY(${freeDyRef.current / Math.min(2, window.devicePixelRatio || 1)}px)` }}>
             <Crosshair size={36} strokeWidth={1.5} className="text-[#2EE6C7]" style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,.85))' }} />
           </div>
         )}
@@ -3418,7 +3422,7 @@ function App() {
             </Glass>
           )}
           {topHint === 'boundary' && (
-            <Glass className="pointer-events-auto px-3.5 py-3">
+            <Glass data-hud className="pointer-events-auto px-3.5 py-3">
               <p className="font-display text-sm font-bold tracking-wide text-[#2EE6C7]">MAP THE PERIMETER</p>
               <p className="text-xs text-[#9AABAA] mt-1 leading-snug">
                 {satelliteOn
@@ -3431,7 +3435,7 @@ function App() {
             </Glass>
           )}
           {topHint === 'station' && (
-            <Glass className="pointer-events-auto px-3.5 py-3 border-[#2EE6C7]/40">
+            <Glass data-hud className="pointer-events-auto px-3.5 py-3 border-[#2EE6C7]/40">
               <p className="font-display text-sm font-bold tracking-wide text-[#2EE6C7]">SET REFILL STATION</p>
               <p className="text-xs text-[#9AABAA] mt-1 leading-snug">Tap where the mix tank sits{srcMode === 'gps' ? ', or use your current position.' : '.'}</p>
             </Glass>
