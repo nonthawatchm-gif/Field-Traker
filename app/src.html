@@ -2256,7 +2256,7 @@ function App() {
     // while the screen is off / the app is backgrounded (rAF and timers are suspended then).
     const frame = (t, headless) => {
       headless ? nHeadless++ : nFrames++;
-      window.__agrasDbg = { pan: panRef.current, view: viewRef.current, ph: phaseRef.current, mode: camModeRef.current };
+      window.__agrasDbg = { pan: panRef.current, view: viewRef.current, ph: phaseRef.current, mode: camModeRef.current, draft: draftRef.current };
       const rawDt = (t - last) / 1000;
       const dt = Math.min(document.hidden ? 5 : 0.1, rawDt); last = t;
       const sim = simRef.current, field = fieldRef.current;
