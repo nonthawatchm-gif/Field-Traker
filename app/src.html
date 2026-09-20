@@ -143,6 +143,7 @@ const Trash2       = (p) => <Svg {...p}><path d="M4 7h16"/><path d="M6 7V5a2 2 0
 const Pencil       = (p) => <Svg {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></Svg>;
 const Star         = (p) => <Svg {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Svg>;
 const Check        = (p) => <Svg {...p}><polyline points="20 6 9 17 4 12"/></Svg>;
+const Plus         = (p) => <Svg {...p}><path d="M12 5v14M5 12h14"/></Svg>;
 const Lock         = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
 const CloudOff     = (p) => <Svg {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5 2 2"/><path d="m2 2 20 20"/><path d="M4.51 9.51A5 5 0 0 0 6 19h12"/></Svg>;
 const Wifi         = (p) => <Svg {...p}><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M8.5 16.35a6 6 0 0 1 7 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></Svg>;
@@ -168,7 +169,7 @@ const CloudRain     = (p) => <Svg {...p}><path d="M16 13v8"/><path d="M8 13v8"/>
  * ============================================================== */
 const CELL = 0.3;
 const PAD_G = 2;
-const BOUND_FRAME = { minX: 0, minY: 0, maxX: 60, maxY: 92 };
+const BOUND_FRAME = { minX: 0, minY: 0, maxX: 100, maxY: 130 };
 const REFILL_RADIUS = 2.5;      // metres — "arrived at the station"
 const BREAKPOINT_RADIUS = 1.5;  // metres — "arrived back at the breakpoint"
 const REFILL_DWELL_MS = 3000;   // sim-mode only: how long the demo lingers before walking off
@@ -253,7 +254,7 @@ const TILE_SIZE = 256;
 // pan/zoom it by hand (pinch, one-finger drag, double-tap) once panRef has
 // been seeded — plotting a boundary, plus the whole pre-flight-through-spraying
 // flow now that Satellite is available there too.
-const PANNABLE_PHASES = { boundary: 1, ready: 1, running: 1, paused: 1 };
+const PANNABLE_PHASES = { boundary: 1, station: 1, ready: 1, running: 1, paused: 1 };
 const MIN_MAP_ZOOM = 14;
 const MAX_MAP_ZOOM = 21;             // VISUAL zoom ceiling — how far the user can pinch/tap in on-screen
 const MAX_NATIVE_ZOOM = 20;          // NETWORK zoom ceiling — the optimistic starting point for how deep we'll ever
@@ -707,6 +708,28 @@ function b64ToU8(b64) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+/** Run-length codec for the per-cell coverage arrays saved with each field (mostly zeros, so tiny). */
+function rleEncode(u8) {
+  const out = [];
+  let i = 0;
+  while (i < u8.length) {
+    const v = u8[i];
+    let n = 1;
+    while (i + n < u8.length && u8[i + n] === v && n < 255) n++;
+    out.push(v, n);
+    i += n;
+  }
+  return u8ToB64(Uint8Array.from(out));
+}
+function rleDecode(b64, len) {
+  const a = b64ToU8(b64);
+  const out = new Uint8Array(len);
+  let p = 0;
+  for (let i = 0; i + 1 < a.length && p < len; i += 2) { out.fill(a[i], p, p + a[i + 1]); p += a[i + 1]; }
+  return out;
+}
+/** Extra state stamped into every autosaved session (kept current by the App each render). */
+let __sessionExtras = { fieldId: null, covBase: { sprayed: 0, overlap: 0 }, tankAreas: [], tankOpen: true };
 
 /** Build the persisted-session record from live refs/state. Pure function —
  *  no localStorage I/O here — so it's easy to reason about and to reuse for
@@ -723,6 +746,7 @@ function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankC
     station, phase, opMode, swath, tankCapacity, rateLRai, tankBaselineArea,
     breakpoint: sim.breakpoint, wp: sim.wp,
     simPos: sim.pos, simHeading: sim.heading,
+    fieldId: __sessionExtras.fieldId, covBase: __sessionExtras.covBase, tankAreas: __sessionExtras.tankAreas, tankOpen: __sessionExtras.tankOpen,
     distance: sim.distance, elapsed: sim.elapsed,
     sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, epoch: sim.epoch,
     pixels: u8ToB64(new Uint8Array(imgData.data.buffer)),
@@ -747,11 +771,11 @@ function clearActiveSession() {
   try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch (e) { /* ignore */ }
 }
 function missionsToCSV(list) {
-  const header = ['date', 'rai', 'ngan', 'sq_wha', 'area_sqm', 'distance_m', 'elapsed_s', 'overlap_pct', 'litres', 'rate_l_rai', 'tank_capacity_l', 'swath_m'];
+  const header = ['date', 'rai', 'ngan', 'sq_wha', 'area_sqm', 'distance_m', 'elapsed_s', 'overlap_pct', 'litres_est', 'tanks_used', 'tank_capacity_l', 'swath_m'];
   const rows = list.map((m) => [
     new Date(m.ts).toISOString(), m.rai, m.ngan, m.wa, m.areaSprayed.toFixed(1),
     m.distance.toFixed(1), m.elapsed.toFixed(0), m.overlapRate.toFixed(1), m.litres.toFixed(1),
-    m.rateLRai ?? '', m.tankCapacity ?? '', m.swath
+    m.tanks ?? '', m.tankCapacity ?? '', m.swath
   ]);
   return [header, ...rows].map((r) => r.join(',')).join('\n');
 }
@@ -1417,31 +1441,24 @@ const Tile = ({ icon: Icon, label, value, unit, accent }) => (
 /** Dedicated Liquid & Tank telemetry widget — a live bar gauge (not just a
  *  number) so remaining solution reads at a glance, plus a one-tap "just
  *  refilled" action for a manual top-off outside the formal breakpoint flow. */
-const TankTile = ({ level, pct, color, textClass, remainingRai, onRefill, low }) => (
+const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty }) => (
   <Glass className="pointer-events-auto px-3 py-2 min-w-[104px]">
-    <div className="flex items-center justify-between text-[#7C8C8C]">
-      <div className="flex items-center gap-1.5">
-        <Droplet size={12} strokeWidth={2.25} className={low ? 'animate-pulse' : ''} style={{ color: low ? color : undefined }} />
-        <span className="text-[9px] tracking-[.14em] uppercase font-mono">Tank</span>
-      </div>
-      <button onClick={onRefill} className="text-[#2EE6C7] p-2 -m-2 active:opacity-60" aria-label="Mark tank refilled">
-        <RotateCcw size={12} strokeWidth={2.25} />
-      </button>
+    <div className="flex items-center gap-1.5 text-[#7C8C8C]">
+      <Droplet size={12} strokeWidth={2.25} className="text-[#2EE6C7]" />
+      <span className="text-[9px] tracking-[.14em] uppercase font-mono">Tank #{number}</span>
     </div>
     <div className="flex items-baseline gap-1 mt-0.5">
-      <span className={'font-mono tnum text-[20px] leading-none font-semibold ' + textClass}>{level.toFixed(1)}</span>
-      <span className="text-[10px] text-[#7C8C8C]">L · {pct.toFixed(0)}%</span>
+      <span className="font-mono tnum text-[20px] leading-none font-semibold text-[#2EE6C7]">{areaRai.toFixed(2)}</span>
+      <span className="text-[10px] text-[#7C8C8C]">rai · {capacity}L</span>
     </div>
-    <div className="mt-1.5 h-1.5 w-full min-w-[80px] rounded-full bg-[#0A0E10] overflow-hidden">
-      <div className="h-full rounded-full transition-[width] duration-300" style={{ width: pct + '%', background: color }} />
-    </div>
-    <p className="text-[8.5px] text-[#7C8C8C] mt-1 whitespace-nowrap">~{remainingRai.toFixed(2)} rai left</p>
+    <p className="text-[8.5px] text-[#7C8C8C] mt-1 whitespace-nowrap">{avgRai != null ? `avg ${avgRai.toFixed(2)} rai / tank` : 'this tank so far'}</p>
+    <button onClick={onEmpty} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#FFB648]/60 text-[#FFB648] text-[10px] font-mono font-bold tracking-wide active:bg-[#FFB648]/15">TANK EMPTY</button>
   </Glass>
 );
 /** Speed-Based Flow Rate & Pace widget — live km/h against the 2.5–3.5 km/h
  *  ideal band, colour-coded (green/blue/red), plus the L/min a pump set to
  *  the target rate needs to deliver at the current pace. */
-const PaceTile = ({ kmh, label, color, flowLMin }) => (
+const PaceTile = ({ kmh, label, color }) => (
   <Glass className="px-3 py-2 min-w-[104px]" style={{ borderColor: color + '55' }}>
     <div className="flex items-center gap-1.5 text-[#7C8C8C]">
       <Gauge size={12} strokeWidth={2.25} style={{ color }} />
@@ -1452,7 +1469,6 @@ const PaceTile = ({ kmh, label, color, flowLMin }) => (
       <span className="text-[10px] text-[#7C8C8C]">km/h</span>
     </div>
     <p className="text-[8px] font-mono font-bold tracking-wide mt-1 whitespace-nowrap" style={{ color }}>{label}</p>
-    <p className="text-[8.5px] text-[#7C8C8C] mt-0.5 whitespace-nowrap">{flowLMin.toFixed(2)} L/min flow</p>
   </Glass>
 );
 const Stepper = ({ label, value, unit, dec, step = 1, min = 0, max = 999, onChange }) => (
@@ -1526,8 +1542,12 @@ function App() {
   const [opMode, setOpMode] = useState('spray');      // spray | toStation | refilling | toBreakpoint
   const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('agras_dev') === '1'; } catch (e) { return false; } });
   const devTapsRef = useRef({ n: 0, t: 0 });
+  const freeRectRef = useRef({ top: 0, h: 0 }); // the map area not covered by the HUD cards / dock (canvas px)
   const freeDyRef = useRef(0); // px offset of the free map zone's centre from the canvas centre (ready/running screens)
   const gridVersionRef = useRef(0);
+  const tankAreasRef = useRef([]);         // m² sprayed with each COMPLETED tank (operator taps TANK EMPTY)
+  const tankOpenRef = useRef(true);        // a tank is currently in use (false between TANK EMPTY and the refill)
+  const coverageBaseRef = useRef({ sprayed: 0, overlap: 0 }); // cells already sprayed when this mission began (restored from the field's saved coverage)
   const refillArmedRef = useRef(false);    // refill-at-station only triggers after the operator has first walked away from it
   const enteredFieldRef = useRef(false);   // out-of-bounds alerts only after the operator has been inside the field once
   const lastFixMsRef = useRef(0);
@@ -1569,6 +1589,10 @@ function App() {
   const [confirmDeleteFieldId, setConfirmDeleteFieldId] = useState(null);
   const [confirmCloseField, setConfirmCloseField] = useState(false);
   const [activeFieldId, setActiveFieldId] = useState(null); // which saved field (if any) is currently loaded
+  const activeFieldIdRef = useRef(null); activeFieldIdRef.current = activeFieldId;
+  const fieldLibraryRef = useRef(fieldLibrary); fieldLibraryRef.current = fieldLibrary;
+  const [confirmResetCovId, setConfirmResetCovId] = useState(null);
+  const [confirmResetAll, setConfirmResetAll] = useState(false);
   const [renamingFieldId, setRenamingFieldId] = useState(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [tankCapacity, setTankCapacity] = useState(() => { const s = loadLastSettings(); return s && s.tankCapacity ? s.tankCapacity : DEFAULT_TANK_CAPACITY_L; });
@@ -1773,6 +1797,8 @@ function App() {
     field.__ctx.lastPass = simRef.current.lastPass;
     manualPathRef.current = null; setExcursionActive(false); resetOpMode(); clearAlerts();
     tankBaselineAreaRef.current = 0; lowLiquidWarnedRef.current = false;
+    tankAreasRef.current = []; tankOpenRef.current = true; coverageBaseRef.current = { sprayed: 0, overlap: 0 };
+    activeFieldIdRef.current = null;
     setActiveFieldId(null); // a freshly-plotted boundary is unsaved until the operator saves it
     zoomCeilingRef.current = MAX_NATIVE_ZOOM; // new location — give it a fresh, optimistic chance at deep zoom
     setPhase('ready');
@@ -1782,6 +1808,73 @@ function App() {
     setTimeout(autoDownloadFieldMap, 300);
   }, [initGrid]);
 
+  /* ---- manual tank tracking: the operator taps TANK EMPTY; the app just records what each tank covered ---- */
+  const totalPassAreaNow = () => { const s0 = simRef.current; return (s0.sprayedCells + s0.overlapCells) * CELL * CELL; };
+  const closeTank = () => {
+    if (!tankOpenRef.current) return;
+    const a = Math.max(0, totalPassAreaNow() - tankBaselineAreaRef.current);
+    tankAreasRef.current = [...tankAreasRef.current, a];
+    tankOpenRef.current = false;
+    AgrasLog.add('TANK', `tank ${tankAreasRef.current.length} emptied after ${(a / 1600).toFixed(2)} rai`);
+  };
+  const openTank = () => {
+    closeTank();
+    tankBaselineAreaRef.current = totalPassAreaNow();
+    tankOpenRef.current = true;
+    AgrasLog.add('TANK', `tank ${tankAreasRef.current.length + 1} started (refilled)`);
+  };
+  const tanksUsedCount = () => tankAreasRef.current.length + (tankOpenRef.current && totalPassAreaNow() - tankBaselineAreaRef.current > 0 ? 1 : 0);
+
+  /* ---- per-field saved coverage ---- */
+  const updateLibrary = (fn) => {
+    const next = fn(fieldLibraryRef.current);
+    fieldLibraryRef.current = next;
+    setFieldLibrary(next);
+    if (!saveFieldLibrary(next)) AgrasLog.add('ERR', 'field library save failed (storage full?)');
+  };
+  /** Paint a saved field's previously-sprayed cells into a freshly built sim/grid. */
+  const applyCoverage = (entry) => {
+    const sim = simRef.current, f = fieldRef.current;
+    coverageBaseRef.current = { sprayed: 0, overlap: 0 };
+    tankBaselineAreaRef.current = 0;
+    const cov = entry && entry.cov;
+    if (!cov || cov.len !== f.GW * f.GH) return;
+    try {
+      const passes = rleDecode(cov.passes, cov.len), missed = rleDecode(cov.missed, cov.len);
+      sim.passes = passes; sim.missed = missed;
+      let sprayed = 0, overlap = 0;
+      for (let k = 0; k < cov.len; k++) {
+        const p = passes[k], i = k % f.GW, j = (k / f.GW) | 0;
+        if (p > 0) { sprayed++; overlap += p - 1; sim.lastPass[k] = -2; paintCell(i, j, p); }
+        else if (missed[k]) paintCell(i, j, -1);
+      }
+      sim.sprayedCells = sprayed; sim.overlapCells = overlap;
+      coverageBaseRef.current = { sprayed, overlap };
+      tankBaselineAreaRef.current = (sprayed + overlap) * CELL * CELL;
+      if (gridCanvasRef.current && imgDataRef.current) { flushGridFull(gridCanvasRef.current, imgDataRef.current); dirtyRef.current = null; gridVersionRef.current++; }
+      AgrasLog.add('COVER', `restored ${sprayed} sprayed cells (${(sprayed * CELL * CELL / 1600).toFixed(2)} rai) for "${entry.name}"`);
+    } catch (e) { AgrasLog.add('ERR', 'coverage restore failed: ' + (e && e.message)); }
+  };
+  /** Save what has been sprayed on the active field into its library entry (autosave + mission end). */
+  const persistCoverage = (id, final) => {
+    if (!id) return;
+    const sim = simRef.current, f = fieldRef.current;
+    const len = f.GW * f.GH;
+    if (!sim.passes || sim.passes.length !== len) return;
+    const cov = { v: 1, len, passes: rleEncode(sim.passes), missed: rleEncode(sim.missed), sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, ts: Date.now() };
+    const cb = coverageBaseRef.current;
+    const tanksNow = tanksUsedCount(), elapsed = sim.elapsed, distance = sim.distance;
+    updateLibrary((list) => list.map((e) => {
+      if (e.id !== id) return e;
+      const st = e.stats || { missions: 0, seconds: 0, distance: 0, tanks: 0 };
+      const next = { ...e, cov, settings: { swath: swathRef.current, tankCapacity: tankCapacityRef.current },
+        lastSprayedTs: (sim.sprayedCells > cb.sprayed || sim.overlapCells > cb.overlap) ? Date.now() : e.lastSprayedTs };
+      if (final) next.stats = { missions: st.missions + 1, seconds: st.seconds + elapsed, distance: st.distance + distance, tanks: st.tanks + tanksNow };
+      return next;
+    }));
+    if (final) AgrasLog.add('COVER', `mission saved to field ${id}: ${(sim.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai sprayed in total`);
+  };
+
   const resetSim = useCallback((w) => {
     const field = fieldRef.current;
     simRef.current = makeSim(field, w);
@@ -1789,6 +1882,8 @@ function App() {
     field.__ctx.lastPass = simRef.current.lastPass;
     manualPathRef.current = null; setExcursionActive(false); resetOpMode(); clearAlerts();
     tankBaselineAreaRef.current = 0; lowLiquidWarnedRef.current = false;
+    tankAreasRef.current = []; tankOpenRef.current = true;
+    applyCoverage(fieldLibraryRef.current.find((e) => e.id === activeFieldIdRef.current));
     setPhase('ready');
   }, [initGrid]);
 
@@ -1802,15 +1897,24 @@ function App() {
     const f = fieldRef.current;
     const origin = originLatLngRef.current;
     const entry = { id: Date.now(), name: trimmed, ts: Date.now(), lastSprayedTs: null, poly: f.poly, gpsAnchored: f.gpsAnchored, station: { ...stationRef.current }, areaRai: f.area / 1600, areaSqm: f.area, originLat: origin ? origin.lat : null, originLng: origin ? origin.lng : null };
-    setFieldLibrary((list) => { const next = [entry, ...list]; saveFieldLibrary(next); return next; });
+    entry.settings = { swath: swathRef.current, tankCapacity: tankCapacityRef.current };
+    updateLibrary((list) => [entry, ...list]);
+    activeFieldIdRef.current = entry.id;
     setActiveFieldId(entry.id); // the field just saved is now the active one
+    coverageBaseRef.current = { sprayed: 0, overlap: 0 };
+    persistCoverage(entry.id); // keep whatever is already sprayed on it
     // Saving to the library is the other "save the plot" moment — make sure
     // its offline satellite tiles are cached too (idempotent/no-op if the
     // boundary-close prefetch above already covered it).
     setTimeout(autoDownloadFieldMap, 300);
   };
   const loadFieldFromLibrary = (entry) => {
-    const field = buildField(entry.poly, entry.gpsAnchored, swath);
+    const w = (entry.settings && entry.settings.swath) || swath;
+    if (entry.settings) {
+      if (entry.settings.swath) { setSwath(entry.settings.swath); swathRef.current = entry.settings.swath; }
+      if (entry.settings.tankCapacity) { setTankCapacity(entry.settings.tankCapacity); tankCapacityRef.current = entry.settings.tankCapacity; }
+    }
+    const field = buildField(entry.poly, entry.gpsAnchored, w);
     fieldRef.current = field;
     stationRef.current = entry.station || defaultStation(field.bbox);
     if (entry.originLat != null && entry.originLng != null) {
@@ -1821,8 +1925,9 @@ function App() {
       unprojectRef.current = makeUnprojector(entry.originLat, entry.originLng);
       originLatLngRef.current = { lat: entry.originLat, lng: entry.originLng };
     }
-    resetSim(swath);
-    setActiveFieldId(entry.id); // resetSim() doesn't know about the library — set it after, not before
+    activeFieldIdRef.current = entry.id; // must be set BEFORE resetSim so it restores this field's sprayed coverage
+    resetSim(w);
+    setActiveFieldId(entry.id);
     zoomCeilingRef.current = MAX_NATIVE_ZOOM; // switching fields — give the new location a fresh, optimistic chance at deep zoom
   };
   const deleteFieldFromLibrary = (id) => {
@@ -1869,9 +1974,7 @@ function App() {
       const areaPct = field.area > 0 ? Math.min(100, ((saved.sprayedCells || 0) * CELL * CELL / field.area) * 100) : 0;
       const totalPassArea = ((saved.sprayedCells || 0) + (saved.overlapCells || 0)) * CELL * CELL;
       const cap = saved.tankCapacity || DEFAULT_TANK_CAPACITY_L;
-      const litresSinceRefill = ((totalPassArea - (saved.tankBaselineArea || 0)) / 1600) * (saved.rateLRai || DEFAULT_RATE_L_PER_RAI);
-      const tankLevel = Math.max(0, Math.min(cap, cap - litresSinceRefill));
-      setPendingResume({ ts: saved.ts, areaPct, tankLevel, tankCapacity: cap, raw: saved });
+      setPendingResume({ ts: saved.ts, areaPct, tanksUsed: (Array.isArray(saved.tankAreas) ? saved.tankAreas.length : 0) + 1, tankCapacity: cap, raw: saved });
       return true;
     } catch (e) { return false; /* a corrupted record just won't offer a resume — never blocks anything */ }
   };
@@ -1947,6 +2050,7 @@ function App() {
      person flips the OS/browser toggle back to Allow (in another tab, the
      site-settings panel, etc.) and resubscribe immediately, no page reload
      or manual "switch to Sim and back" dance required. */
+  useEffect(() => { if (phase === 'done') persistCoverage(activeFieldIdRef.current, true); }, [phase]);
   const missionOn = phase === 'running'; // native foreground GPS service only while spraying — paused mission = no service, no wake-ups
   useEffect(() => { if (phase === 'running') { refillArmedRef.current = false; enteredFieldRef.current = false; } }, [phase]);
   useEffect(() => { AgrasLog.add('PHASE', `${phase} src=${srcMode} field=${fieldRef.current.area ? (fieldRef.current.area / 1600).toFixed(2) : '?'}rai`); if (phase === 'running' || phase === 'paused') logBattery('phase ' + phase); AgrasLog.flush(); }, [phase]);
@@ -2072,12 +2176,14 @@ function App() {
         if (dockEl) botCss = Math.min(botCss, dockEl.getBoundingClientRect().top - wr.top);
         topCss += 8; botCss -= 8;
         if (botCss - topCss > 120) {
-          const v = computeFitView(c.width, (botCss - topCss) * dpr, fieldRef.current.poly, 4);
+          const fp = fieldRef.current.poly;
+          const v = phaseRef.current === 'station' ? { ...computeView(c.width, (botCss - topCss) * dpr, polyBBox(fp), 4), angle: 0 } : computeFitView(c.width, (botCss - topCss) * dpr, fp, 4);
           viewRef.current = { ...v, oy: v.oy + topCss * dpr };
+          freeRectRef.current = { top: topCss * dpr, h: (botCss - topCss) * dpr };
           freeDyRef.current = ((topCss + botCss) / 2) * dpr - c.height / 2;
         } else {
-          viewRef.current = computeFitView(c.width, c.height, fieldRef.current.poly, 4);
-          freeDyRef.current = 0;
+          viewRef.current = phaseRef.current === 'station' ? { ...computeView(c.width, c.height, polyBBox(fieldRef.current.poly), 4), angle: 0 } : computeFitView(c.width, c.height, fieldRef.current.poly, 4);
+          freeDyRef.current = 0; freeRectRef.current = { top: 0, h: c.height };
         }
       } else if (srcModeRef.current === 'sim') {
         viewRef.current = computeView(c.width, c.height, { minX: BOUND_FRAME.minX, minY: BOUND_FRAME.minY, w: BOUND_FRAME.maxX, h: BOUND_FRAME.maxY }, 3);
@@ -2154,7 +2260,18 @@ function App() {
             viewRef.current = computeView(c.width, c.height, liveDraftBBox(gpsLiveRef.current.lat != null ? [...draftRef.current, gpsLiveRef.current] : draftRef.current), 5);
           }
         }
-      } else if ((ph === 'ready' || ph === 'running' || ph === 'paused') && satelliteOnRef.current && panRef.current) {
+      } else if (ph === 'station' && !(satelliteOnRef.current && panRef.current)) {
+        // no satellite camera: keep the field AND the chosen/live station point in view
+        const c = canvasRef.current, fr = freeRectRef.current;
+        const pt = stationDraftRef.current;
+        if (c && fr.h > 0 && pt) {
+          const b0 = polyBBox(fieldRef.current.poly);
+          const bb = { minX: Math.min(b0.minX, pt.x), minY: Math.min(b0.minY, pt.y), maxX: Math.max(b0.maxX, pt.x), maxY: Math.max(b0.maxY, pt.y) };
+          bb.w = bb.maxX - bb.minX; bb.h = bb.maxY - bb.minY;
+          const v = computeView(c.width, fr.h, bb, 6);
+          viewRef.current = { ...v, oy: v.oy + fr.top, angle: 0 };
+        }
+      } else if ((ph === 'ready' || ph === 'running' || ph === 'paused' || ph === 'station') && satelliteOnRef.current && panRef.current) {
         // Manual pan/zoom on the pre-flight/running/paused screens — the
         // operator has taken the camera; render exactly where they left it
         // every frame (no rotation, no follow-me/GPS re-centering — those
@@ -2245,12 +2362,12 @@ function App() {
           // tank refills the instant the operator reaches the station — no
           // manual "Refilled Full Tank" tap required; the dwell below is just
           // a brief visual pause at the tank before auto-walking back.
-          tankBaselineAreaRef.current = (sim.sprayedCells + sim.overlapCells) * CELL * CELL;
+          openTank();
           lowLiquidWarnedRef.current = false;
         } else if (om === 'toStation' && dStation <= REFILL_RADIUS) {
           opModeRef.current = 'refilling'; setOpMode('refilling');
           refillDeadlineRef.current = t + REFILL_DWELL_MS;
-          tankBaselineAreaRef.current = (sim.sprayedCells + sim.overlapCells) * CELL * CELL;
+          openTank();
           lowLiquidWarnedRef.current = false;
         } else if (om === 'refilling') {
           if (dStation > REFILL_RADIUS) { opModeRef.current = 'toBreakpoint'; setOpMode('toBreakpoint'); }
@@ -2437,9 +2554,12 @@ function App() {
     panRef.current = { x: d.startCenter.x - dx / d.s, y: d.startCenter.y - dy / d.s, s: d.s };
   };
   const onWrapPointerUp = (e) => {
+    const d = dragRef.current;
+    const wasTap = d && !d.moved && !pinchRef.current && activePointersRef.current.size === 1;
     activePointersRef.current.delete(e.pointerId);
     if (activePointersRef.current.size < 2) pinchRef.current = null;
     if (activePointersRef.current.size === 0) dragRef.current = null;
+    if (wasTap && phaseRef.current === 'station' && e.type === 'pointerup') onMapTap(e);
   };
 
   // Lazily hand the camera to the user the first time satellite mode is
@@ -2587,6 +2707,29 @@ function App() {
     } catch (e) { /* best-effort */ }
   };
 
+  /** Every field keeps its sprayed area: an unsaved plot is added to the library (auto-named) the moment spraying starts. */
+  const startSpraying = () => {
+    if (!activeFieldIdRef.current) {
+      const d = new Date(), p = (n) => String(n).padStart(2, '0');
+      saveCurrentFieldToLibrary(`แปลง ${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`);
+    }
+    setPhase('running');
+  };
+  const resetFieldCoverage = (id) => {
+    updateLibrary((list) => list.map((e) => { if (e.id !== id) return e; const { cov, stats, ...rest } = e; return { ...rest, lastSprayedTs: null }; }));
+    setConfirmResetCovId(null);
+    AgrasLog.add('RESET', 'sprayed area cleared for field ' + id);
+    if (id === activeFieldIdRef.current && phaseRef.current === 'ready') resetSim(swathRef.current);
+  };
+  const resetAllSavedData = () => {
+    [FIELD_LIBRARY_KEY, HISTORY_KEY, LAST_SETTINGS_KEY, CHECKLIST_KEY, SPRAY_WEATHER_KEY].forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } });
+    clearActiveSession();
+    fieldLibraryRef.current = []; setFieldLibrary([]); setMissions([]);
+    activeFieldIdRef.current = null; setActiveFieldId(null);
+    setConfirmResetAll(false); setConfirmResetCovId(null); setShowFieldLibrary(false);
+    AgrasLog.add('RESET', 'all saved data erased');
+    resetSim(swathRef.current);
+  };
   const startPlotting = () => { clearActiveSession(); panRef.current = null; setDraft([]); setConfirmCloseField(false); setPhase('boundary'); };
   const undoPoint = () => { setConfirmCloseField(false); setDraft((d) => d.slice(0, -1)); };
   const closeBoundary = () => {
@@ -2601,7 +2744,13 @@ function App() {
   const startStationSetup = () => { prevPhaseRef.current = phase; setStationDraft({ ...stationRef.current }); setPhase('station'); };
   const confirmStation = () => { if (stationDraft) stationRef.current = stationDraft; setPhase(prevPhaseRef.current); };
   const cancelStationSetup = () => setPhase(prevPhaseRef.current);
-  const useMyLocationForStation = () => { const live = gpsLiveRef.current; if (live.lat != null) setStationDraft({ x: live.x, y: live.y }); };
+  const useMyLocationForStation = () => {
+    const live = gpsLiveRef.current;
+    if (live.lat == null) return;
+    setStationDraft({ x: live.x, y: live.y });
+    stationDraftRef.current = { x: live.x, y: live.y };
+    if (panRef.current) panRef.current = { x: live.x, y: live.y, s: panRef.current.s }; // move the camera there
+  };
 
   /** Session persistence — reusable snapshot writer, called from the 5s
    *  autosave tick, from key events (tank empty, out-of-bounds, app close),
@@ -2617,7 +2766,7 @@ function App() {
         tankBaselineArea: tankBaselineAreaRef.current, imgData: imgDataRef.current,
         originLatLng: originLatLngRef.current,
       }));
-      if (phaseRef.current === 'running' || phaseRef.current === 'paused') AgrasLog.add('SAVE', `autosave ${Math.round(performance.now() - saveT0)}ms`);
+      if (phaseRef.current === 'running' || phaseRef.current === 'paused') { persistCoverage(activeFieldIdRef.current); AgrasLog.add('SAVE', `autosave ${Math.round(performance.now() - saveT0)}ms`); }
     } catch (e) { AgrasLog.add('ERR', 'autosave failed: ' + (e && e.message)); }
   };
 
@@ -2667,6 +2816,9 @@ function App() {
     tankCapacityRef.current = saved.tankCapacity; setTankCapacity(saved.tankCapacity);
     rateLRaiRef.current = saved.rateLRai; setRateLRai(saved.rateLRai);
     tankBaselineAreaRef.current = saved.tankBaselineArea || 0;
+    tankAreasRef.current = Array.isArray(saved.tankAreas) ? saved.tankAreas : []; tankOpenRef.current = saved.tankOpen !== false;
+    coverageBaseRef.current = saved.covBase || { sprayed: 0, overlap: 0 };
+    if (saved.fieldId != null) { activeFieldIdRef.current = saved.fieldId; setActiveFieldId(saved.fieldId); }
     lowLiquidWarnedRef.current = false;
     restoredRef.current = true;
     // always resume into PAUSED — the operator walks back to the breakpoint
@@ -2678,11 +2830,12 @@ function App() {
   const tankEmpty = () => {
     if (opMode !== 'spray' || phase !== 'running') return;
     const sim = simRef.current;
+    closeTank();
     const dStation = dist(sim.pos, stationRef.current);
     sim.breakpoint = { ...sim.pos };
     if (dStation <= REFILL_RADIUS) {
       opModeRef.current = 'refilling'; setOpMode('refilling'); refillDeadlineRef.current = performance.now() + REFILL_DWELL_MS;
-      tankBaselineAreaRef.current = (sim.sprayedCells + sim.overlapCells) * CELL * CELL;
+      openTank();
       lowLiquidWarnedRef.current = false;
     } else {
       opModeRef.current = 'toStation'; setOpMode('toStation');
@@ -2697,7 +2850,7 @@ function App() {
    *  totals (distance, elapsed time, overall litres) used in the summary. */
   const refillTank = () => {
     const s = simRef.current;
-    tankBaselineAreaRef.current = (s.sprayedCells + s.overlapCells) * CELL * CELL;
+    openTank();
     lowLiquidWarnedRef.current = false;
     setTick((n) => n + 1);
   };
@@ -2732,20 +2885,21 @@ function App() {
    *  persisted mission log, then start fresh. */
   const saveMission = () => {
     const s = simRef.current, f = fieldRef.current;
-    const areaSprayedNow = s.sprayedCells * CELL * CELL;
+    const cbase = coverageBaseRef.current;
+    const mSprayed = Math.max(0, s.sprayedCells - cbase.sprayed), mOverlap = Math.max(0, s.overlapCells - cbase.overlap);
+    const areaSprayedNow = mSprayed * CELL * CELL;
     const raiNow = toRai(areaSprayedNow);
     const raiDecNow = areaSprayedNow / 1600;
-    const overlapRateNow = s.sprayedCells > 0 ? (s.overlapCells / s.sprayedCells) * 100 : 0;
+    const overlapRateNow = mSprayed > 0 ? (mOverlap / mSprayed) * 100 : 0;
     // total liquid used across the whole mission (every refill included) —
     // counts overlapped cells too, since a re-pass over already-sprayed
     // ground genuinely uses chemical a second time.
-    const totalPassAreaNow = (s.sprayedCells + s.overlapCells) * CELL * CELL;
-    const litresNow = (totalPassAreaNow / 1600) * rateLRai;
+    const tanksUsedNow = tanksUsedCount();
+    const litresNow = tanksUsedNow * tankCapacity; // approximate: whole tanks emptied
     let missedCellsNow = 0;
     for (let mi = 0; mi < s.missed.length; mi++) missedCellsNow += s.missed[mi];
     const missedRaiNow = (missedCellsNow * CELL * CELL) / 1600;
-    const overlapRaiNow = (s.overlapCells * CELL * CELL) / 1600;
-    const overlapWastedLitresNow = overlapRaiNow * rateLRai;
+    const overlapRaiNow = (mOverlap * CELL * CELL) / 1600;
 
     let thumb = null;
     try {
@@ -2760,9 +2914,9 @@ function App() {
       id: Date.now(), ts: Date.now(),
       areaSprayed: areaSprayedNow, rai: raiNow.rai, ngan: raiNow.ngan, wa: raiNow.wa, raiDec: raiDecNow,
       distance: s.distance, elapsed: s.elapsed, overlapRate: overlapRateNow,
-      overlapRai: overlapRaiNow, overlapWastedLitres: overlapWastedLitresNow,
+      overlapRai: overlapRaiNow,
       missedRai: missedRaiNow,
-      litres: litresNow, rateLRai, tankCapacity, swath, fieldRai: f.area / 1600, thumb,
+      litres: litresNow, tanks: tanksUsedNow, tankAreas: tankAreasRef.current, tankCapacity, swath, fieldRai: f.area / 1600, thumb,
       // Compliance log (Spec §5): PPE checklist state, operator, weather.
       checklist: { ppe: checklist.ppe, mixedRate: checklist.mixedRate, nozzle: checklist.nozzle, wind: checklist.wind, checkedAt: checklist.checkedAt },
       operator: checklist.operator || '', weather: checklist.weather || '',
@@ -2838,6 +2992,7 @@ function App() {
   };
 
   const sim = simRef.current, field = fieldRef.current;
+  __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current };
   const areaSprayed = sim.sprayedCells * CELL * CELL;
   const coveragePct = Math.min(100, (areaSprayed / field.area) * 100) || 0;
   const overlapRate = sim.sprayedCells > 0 ? (sim.overlapCells / sim.sprayedCells) * 100 : 0;
@@ -2854,7 +3009,6 @@ function App() {
   // flow rate = ground area covered per minute (swath x speed) x solution
   // per square metre (rateLRai / 1600 rai-in-sqm) — the actual L/min a pump
   // set to the target application rate needs to deliver at THIS pace.
-  const flowLMin = swath * liveSpeedMs * (rateLRai / 1600) * 60;
   const rai = toRai(areaSprayed);
   const raiDec = areaSprayed / 1600;
   // Mission Summary "physical quantity" metrics (Spec §4D): convert the
@@ -2864,14 +3018,17 @@ function App() {
   for (let mi = 0; mi < sim.missed.length; mi++) missedCellsCount += sim.missed[mi];
   const missedRai = (missedCellsCount * CELL * CELL) / 1600;
   const overlapRai = (sim.overlapCells * CELL * CELL) / 1600;
-  const overlapWastedLitres = overlapRai * rateLRai;
+  const cbase = coverageBaseRef.current; // what the field already had sprayed before this mission started
+  const mSprayedCells = Math.max(0, sim.sprayedCells - cbase.sprayed), mOverlapCells = Math.max(0, sim.overlapCells - cbase.overlap);
+  const mArea = mSprayedCells * CELL * CELL, mRai = toRai(mArea), mRaiDec = mArea / 1600;
+  const mOverlapRai = (mOverlapCells * CELL * CELL) / 1600;
+  const mOverlapRate = mSprayedCells > 0 ? (mOverlapCells / mSprayedCells) * 100 : 0;
   // the saved-library entry (if any) backing the field currently loaded —
   // drives the prominent Field Selector card on the pre-mission setup screen
   const activeFieldEntry = activeFieldId ? fieldLibrary.find((f) => f.id === activeFieldId) : null;
   // whole-mission liquid total (every refill included) — counts overlap
   // passes as real re-application, same basis the live tank gauge uses below
   const totalPassArea = (sim.sprayedCells + sim.overlapCells) * CELL * CELL;
-  const litres = (totalPassArea / 1600) * rateLRai;
   const running = phase === 'running';
   const dStation = dist(sim.pos, stationRef.current);
   const dBreakpoint = sim.breakpoint ? dist(sim.pos, sim.breakpoint) : null;
@@ -2907,29 +3064,11 @@ function App() {
   })();
 
   // ---- Tank & Liquid Volume Tracker -----------------------------------
-  // Litres used *since the last refill* (not the mission-wide total above) —
-  // this is what the live gauge draws down from tankCapacity.
-  const litresSinceRefill = ((totalPassArea - tankBaselineAreaRef.current) / 1600) * rateLRai;
-  const tankLevel = Math.max(0, Math.min(tankCapacity, tankCapacity - litresSinceRefill));
-  const tankPct = tankCapacity > 0 ? (tankLevel / tankCapacity) * 100 : 0;
-  const remainingRaiTank = rateLRai > 0 ? tankLevel / rateLRai : 0;
-  const tankLow = tankPct <= 10;
-  const tankColor = tankLow ? '#FF5252' : tankPct <= 25 ? '#FFB648' : '#2EE6C7';
-  const tankTextClass = tankLow ? 'text-[#FF5252]' : tankPct <= 25 ? 'text-[#FFB648]' : 'text-[#2EE6C7]';
-
-  // Auto-pause: tank hits 0 mid-spray → same breakpoint/refill-station flow
-  // as a manual "TANK EMPTY" tap, with no operator input needed.
-  useEffect(() => {
-    if (phase === 'running' && opMode === 'spray' && tankCapacity > 0 && tankLevel <= 0) { alertUser([880, 660, 440], 'Tank empty', 'Spraying paused — go back to the station to refill.'); tankEmpty(); }
-  }, [phase, opMode, tankLevel <= 0]);
-
-  // One-shot low-liquid tone as the gauge crosses into the red zone; re-arms
-  // once the tank is topped back up above it (refill, or a fresh mission).
-  useEffect(() => {
-    if (phase !== 'running') return;
-    if (tankLow && tankPct > 0 && !lowLiquidWarnedRef.current) { lowLiquidWarnedRef.current = true; alertUser([660, 440], 'Tank running low', 'Under 10% left in the tank.'); }
-    else if (!tankLow) lowLiquidWarnedRef.current = false;
-  }, [phase, tankLow, tankPct > 0]);
+  // Tank tracking is manual: the operator taps TANK EMPTY, the app records the area each tank covered.
+  const curTankArea = tankOpenRef.current ? Math.max(0, totalPassArea - tankBaselineAreaRef.current) : 0;
+  const tankNumber = tankAreasRef.current.length + 1;
+  const avgTankRai = tankAreasRef.current.length ? tankAreasRef.current.reduce((x, y) => x + y, 0) / tankAreasRef.current.length / 1600 : null;
+  const tanksUsed = tanksUsedCount();
 
   const statusLabel = oob ? 'SPRAY OFF / OUT OF FIELD' : (
     phase === 'boundary' ? 'PLOT BOUNDARY' :
@@ -3205,15 +3344,14 @@ function App() {
               <>
                 <Tile icon={TimerIcon} label="Time" value={fmtTime(sim.elapsed)} />
                 <Tile icon={Footprints} label="Distance" value={sim.distance.toFixed(0)} unit="m" />
-                <PaceTile kmh={liveSpeedKmh} label={paceLabel} color={paceColor} flowLMin={flowLMin} />
+                <PaceTile kmh={liveSpeedKmh} label={paceLabel} color={paceColor} />
               </>
             )}
           </div>
           <div className={'flex flex-col gap-2 items-end pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
               <>
-                <TankTile level={tankLevel} pct={tankPct} color={tankColor} textClass={tankTextClass}
-                  remainingRai={remainingRaiTank} onRefill={onTankTileRefill} low={tankLow} />
+                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} />
                 <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#34C76F]" />
                 <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#FFB648]' : undefined} />
                 {srcMode === 'gps' && gpsInfo && <Tile icon={Satellite} label="GPS" value={gpsInfo.lat.toFixed(4)} unit={gpsInfo.lng.toFixed(4)} accent={gpsColorClass} />}
@@ -3227,17 +3365,17 @@ function App() {
                 Pan/zoom/lock sub-controls stay boundary-only — they're wired
                 to the boundary-specific drag/pinch handlers — Ready and
                 Running just show the auto-fit view, imagery included. */}
-            {(phase === 'boundary' || phase === 'ready' || phase === 'running' || phase === 'paused') && (
+            {(phase === 'boundary' || phase === 'station' || phase === 'ready' || phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2.5 pointer-events-auto">
                 <MapCtrlBtn icon={Satellite} active={satelliteOn} onClick={() => setSatelliteOn((v) => !v)}
                   disabled={!unprojectRef.current} title={unprojectRef.current ? 'Toggle satellite imagery' : 'Switch to GPS mode once to set this field\'s map location'} />
-                {phase === 'boundary' && satelliteOn && (
+                {(phase === 'boundary' || phase === 'station') && satelliteOn && (
                   <>
                     <MapCtrlBtn icon={ZoomIn} onClick={() => zoomMap(1)} title="Zoom in" />
                     <MapCtrlBtn icon={ZoomOut} onClick={() => zoomMap(-1)} title="Zoom out" />
                     <MapCtrlBtn icon={LocateFixed} onClick={centerOnMyLocation} disabled={gpsStatus !== 'active'} title="Center on my location" />
-                    <MapCtrlBtn icon={followMe ? Move : Compass} active={!followMe} onClick={() => setFollowMe((v) => !v)}
-                      title={followMe ? 'Following — tap for Free Pan' : 'Free Pan — tap to Follow Me'} />
+                    {phase === 'boundary' && <MapCtrlBtn icon={followMe ? Move : Compass} active={!followMe} onClick={() => setFollowMe((v) => !v)}
+                      title={followMe ? 'Following — tap for Free Pan' : 'Free Pan — tap to Follow Me'} />}
                   </>
                 )}
               </div>
@@ -3296,7 +3434,7 @@ function App() {
                   <span className="font-mono tnum text-xl font-bold text-[#D3DEDC] leading-none shrink-0">{areaSprayed.toFixed(0)}</span>
                   <span className="text-[11px] text-[#7C8C8C] truncate">m² of {field.area.toFixed(0)}</span>
                 </div>
-                <p className="font-mono tnum text-[11px] text-[#34C76F] mt-1 truncate">{rai.rai}-{rai.ngan}-{rai.wa} rai <span className="text-[#7C8C8C]">· {litres.toFixed(1)} L</span></p>
+                <p className="font-mono tnum text-[11px] text-[#34C76F] mt-1 truncate">{rai.rai}-{rai.ngan}-{rai.wa} rai <span className="text-[#7C8C8C]">· tank #{tankNumber}</span></p>
               </Glass>
             </div>
             <div className="pointer-events-auto shrink-0">
@@ -3393,7 +3531,7 @@ function App() {
                 className="w-full flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/92 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate text-[#9AABAA]">
                   <Fuel size={13} className="text-[#2EE6C7] shrink-0" />
-                  <span className="truncate text-[#D3DEDC] font-bold">{tankCapacity}L tank · {rateLRai} L/rai · {swath.toFixed(1)}m swath</span>
+                  <span className="truncate text-[#D3DEDC] font-bold">{tankCapacity}L tank · {swath.toFixed(1)}m swath</span>
                 </span>
                 <span className="text-[#2EE6C7] shrink-0 flex items-center gap-1 font-bold"><Pencil size={11} /> EDIT</span>
               </button>
@@ -3501,7 +3639,7 @@ function App() {
                   once a field and settings are in place. START SPRAYING is
                   ALWAYS enabled — the checklist above never gates it. */}
               <Dock>
-                <DockBtn icon={Play} label="START SPRAYING" tone="green" big onClick={() => setPhase('running')} />
+                <DockBtn icon={Play} label="START SPRAYING" tone="green" big onClick={startSpraying} />
               </Dock>
 
               {/* Field setup + Tools — each used to be a labelled section
@@ -3562,11 +3700,11 @@ function App() {
               {[
                 ['ELAPSED', fmtTime(sim.elapsed), `pace ${speedMs.toFixed(2)} m/s`],
                 ['DISTANCE', `${sim.distance.toFixed(0)} m`, `swath ${swath.toFixed(1)} m`],
-                ['AREA SPRAYED', `${rai.rai}-${rai.ngan}-${rai.wa} rai`, `${raiDec.toFixed(2)} rai · ${areaSprayed.toFixed(0)} m²`],
+                ['AREA SPRAYED', `${mRai.rai}-${mRai.ngan}-${mRai.wa} rai`, `${mRaiDec.toFixed(2)} rai · ${mArea.toFixed(0)} m²${cbase.sprayed > 0 ? ` · field ${coveragePct.toFixed(0)}% done` : ''}`],
                 // Spec §4D "Metrics Rule": physical quantities, not bare percentages.
-                ['OVERLAPPED', `${overlapRai.toFixed(2)} rai`, `≈ ${overlapWastedLitres.toFixed(1)} L wasted · ${overlapRate.toFixed(0)}%`],
+                ['OVERLAPPED', `${mOverlapRai.toFixed(2)} rai`, `${mOverlapRate.toFixed(0)}% of sprayed area`],
                 ['MISSED SPOTS', `${missedRai.toFixed(2)} rai`, missedCellsCount > 0 ? 'flagged red on the map — touch up below' : 'none flagged'],
-                ['LIQUID USED', `${litres.toFixed(1)} L`, `${rateLRai} L/rai · ${tankCapacity}L tank`]
+                ['TANKS USED', `${tanksUsed}`, `${tankCapacity}L tank${avgTankRai != null ? ` · avg ${avgTankRai.toFixed(2)} rai/tank` : ''}`]
               ].map(([label, val, sub]) => (
                 <div key={label} className="bg-[#131A1D] p-3">
                   <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">{label}</dt>
@@ -3651,8 +3789,8 @@ function App() {
                       ['ELAPSED', fmtTime(selected.elapsed), `field ${selected.fieldRai.toFixed(2)} rai`],
                       ['DISTANCE', `${selected.distance.toFixed(0)} m`, `swath ${selected.swath.toFixed(1)} m`],
                       ['AREA SPRAYED', `${selected.rai}-${selected.ngan}-${selected.wa} rai`, `${selected.raiDec.toFixed(2)} rai · ${selected.areaSprayed.toFixed(0)} m²`],
-                      ['OVERLAPPED', `${(selected.overlapRai ?? 0).toFixed(2)} rai`, `≈ ${(selected.overlapWastedLitres ?? 0).toFixed(1)} L wasted`],
-                      ['MISSED SPOTS', `${(selected.missedRai ?? 0).toFixed(2)} rai`, `${selected.litres.toFixed(1)} L used total`]
+                      ['OVERLAPPED', `${(selected.overlapRai ?? 0).toFixed(2)} rai`, `${(selected.overlapRate ?? 0).toFixed(0)}% of sprayed area`],
+                      ['MISSED SPOTS', `${(selected.missedRai ?? 0).toFixed(2)} rai`, selected.tanks != null ? `${selected.tanks} tank${selected.tanks === 1 ? '' : 's'} used` : `${selected.litres.toFixed(1)} L used total`]
                     ].map(([label, val, sub]) => (
                       <div key={label} className="bg-[#131A1D] p-3">
                         <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">{label}</dt>
@@ -3719,6 +3857,9 @@ function App() {
             </div>
             <button onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); }} className="text-[#7C8C8C] p-1 shrink-0"><X size={20} /></button>
           </div>
+          <div className="shrink-0 px-4 pt-3 flex">
+            <DockBtn icon={Plus} label="ADD FIELD" tone="teal" onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); startPlotting(); }} />
+          </div>
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {fieldLibrary.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
@@ -3751,6 +3892,11 @@ function App() {
                             <p className="text-[10px] font-mono text-[#7C8C8C] mt-0.5 truncate">
                               {r.rai}-{r.ngan}-{r.wa} rai · {f.lastSprayedTs ? `sprayed ${fmtDate(f.lastSprayedTs)}` : `created ${fmtDate(f.ts)}`}{f.gpsAnchored ? ' · GPS-anchored' : ''}
                             </p>
+                            {f.cov ? (
+                              <p className="text-[10px] font-mono text-[#34C76F] mt-0.5 truncate">
+                                sprayed {Math.min(100, (f.cov.sprayedCells * CELL * CELL) / (f.areaSqm != null ? f.areaSqm : f.areaRai * 1600) * 100).toFixed(0)}% · {(f.cov.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai{f.stats ? ` · ${f.stats.missions} mission${f.stats.missions === 1 ? '' : 's'}` : ''}
+                              </p>
+                            ) : <p className="text-[10px] font-mono text-[#5C6C6C] mt-0.5">nothing sprayed yet</p>}
                           </button>
                         )}
                         {!isRenaming && (
@@ -3771,11 +3917,23 @@ function App() {
                           {isActive ? <><Star size={11} className="fill-[#2EE6C7]" /> ACTIVE FIELD</> : 'SET AS ACTIVE FIELD'}
                         </button>
                       )}
+                      {!isRenaming && f.cov && (
+                        <button onClick={() => { if (confirmResetCovId === f.id) resetFieldCoverage(f.id); else { setConfirmResetCovId(f.id); setTimeout(() => setConfirmResetCovId((c) => (c === f.id ? null : c)), 5000); } }}
+                          className={'min-h-[34px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide border ' + (confirmResetCovId === f.id ? 'bg-[#FFB648] text-[#2B1900] border-[#FFB648]' : 'border-[#3A464B] text-[#9AABAA]')}>
+                          {confirmResetCovId === f.id ? 'TAP AGAIN — CLEAR SPRAYED AREA' : 'RESET SPRAYED AREA'}
+                        </button>
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
+          </div>
+          <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+            <button onClick={() => { if (confirmResetAll) resetAllSavedData(); else { setConfirmResetAll(true); setTimeout(() => setConfirmResetAll(false), 6000); } }}
+              className={'w-full min-h-[46px] rounded-xl text-[10.5px] font-mono font-bold tracking-wide border ' + (confirmResetAll ? 'bg-[#FF5252] text-[#2B0808] border-[#FF5252]' : 'border-[#FF5252]/50 text-[#FF5252]')}>
+              {confirmResetAll ? 'TAP AGAIN — ERASE ALL FIELDS, SPRAYED AREAS & HISTORY' : 'RESET ALL SAVED DATA'}
+            </button>
           </div>
         </div>
       )}
@@ -3809,10 +3967,9 @@ function App() {
               <p className="font-display text-[15px] font-bold tracking-wide">SPRAY SETTINGS</p>
               <button onClick={() => setShowSpraySettings(false)} className="text-[#7C8C8C] p-1"><X size={18} /></button>
             </div>
-            <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Tank size, application rate, and nozzle width · remembered for next time</p>
+            <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Tank size and nozzle width · remembered for next time</p>
             <Glass className="px-2 py-2 flex flex-col gap-1">
               <Stepper label="Tank" value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
-              <Stepper label="Rate" value={rateLRai} unit=" L/rai" step={1} min={1} max={100} onChange={setRateLRai} />
               <Stepper label="Width" value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
             </Glass>
             <div className="flex items-center justify-between px-1 mt-3 pt-3 border-t border-[#2A363A]">
@@ -3982,8 +4139,8 @@ function App() {
                 <dd className="font-mono tnum text-[18px] font-bold mt-1">{pendingResume.areaPct.toFixed(0)}%</dd>
               </div>
               <div className="bg-[#131A1D] p-3">
-                <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">TANK REMAINING</dt>
-                <dd className="font-mono tnum text-[18px] font-bold mt-1">{pendingResume.tankLevel.toFixed(1)} L</dd>
+                <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">TANKS USED</dt>
+                <dd className="font-mono tnum text-[18px] font-bold mt-1">{pendingResume.tanksUsed}</dd>
               </div>
             </dl>
             <div className="p-4 flex flex-col gap-2.5">
