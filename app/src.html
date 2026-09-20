@@ -256,7 +256,6 @@ const TILE_SIZE = 256;
 // pan/zoom it by hand (pinch, one-finger drag, double-tap) once panRef has
 // been seeded — plotting a boundary, plus the whole pre-flight-through-spraying
 // flow now that Satellite is available there too.
-const ROTATE_GESTURE = false; // manual map rotation by twisting two fingers (kept in code, disabled)
 const PANNABLE_PHASES = { boundary: 1, station: 1, ready: 1, running: 1, paused: 1 };
 const MIN_MAP_ZOOM = 14;
 const MAX_MAP_ZOOM = 21;             // VISUAL zoom ceiling — how far the user can pinch/tap in on-screen
@@ -2642,7 +2641,7 @@ function App() {
       // Real fingers twist 20+ degrees while pinching, so: once the fingers have clearly changed distance
       // (a zoom gesture), rotation is locked out for the rest of that gesture; a real rotate needs a >30 degree
       // twist while the distance stays roughly the same.
-      if (!ROTATE_GESTURE) g.rotBlocked = true; // two-finger rotation is off: real thumbs twist too easily and the map spun on two-finger taps
+      if (ph !== 'ready') g.rotBlocked = true; // twist-rotation only on the first (ready) screen; on the plotting/station screens it spun on two-finger taps
       if (!g.rotUnlocked && !g.rotBlocked) {
         if (Math.abs(Math.log(dist2 / g.dist0)) > 0.18) g.rotBlocked = true;
         else if (Math.abs(dAng) > 0.52) { g.rotUnlocked = true; g.angOff = dAng; }
