@@ -144,6 +144,8 @@ const Pencil       = (p) => <Svg {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 2
 const Star         = (p) => <Svg {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Svg>;
 const Check        = (p) => <Svg {...p}><polyline points="20 6 9 17 4 12"/></Svg>;
 const Plus         = (p) => <Svg {...p}><path d="M12 5v14M5 12h14"/></Svg>;
+const OverviewIcon = (p) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></Svg>;
+const TiltIcon     = (p) => <Svg {...p}><path d="M3 19 8 8h8l5 11z"/><path d="M9 13h6"/></Svg>;
 const Lock         = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
 const CloudOff     = (p) => <Svg {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5 2 2"/><path d="m2 2 20 20"/><path d="M4.51 9.51A5 5 0 0 0 6 19h12"/></Svg>;
 const Wifi         = (p) => <Svg {...p}><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M8.5 16.35a6 6 0 0 1 7 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></Svg>;
@@ -364,6 +366,25 @@ function computeView(pxW, pxH, bbox, pad) {
   const s = Math.min(pxW / cw, pxH / ch);
   return { s, ox: (pxW - bbox.w * s) / 2 - bbox.minX * s, oy: (pxH - bbox.h * s) / 2 - bbox.minY * s };
 }
+/* ---- Map camera maths (Google-Maps-style pan / pinch-zoom / two-finger rotate) --------------------
+ *  A view is { s, ox, oy, angle }: the field origin sits at screen (ox, oy), the scene is scaled by s and
+ *  rotated by -angle about that point (exactly what drawScene does). A camera is { x, y, s, a }: the field
+ *  point that sits at the screen anchor, plus scale and rotation. */
+const rotIn  = (x, y, a) => ({ x: x * Math.cos(a) + y * Math.sin(a), y: -x * Math.sin(a) + y * Math.cos(a) }); // field-scaled offset -> screen offset
+const rotOut = (x, y, a) => ({ x: x * Math.cos(a) - y * Math.sin(a), y: x * Math.sin(a) + y * Math.cos(a) }); // screen offset -> field-scaled offset
+function viewFromCam(cam, w, h, dy) {
+  const a = cam.a || 0, r = rotIn(cam.x * cam.s, cam.y * cam.s, a);
+  return { s: cam.s, ox: w / 2 - r.x, oy: h / 2 + (dy || 0) - r.y, angle: a };
+}
+function screenToField(v, px, py) {
+  const q = rotOut(px - v.ox, py - v.oy, v.angle || 0);
+  return { x: q.x / v.s, y: q.y / v.s };
+}
+function camFromView(v, w, h, dy) {
+  const p = screenToField(v, w / 2, h / 2 + (dy || 0));
+  return { x: p.x, y: p.y, s: v.s, a: v.angle || 0 };
+}
+const normAngle = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 const X_ = (v, x) => v.ox + x * v.s;
 const Y_ = (v, y) => v.oy + y * v.s;
 
@@ -1545,6 +1566,14 @@ function App() {
   const freeRectRef = useRef({ top: 0, h: 0 }); // the map area not covered by the HUD cards / dock (canvas px)
   const freeDyRef = useRef(0); // px offset of the free map zone's centre from the canvas centre (ready/running screens)
   const gridVersionRef = useRef(0);
+  const [camMode, setCamModeState] = useState('follow');   // spraying camera: 'follow' (heading-up, chase view) | 'fit' (whole field) | 'free' (user panned)
+  const camModeRef = useRef('follow');
+  const setCamMode = (m) => { camModeRef.current = m; setCamModeState(m); if (m !== 'free') lastSigRef.current = ''; };
+  const [tiltOn, setTiltOn] = useState(true);
+  const [showStats, setShowStats] = useState(false);
+  const navHeadingRef = useRef(null);
+  const navScaleRef = useRef(0);          // px per metre in follow mode (0 = auto)
+  const gestureRef = useRef(null);
   const tankAreasRef = useRef([]);         // m² sprayed with each COMPLETED tank (operator taps TANK EMPTY)
   const tankOpenRef = useRef(true);        // a tank is currently in use (false between TANK EMPTY and the refill)
   const coverageBaseRef = useRef({ sprayed: 0, overlap: 0 }); // cells already sprayed when this mission began (restored from the field's saved coverage)
@@ -1570,7 +1599,10 @@ function App() {
   const [gpsInfo, setGpsInfo] = useState(null);       // { lat, lng, accuracy }
   const [gpsRetryTick, setGpsRetryTick] = useState(0); // bumped to re-run GPS acquisition without a full mode toggle
   const [swath, setSwath] = useState(() => { const s = loadLastSettings(); return s && s.swath ? s.swath : 2.5; });
-  const [navHud, setNavHud] = useState(() => { const s = loadLastSettings(); return !!(s && s.navHud); }); // opt-in Google-Maps-style direction banner + ETA bar while running
+  const [navHud, setNavHud] = useState(() => {
+    try { if (!localStorage.getItem('agras_navhud_v2')) { localStorage.setItem('agras_navhud_v2', '1'); return true; } } catch (e) { /* ignore */ }
+    const s = loadLastSettings(); return s && s.navHud !== undefined ? !!s.navHud : true;
+  }); // opt-in Google-Maps-style direction banner + ETA bar while running
   const [mult, setMult] = useState(20);
   const [autoWalk, setAutoWalk] = useState(true);
   const [draft, setDraft] = useState([]);
@@ -2053,6 +2085,7 @@ function App() {
   useEffect(() => { if (phase === 'done') persistCoverage(activeFieldIdRef.current, true); }, [phase]);
   const missionOn = phase === 'running'; // native foreground GPS service only while spraying — paused mission = no service, no wake-ups
   useEffect(() => { if (phase === 'running') { refillArmedRef.current = false; enteredFieldRef.current = false; } }, [phase]);
+  useEffect(() => { if (phase === 'running' && camModeRef.current === 'fit') return; if (phase === 'ready' || phase === 'boundary' || phase === 'station') { navHeadingRef.current = null; setCamMode('follow'); } }, [phase]);
   useEffect(() => { AgrasLog.add('PHASE', `${phase} src=${srcMode} field=${fieldRef.current.area ? (fieldRef.current.area / 1600).toFixed(2) : '?'}rai`); if (phase === 'running' || phase === 'paused') logBattery('phase ' + phase); AgrasLog.flush(); }, [phase]);
   useEffect(() => { AgrasLog.add('OPMODE', opMode); }, [opMode]);
   useEffect(() => { AgrasLog.add('GPSSTATUS', gpsStatus); }, [gpsStatus]);
@@ -2254,8 +2287,7 @@ function App() {
             if (followMeRef.current && sm === 'gps' && gpsLiveRef.current.lat != null && !dragRef.current) {
               panRef.current = { ...panRef.current, x: gpsLiveRef.current.x, y: gpsLiveRef.current.y };
             }
-            const p = panRef.current;
-            viewRef.current = { s: p.s, ox: c.width / 2 - p.x * p.s, oy: c.height / 2 - p.y * p.s };
+            viewRef.current = viewFromCam(panRef.current, c.width, c.height, 0);
           } else if (sm === 'gps') {
             viewRef.current = computeView(c.width, c.height, liveDraftBBox(gpsLiveRef.current.lat != null ? [...draftRef.current, gpsLiveRef.current] : draftRef.current), 5);
           }
@@ -2271,7 +2303,18 @@ function App() {
           const v = computeView(c.width, fr.h, bb, 6);
           viewRef.current = { ...v, oy: v.oy + fr.top, angle: 0 };
         }
-      } else if ((ph === 'ready' || ph === 'running' || ph === 'paused' || ph === 'station') && satelliteOnRef.current && panRef.current) {
+      } else if ((ph === 'running' || ph === 'paused') && camModeRef.current === 'follow') {
+        // Navigation-style camera: chase the operator, heading-up, marker in the lower part of the screen
+        const c = canvasRef.current;
+        if (c) {
+          const moving = sm === 'sim' || speedEmaRef.current > 0.4;
+          const target = sim.heading + Math.PI / 2;
+          if (navHeadingRef.current == null) navHeadingRef.current = target;
+          else if (moving) navHeadingRef.current += normAngle(target - navHeadingRef.current) * Math.min(1, dt * 2.5 + 0.02);
+          const ns = navScaleRef.current > 0 ? navScaleRef.current : c.width / 32;
+          viewRef.current = viewFromCam({ x: sim.pos.x, y: sim.pos.y, s: ns, a: navHeadingRef.current }, c.width, c.height, c.height * 0.17);
+        }
+      } else if (((ph === 'ready' || ph === 'station') && satelliteOnRef.current && panRef.current) || ((ph === 'running' || ph === 'paused') && camModeRef.current === 'free')) {
         // Manual pan/zoom on the pre-flight/running/paused screens — the
         // operator has taken the camera; render exactly where they left it
         // every frame (no rotation, no follow-me/GPS re-centering — those
@@ -2280,8 +2323,8 @@ function App() {
         // behaviour (see the effect above and computeFitView).
         const c = canvasRef.current;
         if (c) {
-          const p = panRef.current;
-          viewRef.current = { s: p.s, ox: c.width / 2 - p.x * p.s, oy: c.height / 2 + freeDyRef.current - p.y * p.s };
+          if (!panRef.current) panRef.current = camFromView(viewRef.current, c.width, c.height, freeDyRef.current);
+          viewRef.current = viewFromCam(panRef.current, c.width, c.height, freeDyRef.current);
         }
       }
 
@@ -2463,8 +2506,7 @@ function App() {
     const r = wrapRef.current.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const px = (clientX - r.left) * dpr, py = (clientY - r.top) * dpr;
-    const v = viewRef.current;
-    return { x: (px - v.ox) / v.s, y: (py - v.oy) / v.s };
+    return screenToField(viewRef.current, px, py);
   };
   const onMapTap = (e) => {
     const pt = e.touches ? e.touches[0] : e;
@@ -2492,7 +2534,7 @@ function App() {
     const live = gpsLiveRef.current;
     if (live.lat == null) return;
     const s = panRef.current ? panRef.current.s : viewRef.current.s;
-    panRef.current = { x: live.x, y: live.y, s };
+    panRef.current = { x: live.x, y: live.y, s, a: panRef.current ? (panRef.current.a || 0) : 0 };
   };
   const addPointAtCrosshair = () => {
     const wrap = wrapRef.current;
@@ -2512,53 +2554,93 @@ function App() {
   // finger to drag, double-tap to step in. onMapTap only ever does anything
   // on 'boundary'/'station' anyway, so falling through to it elsewhere is
   // already a safe no-op.
+  /* Google-Maps-style gestures: one finger drags the map, two fingers pinch-zoom AND rotate around their
+   * midpoint (the ground under your fingers stays under your fingers), double-tap zooms in at the tap. */
+  const canvasPoint = (clientX, clientY) => {
+    const r = wrapRef.current.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    return { x: (clientX - r.left) * dpr, y: (clientY - r.top) * dpr };
+  };
+  const camDy = () => (phaseRef.current === 'boundary' ? 0 : freeDyRef.current);
+  const gesturesActive = () => {
+    const ph = phaseRef.current;
+    if (ph === 'running' || ph === 'paused') return true;
+    return !!(PANNABLE_PHASES[ph] && satelliteOnRef.current && panRef.current);
+  };
+  const beginGesture = () => {
+    const ptrs = [...activePointersRef.current.values()], c = canvasRef.current;
+    if (!c || !ptrs.length) { gestureRef.current = null; dragRef.current = null; return; }
+    const cam0 = panRef.current && camModeRef.current !== 'follow' && camModeRef.current !== 'fit'
+      ? { ...panRef.current }
+      : camFromView(viewRef.current, c.width, c.height, camDy());
+    if (cam0.a == null) cam0.a = 0;
+    const two = ptrs.length >= 2;
+    const M = two ? { x: (ptrs[0].x + ptrs[1].x) / 2, y: (ptrs[0].y + ptrs[1].y) / 2 } : ptrs[0];
+    const Mc = canvasPoint(M.x, M.y);
+    gestureRef.current = {
+      cam0, two, P0: screenToField(viewRef.current, Mc.x, Mc.y),
+      dist0: two ? Math.max(1, Math.hypot(ptrs[1].x - ptrs[0].x, ptrs[1].y - ptrs[0].y)) : 0,
+      ang0: two ? Math.atan2(ptrs[1].y - ptrs[0].y, ptrs[1].x - ptrs[0].x) : 0,
+      startX: ptrs[0].x, startY: ptrs[0].y, moved: false, s0: navScaleRef.current > 0 ? navScaleRef.current : c.width / 32,
+    };
+    dragRef.current = gestureRef.current;
+  };
   const onWrapPointerDown = (e) => {
-    if (!(PANNABLE_PHASES[phase] && satelliteOn && panRef.current)) { onMapTap(e); return; }
+    if (!gesturesActive()) { onMapTap(e); return; }
     try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* unsupported — gestures still work */ }
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    if (activePointersRef.current.size === 2) {
-      dragRef.current = null;
-      const pts = [...activePointersRef.current.values()];
-      const dist2 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const midClientX = (pts[0].x + pts[1].x) / 2, midClientY = (pts[0].y + pts[1].y) / 2;
-      const centerField = toFieldCoords(midClientX, midClientY);
-      pinchRef.current = { startDist: Math.max(1, dist2), startS: panRef.current.s, centerField };
-      return;
-    }
     if (activePointersRef.current.size === 1) {
-      const now = performance.now();
-      const last = lastTapRef.current;
+      const now = performance.now(), last = lastTapRef.current;
       const isDoubleTap = now - last.t < 320 && Math.hypot(e.clientX - (last.x || 0), e.clientY - (last.y || 0)) < 30;
       lastTapRef.current = { t: now, x: e.clientX, y: e.clientY };
-      if (isDoubleTap) { zoomMap(1); lastTapRef.current = { t: 0 }; return; }
-      dragRef.current = { startClientX: e.clientX, startClientY: e.clientY, startCenter: { x: panRef.current.x, y: panRef.current.y }, s: panRef.current.s, moved: false };
+      if (isDoubleTap && camModeRef.current !== 'follow' && (phaseRef.current !== 'running' && phaseRef.current !== 'paused' || camModeRef.current === 'free')) {
+        beginGesture();
+        const g = gestureRef.current, c = canvasRef.current;
+        if (g && c) {
+          const s2 = Math.min(MAX_ZOOM_S, g.cam0.s * 2), Mc = canvasPoint(e.clientX, e.clientY);
+          const off = rotOut(Mc.x - c.width / 2, Mc.y - (c.height / 2 + camDy()), g.cam0.a);
+          panRef.current = { x: g.P0.x - off.x / s2, y: g.P0.y - off.y / s2, s: s2, a: g.cam0.a };
+        }
+        gestureRef.current = null; dragRef.current = null; lastTapRef.current = { t: 0 };
+        return;
+      }
     }
+    beginGesture();
   };
   const onWrapPointerMove = (e) => {
-    if (activePointersRef.current.has(e.pointerId)) activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    if (pinchRef.current && activePointersRef.current.size >= 2) {
-      const pts = [...activePointersRef.current.values()].slice(0, 2);
-      const dist2 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const scaleFactor = dist2 / pinchRef.current.startDist;
-      const targetS = Math.max(MIN_ZOOM_S, Math.min(MAX_ZOOM_S, pinchRef.current.startS * scaleFactor));
-      panRef.current = { x: pinchRef.current.centerField.x, y: pinchRef.current.centerField.y, s: targetS };
+    if (!activePointersRef.current.has(e.pointerId)) return;
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = gestureRef.current, c = canvasRef.current;
+    if (!g || !c) return;
+    const ptrs = [...activePointersRef.current.values()];
+    const ph = phaseRef.current, navigating = (ph === 'running' || ph === 'paused');
+    if (g.two && ptrs.length >= 2) {
+      const dist2 = Math.max(1, Math.hypot(ptrs[1].x - ptrs[0].x, ptrs[1].y - ptrs[0].y));
+      const s = Math.max(MIN_ZOOM_S, Math.min(MAX_ZOOM_S, g.cam0.s * dist2 / g.dist0));
+      g.moved = true;
+      if (navigating && camModeRef.current === 'follow') { navScaleRef.current = Math.max(1, Math.min(120, g.s0 * dist2 / g.dist0)); return; } // chase view: pinch = zoom only
+      if (navigating && camModeRef.current === 'fit') setCamMode('free');
+      const ang = Math.atan2(ptrs[1].y - ptrs[0].y, ptrs[1].x - ptrs[0].x);
+      const a = g.cam0.a - normAngle(ang - g.ang0);
+      const Mc = canvasPoint((ptrs[0].x + ptrs[1].x) / 2, (ptrs[0].y + ptrs[1].y) / 2);
+      const off = rotOut(Mc.x - c.width / 2, Mc.y - (c.height / 2 + camDy()), a);
+      panRef.current = { x: g.P0.x - off.x / s, y: g.P0.y - off.y / s, s, a };
       return;
     }
-    const d = dragRef.current;
-    if (!d) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const dx = (e.clientX - d.startClientX) * dpr, dy = (e.clientY - d.startClientY) * dpr;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.moved = true;
-    panRef.current = { x: d.startCenter.x - dx / d.s, y: d.startCenter.y - dy / d.s, s: d.s };
+    const p = ptrs[0];
+    if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) > 6) g.moved = true;
+    if (!g.moved) return;
+    if (navigating && camModeRef.current !== 'free') setCamMode('free'); // dragging takes the camera off the operator (Re-center brings it back)
+    const Mc = canvasPoint(p.x, p.y);
+    const off = rotOut(Mc.x - c.width / 2, Mc.y - (c.height / 2 + camDy()), g.cam0.a);
+    panRef.current = { x: g.P0.x - off.x / g.cam0.s, y: g.P0.y - off.y / g.cam0.s, s: g.cam0.s, a: g.cam0.a };
   };
   const onWrapPointerUp = (e) => {
-    const d = dragRef.current;
-    const wasTap = d && !d.moved && !pinchRef.current && activePointersRef.current.size === 1;
+    const g = gestureRef.current;
+    const wasTap = g && !g.moved && !g.two && activePointersRef.current.size === 1;
     activePointersRef.current.delete(e.pointerId);
-    if (activePointersRef.current.size < 2) pinchRef.current = null;
-    if (activePointersRef.current.size === 0) dragRef.current = null;
+    if (activePointersRef.current.size === 0) { gestureRef.current = null; dragRef.current = null; }
+    else beginGesture(); // a finger lifted mid-gesture: continue from the remaining one without a jump
     if (wasTap && phaseRef.current === 'station' && e.type === 'pointerup') onMapTap(e);
   };
 
@@ -2576,16 +2658,7 @@ function App() {
     const tid = setTimeout(() => {
     if (PANNABLE_PHASES[phase] && !panRef.current) {
       const c = canvasRef.current, v = viewRef.current;
-      if (c && v.s > 0) {
-        let sx = c.width / 2, sy = c.height / 2 + (phase === 'boundary' ? 0 : freeDyRef.current);
-        if (v.angle) {
-          const cosA = Math.cos(v.angle), sinA = Math.sin(v.angle);
-          const dx = sx - v.ox, dy = sy - v.oy;
-          sx = v.ox + dx * cosA - dy * sinA;
-          sy = v.oy + dx * sinA + dy * cosA;
-        }
-        panRef.current = { x: (sx - v.ox) / v.s, y: (sy - v.oy) / v.s, s: v.s };
-      }
+      if (c && v.s > 0) panRef.current = camFromView(v, c.width, c.height, phase === 'boundary' ? 0 : freeDyRef.current);
     }
     }, 150);
     return () => clearTimeout(tid);
@@ -2749,7 +2822,7 @@ function App() {
     if (live.lat == null) return;
     setStationDraft({ x: live.x, y: live.y });
     stationDraftRef.current = { x: live.x, y: live.y };
-    if (panRef.current) panRef.current = { x: live.x, y: live.y, s: panRef.current.s }; // move the camera there
+    if (panRef.current) panRef.current = { x: live.x, y: live.y, s: panRef.current.s, a: panRef.current.a || 0 }; // move the camera there
   };
 
   /** Session persistence — reusable snapshot writer, called from the 5s
@@ -3124,7 +3197,25 @@ function App() {
             understands wins — a plain inline style object can't hold both, so
             this is a real <style> rule instead. */}
         <style>{'.agras-map-canvas{image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges;}'}</style>
-        <canvas ref={canvasRef} className="absolute inset-0 touch-none agras-map-canvas" />
+        <canvas ref={canvasRef} className="absolute inset-0 touch-none agras-map-canvas"
+          style={(phase === 'running' || phase === 'paused') && camMode === 'follow' && tiltOn ? { transform: 'perspective(900px) rotateX(40deg) scale(1.55)', transformOrigin: '50% 80%' } : undefined} />
+        {(phase === 'running' || phase === 'paused') && camMode === 'follow' && tiltOn && (
+          <div className="absolute inset-x-0 top-0 h-[22%] pointer-events-none" style={{ background: 'linear-gradient(#0A0E10, rgba(10,14,16,0))' }} />
+        )}
+        {(() => {
+          const v = viewRef.current, dpr = Math.min(2, window.devicePixelRatio || 1), fr = freeRectRef.current;
+          if (!v || !(v.s > 0) || phase === 'done' || (camMode === 'follow' && tiltOn && (phase === 'running' || phase === 'paused'))) return null;
+          const mPerPx = dpr / v.s, nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+          let L = nice[0]; for (const n of nice) if (n / mPerPx <= 110) L = n;
+          const w = L / mPerPx;
+          const top = fr.h > 0 ? (fr.top + fr.h) / dpr - 26 : 140;
+          return (
+            <div className="absolute left-3 pointer-events-none flex flex-col gap-0.5" style={{ top }}>
+              <span className="font-mono text-[9px] text-white/90" style={{ textShadow: '0 0 3px #000' }}>{L >= 1000 ? (L / 1000) + ' km' : L + ' m'}</span>
+              <div style={{ width: w, height: 5, borderLeft: '2px solid #fff', borderRight: '2px solid #fff', borderBottom: '2px solid #fff', filter: 'drop-shadow(0 0 2px #000)' }} />
+            </div>
+          );
+        })()}
         {phase === 'boundary' && satelliteOn && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <Crosshair size={36} strokeWidth={1.5} className="text-[#2EE6C7]" style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,.85))' }} />
@@ -3337,7 +3428,7 @@ function App() {
             overflow-y-auto means that on a genuinely cramped screen this
             column scrolls internally rather than ever pushing the bottom
             dock off-screen or sliding under it. */}
-        <div className="flex-1 min-h-0 flex items-start justify-between gap-2 px-3 py-2 overflow-y-auto">
+        <div className="flex-1 min-h-0 flex items-start justify-between gap-2 px-3 py-2 overflow-y-auto" style={navHud && running && !showStats ? { visibility: 'hidden' } : undefined}>
           {/* Spec §4C "Dim all numbers" while Auto-Paused out-of-bounds. */}
           <div className={'flex flex-col gap-2 pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
@@ -3376,6 +3467,19 @@ function App() {
                     <MapCtrlBtn icon={LocateFixed} onClick={centerOnMyLocation} disabled={gpsStatus !== 'active'} title="Center on my location" />
                     {phase === 'boundary' && <MapCtrlBtn icon={followMe ? Move : Compass} active={!followMe} onClick={() => setFollowMe((v) => !v)}
                       title={followMe ? 'Following — tap for Free Pan' : 'Free Pan — tap to Follow Me'} />}
+                  </>
+                )}
+                {/* compass: only when the map has been rotated; tap = north up */}
+                {panRef.current && Math.abs(panRef.current.a || 0) > 0.03 && (phase !== 'running' && phase !== 'paused' || camMode === 'free') && (
+                  <MapCtrlBtn icon={(p) => <Compass {...p} style={{ transform: `rotate(${-(panRef.current.a || 0)}rad)`, color: '#FF5252' }} />}
+                    onClick={() => { if (panRef.current) panRef.current = { ...panRef.current, a: 0 }; setTick((n) => n + 1); }} title="North up" />
+                )}
+                {(phase === 'running' || phase === 'paused') && (
+                  <>
+                    <MapCtrlBtn icon={LocateFixed} active={camMode === 'follow'} onClick={() => { navHeadingRef.current = null; setCamMode('follow'); }} title="Re-center on me" />
+                    <MapCtrlBtn icon={OverviewIcon} active={camMode === 'fit'} onClick={() => setCamMode('fit')} title="Whole field" />
+                    <MapCtrlBtn icon={TiltIcon} active={tiltOn} onClick={() => setTiltOn((v) => !v)} title="3D tilt" />
+                    <MapCtrlBtn icon={Gauge} active={showStats} onClick={() => setShowStats((v) => !v)} title="Show stats" />
                   </>
                 )}
               </div>
