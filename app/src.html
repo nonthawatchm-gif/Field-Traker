@@ -2256,6 +2256,7 @@ function App() {
     // while the screen is off / the app is backgrounded (rAF and timers are suspended then).
     const frame = (t, headless) => {
       headless ? nHeadless++ : nFrames++;
+      window.__agrasDbg = { pan: panRef.current, view: viewRef.current, ph: phaseRef.current, mode: camModeRef.current };
       const rawDt = (t - last) / 1000;
       const dt = Math.min(document.hidden ? 5 : 0.1, rawDt); last = t;
       const sim = simRef.current, field = fieldRef.current;
@@ -2624,6 +2625,7 @@ function App() {
     if (!g || !c) return;
     const ptrs = [...activePointersRef.current.values()];
     const ph = phaseRef.current, navigating = (ph === 'running' || ph === 'paused');
+    if (g.two && ptrs.length >= 2 && !g.logged) { g.logged = true; AgrasLog.add('GESTURE', `two-finger start dist=${Math.round(g.dist0)} phase=${ph} mode=${camModeRef.current}`); }
     if (g.two && ptrs.length >= 2) {
       const dist2 = Math.max(1, Math.hypot(ptrs[1].x - ptrs[0].x, ptrs[1].y - ptrs[0].y));
       const s = Math.max(MIN_ZOOM_S, Math.min(MAX_ZOOM_S, g.cam0.s * dist2 / g.dist0));
@@ -2635,6 +2637,7 @@ function App() {
       // once the fingers have twisted past ~20 degrees (then it follows smoothly from that point).
       const dAng = normAngle(ang - g.ang0);
       if (!g.rotUnlocked && Math.abs(dAng) > 0.35) { g.rotUnlocked = true; g.angOff = dAng; }
+      if (g.rotUnlocked && !g.rotLogged) { g.rotLogged = true; AgrasLog.add('GESTURE', `rotation unlocked twist=${Math.round(dAng * 57.3)}deg zoom=${(dist2 / g.dist0).toFixed(2)}x`); }
       const a = g.rotUnlocked ? g.cam0.a - (dAng - g.angOff) : g.cam0.a;
       const Mc = canvasPoint((ptrs[0].x + ptrs[1].x) / 2, (ptrs[0].y + ptrs[1].y) / 2);
       const off = rotOut(Mc.x - c.width / 2, Mc.y - (c.height / 2 + camDy()), a);
@@ -2677,7 +2680,9 @@ function App() {
     if (PANNABLE_PHASES[phase] && !panRef.current) {
       const c = canvasRef.current, v = viewRef.current;
       if (c && v.s > 0) {
-        panRef.current = camFromView(v, c.width, c.height, freeDyRef.current);
+        const cam = camFromView(v, c.width, c.height, freeDyRef.current);
+        if (phase === 'boundary' || phase === 'station') cam.a = 0; // always start plotting north-up
+        panRef.current = cam;
       }
     }
     }, 150);
@@ -3205,7 +3210,7 @@ function App() {
           guessed pixel offsets, so no HUD element can land on the same
           coordinates as another regardless of screen height or content. */}
       <div ref={wrapRef} className="absolute inset-0"
-        onPointerDown={onWrapPointerDown} onPointerMove={onWrapPointerMove} onPointerUp={onWrapPointerUp} onPointerCancel={onWrapPointerUp}>
+        onPointerDown={onWrapPointerDown} onPointerMove={onWrapPointerMove} onPointerUp={onWrapPointerUp} onPointerCancel={(e) => { AgrasLog.add('GESTURE', 'pointercancel'); onWrapPointerUp(e); }}>
         {/* image-rendering here guards the canvas's own backing-bitmap-to-CSS-pixel
             scaling (relevant if a resize ever lands between a devicePixelRatio
             backing-store resize and its matching CSS size, or on browsers that
