@@ -1,4 +1,4 @@
-# Handoff — 2026-09-20 (updated later the same day)
+# Handoff — 2026-09-20
 
 Written for whoever picks this up next (including Claude Code). Everything below
 was established by running the app, not by reading it: a GPS test harness now
@@ -8,11 +8,11 @@ lives in `app/test/`, and every claim here has a check behind it.
 
 `app/src.html` is the whole application — a single self-contained file, vanilla
 React over CDN (precompiled into `www/` by `build.js`), no framework, no build
-step while developing. Today's session ran five scenarios against it, found
-three bugs, fixed all three in `src.html`, and left four smaller items open.
-A later session cleared open items 1 and 3, and an on-device SIM walkthrough
-plus the tests written for them turned up four more bugs (5–8), all fixed.
-`www/` is rebuilt and everything is committed.
+step while developing. Across two sessions it has had eight bugs found and
+fixed, each with a regression check behind it in `app/test/run.js` (25 checks,
+all passing). One open item is left, one product question has been decided and
+should not be reopened, and `build-37` — the APK built from the last commit — is
+installed on the owner's phone.
 
 ## Start here
 
@@ -32,15 +32,27 @@ Two notes on running it:
   `CHROME_PATH`, and the installed Chrome works:
   `CHROME_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe" node test/run.js`.
 - `core.autocrlf` is `true` here, so `src.html` sits in the working tree as LF
-  while git stores and checks it out as CRLF. Git normalises both sides — the
-  three-session diff is still 67 insertions / 10 deletions, not a whole-file
-  rewrite — so the CRLF warning on `git diff` is noise, not damage.
+  while git stores and checks it out as CRLF. Git normalises both sides, so the
+  diffs stay small and the CRLF warning on `git add` / `git diff` is noise, not
+  damage. (An earlier revision of this file said the working copy must stay CRLF
+  — that turned out not to matter as long as `autocrlf` is on.)
 
-## What changed today
+## Where things stand
 
-47 insertions, 6 deletions in `app/src.html`. CRLF line endings — the file is
-CRLF throughout and must stay that way; a tool that silently rewrites it to LF
-turns a three-line change into a whole-file diff.
+- Commits: `283cb4a`, `612cbde`, `b45e263` on `main`, all pushed.
+- `build-37` is the APK built from `b45e263` and is installed on the phone.
+- `app/package.json` and `app/package-lock.json` are **modified and
+  uncommitted** — they carry `playwright` as a devDependency, added to run the
+  harness. The owner scoped the commit to `src.html` / `app/test/` / this file,
+  so they were deliberately left out. CI is unaffected: it runs `npm ci` against
+  the committed pair, which are still in sync with each other. Commit them if
+  you want `npm i` alone to set a new clone up for the tests.
+
+## What changed
+
+Eight bugs, in the order they were found. BUGs 1–3 came from the first session's
+five-scenario run; 4 was an open item from it; 5–8 came out of fixing 4 and
+writing its tests.
 
 ### BUG 2 — overlap was never detected within a spray run
 
@@ -112,13 +124,21 @@ fails (`wind=true`) and the others still pass.
 
 ### BUG 5 — the wind reset erased the compliance record it was meant to outlive
 
-Introduced by BUG 4's first fix and caught before it shipped anywhere real.
-`saveMission()` builds the Spec §5 compliance log from the live `checklist`, but
-by the time the operator taps SAVE SESSION on the summary the reset has already
-fired — so a mission where Wind *was* checked filed a record saying it wasn't.
+Introduced by BUG 4's first fix, and it did ship: `build-36` went onto the
+owner's phone with it. `saveMission()` builds the Spec §5 compliance log from
+the live `checklist`, but by the time the operator taps SAVE SESSION on the
+summary the reset has already fired — so a mission where Wind *was* checked
+filed a record saying it wasn't. The fix for the open item quietly corrupted the
+compliance trail it was supposed to be keeping honest.
 
 `missionChecklistRef` now snapshots the checklist on entry to `'done'`, before
 the reset, and `saveMission()` builds the record from that.
+
+Any mission saved from `build-36` may carry `checklist.wind: false` wrongly.
+Only `build-36` is affected — it was installed and used for one SIM walkthrough,
+and the history written during that walkthrough was restored from a backup
+afterwards, so in practice there is probably nothing to correct. Worth knowing
+if a record from that window ever looks wrong.
 
 ### BUG 6 — wind survived the SIM route-follower's auto-finish
 
@@ -143,6 +163,16 @@ Fixed with `fresh.epoch = prev.epoch + 1`. Ids only increase, so that is past
 every seeded id and past the `-1`/`-2` sentinels for unsprayed and restored
 ground. This is the same class as BUG 2 — a pass-id collision — in the one code
 path that manufactures its own seeded grid.
+
+**This one is GPS-only, and that matters for how you test it.** SIM does not go
+through `sim.epoch` at all: `advance()` stamps with `target.passId`, an id that
+comes off the route waypoints, so a SIM touch-up only ever collided on its first
+leg and still reported most of its overlap. A SIM walkthrough on the phone
+therefore looks almost fine both before and after the fix and proves nothing
+about it. The GPS check in `test/run.js` is the evidence: pre-fix it reports
+`0 rai` overlapped on a touch-up over covered ground, post-fix `0.06 rai`.
+Real operators are always in GPS mode, so they had the full-lane version of the
+bug.
 
 ### BUG 8 — "0% of sprayed area" under a non-zero overlap figure
 
@@ -171,6 +201,44 @@ actually been closed, since it is derived from the measured rai-per-tank.
   new mission's first tank and its overlap rai counted the *previous* mission's
   ground, so a touch-up run opened with a wildly inflated rai/tank figure.
 
+## Verified on the phone, and what wasn't
+
+`build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against
+the owner's own saved data. Confirmed there: the checklist row wording, wind
+expiring on both the FINISH path and the SIM auto-finish, the filed compliance
+record keeping `wind: true` while the live checklist showed `false`, the
+OVERLAPPED sub-line reading `re-sprayed over ground already covered` on a run
+that broke no new ground, and the whole hands-free refill cycle (TANK EMPTY →
+walk to station → REFILLING → walk back → auto-resume at the breakpoint).
+
+**Not verified on the phone: BUG 7**, for the reason in its section above — SIM
+cannot reach it. Confirming it on a real device means walking a field in GPS
+mode, finishing, tapping TOUCH-UP, and re-walking sprayed ground to see whether
+OVERLAPPED moves. That has not been done.
+
+### Driving the app on the phone
+
+```bash
+adb shell am start -n com.agras.fieldtracker/.MainActivity
+adb shell cat /proc/net/unix | grep -o "webview_devtools_remote_[0-9]*"
+adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>
+```
+
+Then talk to `http://localhost:9222/json` over CDP. Three things cost time here:
+
+- **Back up `localStorage` first and restore it after.** A dev-mode SIM mission
+  writes real coverage into the operator's saved field and a real row into their
+  mission history — `persistCoverage()` fires on autosave, not just on save.
+- **Restore and `location.reload()` in the same evaluation.** Restoring while
+  the app is running is not enough: React still holds the old mission list in
+  state and writes it straight back over you. Reloading in the same expression
+  is what makes it stick.
+- **The SIM route-follower stops when the screen sleeps.** It runs on
+  `requestAnimationFrame`, so a dozing phone freezes the walk mid-field and the
+  numbers sit still. `adb shell svc power stayon usb` for the duration, and put
+  it back with `stayon false`. (Real GPS tracking is unaffected — that is the
+  headless frame path, driven by fixes from the foreground service.)
+
 ## Still open
 
 In the order I'd do them.
@@ -178,6 +246,17 @@ In the order I'd do them.
 1. **Outbound nav-line colour.** The leg to the station is teal
    (`rgba(46,230,199,.85)`); only the return legs are amber. The test plan
    expected amber outbound. Cosmetic, unclear which is intended.
+
+2. **BUG 7 has never been seen on real hardware in GPS mode.** The fix is
+   right and the GPS-fed test proves it, but nobody has walked a field, tapped
+   TOUCH-UP and re-crossed sprayed ground with a real phone. The next field day
+   is the chance to confirm OVERLAPPED actually moves.
+
+3. **`≈ N L wasted` needs a closed tank before it appears.** It is derived from
+   the measured rai-per-tank average, so a mission where the operator never taps
+   TANK EMPTY shows overlap in rai with no litres beside it. That is honest —
+   there is nothing to derive it from — but if the figure is wanted on every
+   mission it needs another source, and the Rate field is deliberately gone.
 
 ## Decided, do not reopen
 
@@ -195,8 +274,18 @@ In the order I'd do them.
   never hand-edit it. `build.js` precompiles the JSX, vendors React, runs
   Tailwind against `src.html`, and inlines the fonts.
 - **Validate before delivering.** The project convention is to compile the
-  `<script type="text/babel">` block and run `node --check` on the output. That
-  catches the syntax errors a 4,300-line single file invites.
+  `<script type="text/babel">` block and run `node --check` on the output —
+  `node build.js && node --check www/app.js`. That catches the syntax errors a
+  4,300-line single file invites. It will not catch a `const` used above its
+  declaration: the render body is one long run of derived values, and a helper
+  added near where it is *used* rather than after what it *reads* throws only at
+  runtime. Adding `overlapSub` hit exactly that.
+- **Watch for pass-id collisions.** BUG 2 and BUG 7 are the same mistake in two
+  places. `stamp()` credits overlap only when a cell's stored `lastPass` differs
+  from the incoming id, so any code path that seeds a grid, restarts a counter,
+  or invents its own ids has to guarantee the new ids cannot collide with the
+  stored ones. `applyCoverage()` does it with the `-2` sentinel, `startTouchUp()`
+  by carrying the counter forward. A third path would need the same care.
 - **SIM mode is dev-only** — `srcMode` is hard-defaulted to `'gps'` and the
   toggle only renders under `devMode` (the secret tap on the status pill, or
   `localStorage.agras_dev = '1'`). Any test plan that starts "switch to SIM
@@ -207,6 +296,8 @@ In the order I'd do them.
 
 ## Full test report
 
-`claude/test-report-2026-09-20.md` in the Claude project — all five scenarios,
-what passed as found, the measured before/after numbers, and the reproduction
-parameters.
+The first session's five-scenario write-up was saved as
+`claude/test-report-2026-09-20.md` in the Claude project, not in this repo — it
+is not at that path in the working tree, so treat it as possibly gone. Nothing
+here depends on it: every claim above has a check in `app/test/run.js` behind
+it, and that is the durable record.
