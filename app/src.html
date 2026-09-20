@@ -2287,6 +2287,7 @@ function App() {
             if (followMeRef.current && sm === 'gps' && gpsLiveRef.current.lat != null && !dragRef.current) {
               panRef.current = { ...panRef.current, x: gpsLiveRef.current.x, y: gpsLiveRef.current.y };
             }
+            if (panRef.current.a) panRef.current = { ...panRef.current, a: 0 };
             viewRef.current = viewFromCam(panRef.current, c.width, c.height, 0);
           } else if (sm === 'gps') {
             viewRef.current = computeView(c.width, c.height, liveDraftBBox(gpsLiveRef.current.lat != null ? [...draftRef.current, gpsLiveRef.current] : draftRef.current), 5);
@@ -2324,6 +2325,7 @@ function App() {
         const c = canvasRef.current;
         if (c) {
           if (!panRef.current) panRef.current = camFromView(viewRef.current, c.width, c.height, freeDyRef.current);
+          if (ph === 'station' && panRef.current.a) panRef.current = { ...panRef.current, a: 0 };
           viewRef.current = viewFromCam(panRef.current, c.width, c.height, freeDyRef.current);
         }
       }
@@ -2625,7 +2627,9 @@ function App() {
       // once the fingers have twisted past ~20 degrees (then it follows smoothly from that point).
       const dAng = normAngle(ang - g.ang0);
       if (!g.rotUnlocked && Math.abs(dAng) > 0.35) { g.rotUnlocked = true; g.angOff = dAng; }
-      const a = g.rotUnlocked ? g.cam0.a - (dAng - g.angOff) : g.cam0.a;
+      // plotting screens stay north-up: rotating there made corner placement confusing
+      const plotting = ph === 'boundary' || ph === 'station';
+      const a = plotting ? 0 : (g.rotUnlocked ? g.cam0.a - (dAng - g.angOff) : g.cam0.a);
       const Mc = canvasPoint((ptrs[0].x + ptrs[1].x) / 2, (ptrs[0].y + ptrs[1].y) / 2);
       const off = rotOut(Mc.x - c.width / 2, Mc.y - (c.height / 2 + camDy()), a);
       panRef.current = { x: g.P0.x - off.x / s, y: g.P0.y - off.y / s, s, a };
@@ -2666,7 +2670,11 @@ function App() {
     const tid = setTimeout(() => {
     if (PANNABLE_PHASES[phase] && !panRef.current) {
       const c = canvasRef.current, v = viewRef.current;
-      if (c && v.s > 0) panRef.current = camFromView(v, c.width, c.height, phase === 'boundary' ? 0 : freeDyRef.current);
+      if (c && v.s > 0) {
+        const cam = camFromView(v, c.width, c.height, phase === 'boundary' ? 0 : freeDyRef.current);
+        if (phase === 'boundary' || phase === 'station') cam.a = 0;
+        panRef.current = cam;
+      }
     }
     }, 150);
     return () => clearTimeout(tid);
