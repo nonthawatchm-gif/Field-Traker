@@ -40,8 +40,8 @@ Two notes on running it:
 
 ## Where things stand
 
-- Everything is on `main` and pushed; the last code commit is `6f23280`
-  (refill-trip fix). `build-46` is built from it and
+- Everything is on `main` and pushed; the last code commit is `23bb1b0`
+  (the owner's workflow: two-tap refill, rounds). `build-48` is built from it and
   installed on the phone.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
