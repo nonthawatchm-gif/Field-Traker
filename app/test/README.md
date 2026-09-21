@@ -50,6 +50,8 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | a double tap on the refill button doesn't undo itself | the shared dock spot |
 | NOT DONE keeps the round; FIELD DONE opens round N+1 on an empty map, and that is what is stored | rounds, and the stale library write |
 | walking the field during the trip alerts; walking straight to the station doesn't | spraying unrecorded with the screen off |
+| back closes one layer; with nothing open it minimizes | the Android back button |
+| no imagery toggle; field + START on one row; Settings dot follows the checklist | the home-screen redesign |
 
 ## Writing more
 
@@ -61,8 +63,9 @@ is an 80 × 80 m square = 4.00 rai, with the refill station outside it at
 
 Two gotchas worth knowing before you add a case:
 
-- `makeField` switches satellite imagery **off** first. With it on, boundary
-  plotting is crosshair-based (drag the map), which geolocation alone cannot
-  drive. With it off you get `MARK CORNER`, which marks the live fix.
+- `makeField` plots each corner the way an operator walking the boundary
+  does: set the fix, tap Center on my location, tap ADD AT CROSSHAIR. The app
+  is satellite-only, so there is no MARK CORNER any more. `openSettings()`
+  opens the one Settings sheet (checklist, station, tools).
 - There are two `TANK EMPTY` buttons in the DOM (the tank tile's and the dock's)
   and only ever one visible, which is why `tap()` filters on `visible=true`.

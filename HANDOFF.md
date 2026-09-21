@@ -20,11 +20,11 @@ save-system commit — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 52 checks, ~16 min, expect 52/52
+node test/run.js                     # 56 checks, ~17 min, expect 56/56
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 52/52 on a clean checkout, something in the fixes below
+If `test/run.js` is not 56/56 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -278,6 +278,21 @@ dialogs, history, library, menus, station setup, plotting — then minimizes
 provides the event; `window.__agrasBack` lets the browser tests press it.
 Verified on the phone with the real key (`adb shell input keyevent
 KEYCODE_BACK`).
+
+### Home-screen redesign (session 3, from the owner's annotated screenshots)
+
+Satellite only — the imagery toggle is gone, and with it MARK CORNER (it only
+showed with imagery off). Walking a boundary is now: stand at the corner,
+Center on my location, ADD AT CROSSHAIR; `harness.makeField` plots that way.
+The north-up control is a red arrowhead (`NorthArrow`) that points north. The
+field card and START SPRAYING share a row; spray settings, the pre-flight
+checklist, plot / station / rename and the tools (offline map, history, test
+log) all live in one SETTINGS sheet behind a round button (aria-label
+"Settings") with an amber dot while the checklist is incomplete or the weather
+warns. The two top cards are equal size. The field boundary is a white line on
+a dark halo. The Offline map screen closes itself when its download finishes.
+Every design round was shown to the owner as phone-sized screenshots (their
+real field's coordinates, tiles allowed) before anything was built.
 
 Found while testing it: **every field-library write must go through
 `updateLibrary()`**. Three writers (rename, delete, the "last sprayed" stamp)

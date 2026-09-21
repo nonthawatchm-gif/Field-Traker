@@ -5,7 +5,7 @@
  *   npx http-server www -p 8080   (or: python -m http.server 8080 --directory www)
  *   node test/run.js
  */
-const { boot, moveTo, walk, tap, tapRe, stat, summary, makeField } = require('./harness');
+const { boot, moveTo, walk, tap, tapRe, stat, summary, makeField, openSettings } = require('./harness');
 
 /** FINISH now asks whether the field is done (closes the round) or not
  *  (continue later). Most checks only care about the summary, so default to done. */
@@ -194,9 +194,10 @@ async function windReset() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'Pre-flight checklist', { wait: 500 });
+  await openSettings(page);                                     // the checklist lives in the Settings sheet
   await tap(page, 'PPE worn', { wait: 400 });
   await tap(page, 'Wind checked', { wait: 500 });
+  await tap(page, 'DONE', { wait: 500 });
   const before = await checklistState(page);
   check('wind ticks on the pre-flight checklist', before.wind === true, `wind=${before.wind}`);
   await tap(page, 'START SPRAYING', { wait: 1200 });
@@ -219,9 +220,10 @@ async function complianceLog() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'Pre-flight checklist', { wait: 500 });
+  await openSettings(page);                                     // the checklist lives in the Settings sheet
   await tap(page, 'PPE worn', { wait: 400 });
   await tap(page, 'Wind checked', { wait: 500 });
+  await tap(page, 'DONE', { wait: 500 });
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
@@ -279,7 +281,7 @@ async function fieldAutoSave() {
   // field-local y grows southward (screen-style), so harness [-10,-10] is stored as x=-10, y=+10
   check('it saves with the station set right after plotting', lib[0] && Math.round(lib[0].station.x) === -10 && Math.round(lib[0].station.y) === 10,
     lib[0] ? `station ${lib[0].station.x.toFixed(1)},${lib[0].station.y.toFixed(1)}` : 'no field');
-  await tap(page, 'Field setup');
+  await openSettings(page);
   await tap(page, 'STATION');
   await moveTo(ctx, page, 90, 40, 800);
   await tap(page, 'MY LOCATION');
@@ -396,7 +398,7 @@ async function rounds() {
   let f = await field();
   check('NOT DONE keeps round 1 open with its sprayed area', (f.round || 1) === 1 && !!f.cov, `round ${f.round || 1}, coverage ${!!f.cov}`);
   await tap(page, 'START NEW', { wait: 1500 });
-  check('the field card says round 1 continues', /Round 1 · \d+% sprayed — continues/.test(await txt(page)));
+  check('the field card says round 1 continues', /Round 1 · \d+% sprayed/.test(await txt(page)));
   await moveTo(ctx, page, 60, 10, 900);
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [60, 10], [60, 40], 2, 100);
@@ -458,8 +460,8 @@ async function backButton() {
   const { browser, ctx, page } = await boot();
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
-  await tap(page, 'Field setup');
-  check('back closes the Field setup menu', (await back(page)) === 'field-setup' && !/FIELD SETUP/.test(await txt(page)));
+  await openSettings(page);
+  check('back closes the Settings sheet', (await back(page)) === 'spray-settings' && !/RENAME FIELD/.test(await txt(page)));
   await moveTo(ctx, page, 40, 10, 900);
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
@@ -472,10 +474,35 @@ async function backButton() {
   await browser.close();
 }
 
+/* 16. The owner's home-screen design: satellite only, one Settings button with
+ *     an amber dot while the checklist is incomplete, field + START on one row,
+ *     and the Offline map screen closing itself when its download finishes. */
+async function homeDesign() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  const t = await txt(page);
+  check('no satellite on/off toggle', (await page.locator('[aria-label="Toggle satellite imagery"]').count()) === 0);
+  check('START SPRAYING and the field card share one row', await page.evaluate(() => {
+    const start = [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'START SPRAYING');
+    const card = [...document.querySelectorAll('button')].find((b) => /FIELD SELECTOR/i.test(b.innerText));
+    if (!start || !card) return false;
+    const a = start.getBoundingClientRect(), c = card.getBoundingClientRect();
+    return Math.abs(a.top - c.top) < 4 && a.left > c.right - 2;
+  }));
+  const dot = () => page.evaluate(() => !!document.querySelector('[aria-label="Settings"] span.rounded-full'));
+  check('the Settings button shows an amber dot while the checklist is incomplete', await dot());
+  await openSettings(page);
+  for (const item of ['PPE worn', 'Mix rate confirmed', 'Nozzle checked', 'Wind checked']) await tap(page, item, { wait: 300 });
+  await tap(page, 'DONE', { wait: 500 });
+  check('and none once it is complete', !(await dot()));
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

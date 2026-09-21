@@ -1441,13 +1441,19 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.drawImage(gridCanvas, X_(v, field.gbbox.minX), Y_(v, field.gbbox.minY), field.GW * CELL * v.s, field.GH * CELL * v.s);
     ctx.restore();
   }
-  ctx.save();
-  ctx.strokeStyle = opts.oob ? 'rgba(255,82,82,.9)' : 'rgba(211,222,220,.8)';
-  ctx.lineWidth = opts.oob ? 2.25 : 1.75;
-  ctx.beginPath();
-  field.poly.forEach((p, i) => (i === 0 ? ctx.moveTo(X_(v, p.x), Y_(v, p.y)) : ctx.lineTo(X_(v, p.x), Y_(v, p.y))));
-  ctx.closePath(); ctx.stroke();
-  ctx.restore();
+  // Field boundary: a bright line on a dark halo, so it reads over any
+  // satellite imagery (a thin grey line disappeared into tree canopy).
+  {
+    const k = opts.static ? 1 : Math.min(2, window.devicePixelRatio || 1);
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    field.poly.forEach((p, i) => (i === 0 ? ctx.moveTo(X_(v, p.x), Y_(v, p.y)) : ctx.lineTo(X_(v, p.x), Y_(v, p.y))));
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 5.5 * k; ctx.stroke();
+    ctx.strokeStyle = opts.oob ? '#FF5252' : '#FFFFFF'; ctx.lineWidth = 2.5 * k; ctx.stroke();
+    ctx.restore();
+  }
 
   const f = sim.fixes;
   if (f.length > 1) {
@@ -1607,6 +1613,14 @@ const DockBtn = ({ icon: Icon, label, tone = 'teal', big, onClick, disabled }) =
 /** Small floating circular control — satellite toggle, zoom, recentre — for
  *  the map canvas itself. Lives in normal document flow (see the flexible
  *  middle zone below), never absolutely pinned, so it can't overlap anything. */
+const SlidersIcon = (p) => <Svg {...p}><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></Svg>;
+/** North indicator for the map controls — a solid red arrowhead (the owner's
+ *  sketch), drawn pointing up and rotated by the caller so it points north. */
+const NorthArrow = ({ size = 18, style }) => (
+  <svg width={size + 6} height={size + 6} viewBox="0 0 24 24" style={style} aria-hidden="true">
+    <path d="M12 2.2 L19.6 21.2 L12 16.6 L4.4 21.2 Z" fill="#FF3B3B" stroke="#0A0E10" strokeWidth="0.8" strokeLinejoin="round" />
+  </svg>
+);
 const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
   <button onClick={onClick} disabled={disabled} title={title} aria-label={title}
     className={'w-11 h-11 rounded-full flex items-center justify-center border shadow-[0_2px_14px_rgba(0,0,0,.5)] transition-colors disabled:opacity-40 ' +
@@ -2881,7 +2895,13 @@ function App() {
         }
       };
       await Promise.all(Array.from({ length: 6 }, worker));
-      if (!downloadAbortRef.current) refreshCacheInfo();
+      if (!downloadAbortRef.current) {
+        refreshCacheInfo();
+        AgrasLog.add('MAP', `offline map downloaded: ${jobs.length} tiles`);
+        // done — leave the Offline map screen by itself, as if back was
+        // pressed, after a beat so the bar is seen reaching 100 %
+        setTimeout(() => { setShowOfflineMap(false); setDownloadState(null); }, 900);
+      }
     } finally {
       mapDownloadInFlightRef.current = false;
     }
@@ -3453,15 +3473,15 @@ function App() {
               each side capped with min-w-0 + truncate so long field names or
               GPS numbers never wrap onto (or push into) the other side. */}
           <div className="flex items-start justify-between gap-2">
-            <Glass data-hud className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 max-w-[54%]" onClick={secretDevTap}>
+            <Glass data-hud className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 basis-0 min-h-[48px]" onClick={secretDevTap}>
               <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#FF5252]' : running ? 'text-[#2EE6C7]' : 'text-[#7C8C8C]')} />
               <div className="leading-tight min-w-0">
                 <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#FF5252]' : '')}>{statusLabel}</p>
-                <p className="text-[9px] text-[#7C8C8C] font-mono truncate">field {(field.area / 1600).toFixed(2)} rai · swath {swath.toFixed(1)}m</p>
+                <p className="text-[9px] text-[#7C8C8C] font-mono truncate">{(field.area / 1600).toFixed(2)} rai · swath {swath.toFixed(1)}m</p>
               </div>
             </Glass>
 
-            <Glass data-hud className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0 overflow-hidden">
+            <Glass data-hud className="pointer-events-auto px-2.5 py-2 flex flex-col justify-center gap-1.5 flex-1 basis-0 min-w-0 min-h-[48px] overflow-hidden">
               {devMode && (
                 <button onClick={() => setDevPanelOpen((v) => !v)} className="flex items-center justify-between w-full text-[9px] font-mono tracking-[.14em] text-[#5C6C6C]">
                   <span>DEV{srcMode === 'sim' ? ' · SIM' : ''}</span>
@@ -3628,8 +3648,6 @@ function App() {
                 Running just show the auto-fit view, imagery included. */}
             {(phase === 'boundary' || phase === 'station' || phase === 'ready' || phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2.5 pointer-events-auto">
-                <MapCtrlBtn icon={Satellite} active={satelliteOn} onClick={() => setSatelliteOn((v) => !v)}
-                  disabled={!unprojectRef.current} title={unprojectRef.current ? 'Toggle satellite imagery' : 'Switch to GPS mode once to set this field\'s map location'} />
                 {(phase === 'boundary' || phase === 'station') && satelliteOn && (
                   <>
                     <MapCtrlBtn icon={ZoomIn} onClick={() => zoomMap(1)} title="Zoom in" />
@@ -3639,7 +3657,7 @@ function App() {
                 )}
                 {/* compass: only when the map has been rotated; tap = north up */}
                 {panRef.current && Math.abs(panRef.current.a || 0) > 0.03 && (phase !== 'running' && phase !== 'paused' || camMode === 'free') && (
-                  <MapCtrlBtn icon={(p) => <Compass {...p} style={{ transform: `rotate(${-(panRef.current.a || 0)}rad)`, color: '#FF5252' }} />}
+                  <MapCtrlBtn icon={(p) => <NorthArrow size={p.size} style={{ transform: `rotate(${-(panRef.current.a || 0)}rad)` }} />}
                     onClick={() => { if (panRef.current) panRef.current = { ...panRef.current, a: 0 }; setTick((n) => n + 1); }} title="North up" />
                 )}
                 {(phase === 'running' || phase === 'paused') && (
@@ -3732,187 +3750,66 @@ function App() {
           )}
           {phase === 'ready' && (
             <div className="flex flex-col gap-2">
-              {/* Prominent Field Selector — the primary way to pick/switch fields from
-                  the pre-mission setup screen, per the "extremely prominent, tap to
-                  switch" requirement. Shows the active saved field, or invites picking
-                  one, and always opens the same full library modal below. */}
-              <button onClick={() => setShowFieldLibrary(true)}
-                className="w-full text-left rounded-xl border border-[#2EE6C7]/40 bg-gradient-to-br from-[#12302B] to-[#0F2320] px-3.5 py-3 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-[#2EE6C7]/15 border border-[#2EE6C7]/30 flex items-center justify-center shrink-0">
-                  <MapPinned size={18} className="text-[#2EE6C7]" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#2EE6C7]/80 font-bold">Field selector</p>
-                  {activeFieldEntry ? (
-                    <>
-                      <p className="font-display text-[15px] font-bold text-[#EAF3F1] truncate">{activeFieldEntry.name}</p>
-                      <p className="text-[10px] font-mono text-[#9AABAA] truncate">
-                        {(() => { const r = toRai(activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}
-                        {' · '}{activeFieldEntry.lastSprayedTs ? `sprayed ${fmtDate(activeFieldEntry.lastSprayedTs)}` : `created ${fmtDate(activeFieldEntry.ts)}`}
-                      </p>
-                      <p className="text-[10px] font-mono text-[#34C76F] truncate">
-                        Round {activeFieldEntry.round || 1}{activeFieldEntry.cov
-                          ? ` · ${Math.min(100, (activeFieldEntry.cov.sprayedCells * CELL * CELL) / (activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600) * 100).toFixed(0)}% sprayed — continues`
-                          : ' · not started'}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-display text-[15px] font-bold text-[#EAF3F1] truncate">
-                        {fieldLibrary.length > 0 ? 'Tap to choose a saved field' : 'No saved fields yet'}
-                      </p>
-                      <p className="text-[10px] font-mono text-[#9AABAA] truncate">
-                        {fieldLibrary.length > 0 ? `${fieldLibrary.length} field${fieldLibrary.length === 1 ? '' : 's'} in library` : 'Plot a field, then tap SAVE below'}
-                      </p>
-                    </>
-                  )}
-                </div>
-                <ChevronDown size={16} className="text-[#2EE6C7]/70 -rotate-90 shrink-0" />
-              </button>
-              {/* Spray settings — collapsed into one summary row (was two always-
-                  expanded panels: a Tank/Rate stepper block and a separate swath-
-                  width row). Everything here is remembered device-to-device via
-                  loadLastSettings/saveLastSettings, so a returning operator who
-                  sprays the same setup every day never has to open this at all —
-                  the values shown are already right, and START is one tap below. */}
-              <button onClick={() => setShowSpraySettings(true)}
-                className="w-full flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/92 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
-                <span className="flex items-center gap-2 min-w-0 truncate text-[#9AABAA]">
-                  <Fuel size={13} className="text-[#2EE6C7] shrink-0" />
-                  <span className="truncate text-[#D3DEDC] font-bold">{tankCapacity}L tank · {swath.toFixed(1)}m swath</span>
-                </span>
-                <span className="text-[#2EE6C7] shrink-0 flex items-center gap-1 font-bold"><Pencil size={11} /> EDIT</span>
-              </button>
-
-              {/* Pre-flight checklist (Spec §4B) — strictly NON-BLOCKING:
-                  START SPRAYING below is always enabled regardless of these.
-                  Collapsed to one summary row by default (tap to expand) —
-                  the full 4-toggle + 2-input panel was the single biggest
-                  chunk of the Ready screen, most of the time already
-                  checked from a prior session (4h memory) and not something
-                  the operator needs staring at on every single launch. */}
+              {/* Everything that isn't "pick the field" or "start" — spray settings,
+                  the pre-flight checklist, plotting/station/rename, and the tools —
+                  sits behind this one round button. The amber dot is the
+                  checklist (or a wind/rain warning) asking for attention. */}
               {(() => {
-                const items = [
-                  ['ppe', 'PPE worn'],
-                  ['mixedRate', 'Mix rate confirmed'],
-                  ['nozzle', 'Nozzle checked'],
-                  ['wind', 'Wind checked'],
-                ];
-                const checkedCount = items.filter(([k]) => checklist[k]).length;
-                const uncheckedCount = items.length - checkedCount;
-                const wx = sprayWeather;
-                const wxRisk = !!(wx && (wx.windWarning || wx.rainNowWarning || wx.rainSoonWarning));
-                const applyWeatherReading = () => {
-                  if (!wx) return;
-                  const parts = [];
-                  if (wx.windKmh != null) parts.push(`Wind ${Math.round(wx.windKmh)} km/h`);
-                  if (wx.rainSoonProb != null) parts.push(`Rain ${Math.round(wx.rainSoonProb)}%`);
-                  setChecklist((c) => {
-                    const next = { ...c, wind: true, weather: parts.join(', ') };
-                    saveChecklist(next);
-                    return next;
-                  });
-                };
+                const unchecked = ['ppe', 'mixedRate', 'nozzle', 'wind'].filter((k) => !checklist[k]).length;
+                const wxRisk = !!(sprayWeather && (sprayWeather.windWarning || sprayWeather.rainNowWarning || sprayWeather.rainSoonWarning));
                 return (
-                  <div className="rounded-xl border border-[#2A363A] bg-[#131A1D]/92">
-                    <button onClick={() => setChecklistExpanded((v) => !v)}
-                      className="w-full flex items-center justify-between gap-2 px-3.5 py-3 min-h-[44px]">
-                      <span className="flex items-center gap-2 min-w-0">
-                        <span className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C] shrink-0">Pre-flight checklist</span>
-                        <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#7C8C8C]' : 'text-[#34C76F]')}>{uncheckedCount > 0 ? `${uncheckedCount} item${uncheckedCount === 1 ? '' : 's'} unchecked` : 'All checked'}</span>
-                        {wxRisk && <AlertTriangle size={12} className="text-[#E6B22E] shrink-0" />}
-                      </span>
-                      <ChevronDown size={13} className={'text-[#7C8C8C] shrink-0 transition-transform ' + (checklistExpanded ? 'rotate-180' : '')} />
+                  <div className="flex justify-end">
+                    <button onClick={() => setShowSpraySettings(true)} aria-label="Settings"
+                      className="relative w-14 h-14 rounded-full bg-[#131A1D] border border-[#2A363A] shadow-[0_2px_14px_rgba(0,0,0,.5)] flex items-center justify-center text-[#2EE6C7]">
+                      <SlidersIcon size={24} />
+                      {(unchecked > 0 || wxRisk) && <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[#FFB648] border-2 border-[#131A1D]" />}
                     </button>
-                    {checklistExpanded && (
-                      <div className="px-3.5 pb-3.5">
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {items.map(([k, label]) => (
-                            <button key={k} onClick={() => toggleChecklistItem(k)}
-                              className={'flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-lg border text-[11px] font-mono text-left ' + (checklist[k] ? 'border-[#2EE6C7]/50 bg-[#2EE6C7]/10 text-[#2EE6C7]' : 'border-[#2A363A] text-[#7C8C8C]')}>
-                              {checklist[k] ? <Check size={13} className="shrink-0" /> : <span className="w-[13px] h-[13px] rounded-[3px] border border-current shrink-0" />}
-                              <span className="truncate">{label}</span>
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Live wind/rain (Open-Meteo) — a convenience layer on top of the
-                            Wind-checked toggle above, never a gate on its own. Only shows
-                            once the field has a real-world GPS anchor; SIM-only fields with
-                            no anchor fall back to the manual toggle + text input exactly as
-                            before. */}
-                        {sprayWeatherStatus === 'loading' && (
-                          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#7C8C8C] px-0.5">
-                            <Wind size={12} className="shrink-0 animate-pulse" /> Checking live wind/rain…
-                          </div>
-                        )}
-                        {sprayWeatherStatus === 'error' && (
-                          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#5C6C6C] px-0.5">
-                            <CloudRain size={12} className="shrink-0" /> Live wind/rain unavailable — check manually
-                          </div>
-                        )}
-                        {sprayWeatherStatus === 'ok' && wx && (
-                          <button onClick={applyWeatherReading}
-                            className={'mt-1.5 w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left '
-                              + (wxRisk ? 'border-[#E6B22E]/50 bg-[#E6B22E]/10' : 'border-[#2A363A] bg-[#0A0E10]')}>
-                            <Wind size={14} className={'shrink-0 ' + (wx.windWarning ? 'text-[#E6B22E]' : 'text-[#9AABAA]')} />
-                            <span className={'text-[11px] font-mono shrink-0 ' + (wx.windWarning ? 'text-[#E6B22E]' : 'text-[#D3DEDC]')}>
-                              {wx.windKmh != null ? `${Math.round(wx.windKmh)} km/h` : '—'}
-                              {wx.gustKmh != null && wx.gustKmh > (wx.windKmh || 0) + 5 ? ` (gust ${Math.round(wx.gustKmh)})` : ''}
-                            </span>
-                            <CloudRain size={14} className={'shrink-0 ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#E6B22E]' : 'text-[#9AABAA]')} />
-                            <span className={'text-[11px] font-mono flex-1 min-w-0 truncate ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#E6B22E]' : 'text-[#D3DEDC]')}>
-                              {wx.rainNowWarning ? 'Raining now' : (wx.rainSoonProb != null ? `${Math.round(wx.rainSoonProb)}% next 3h` : '—')}
-                            </span>
-                            <span className="text-[9px] font-mono text-[#5C6C6C] shrink-0">TAP TO USE</span>
-                          </button>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-1.5 mt-1.5">
-                          <input value={checklist.operator} onChange={(e) => setChecklistField('operator', e.target.value)}
-                            placeholder="Operator name" maxLength={40}
-                            className="min-h-[36px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[11px] font-mono text-[#D3DEDC] placeholder:text-[#5C6C6C]" />
-                          <input value={checklist.weather} onChange={(e) => setChecklistField('weather', e.target.value)}
-                            placeholder="Weather (e.g. calm, 28°C)" maxLength={40}
-                            className="min-h-[36px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[11px] font-mono text-[#D3DEDC] placeholder:text-[#5C6C6C]" />
-                        </div>
-                      </div>
-                    )}
                   </div>
                 );
               })()}
+              {/* Field + START on one row (the owner's layout): the field you are
+                  about to spray and the button that sprays it, side by side. */}
+              <div className="flex gap-2 items-stretch">
+                <button onClick={() => setShowFieldLibrary(true)}
+                  className="flex-1 min-w-0 text-left rounded-xl border border-[#2EE6C7]/40 bg-gradient-to-br from-[#12302B] to-[#0F2320] px-3.5 py-3 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-[#2EE6C7]/15 border border-[#2EE6C7]/30 flex items-center justify-center shrink-0">
+                    <MapPinned size={18} className="text-[#2EE6C7]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#2EE6C7]/80 font-bold">Field selector</p>
+                    {activeFieldEntry ? (
+                      <>
+                        <p className="font-display text-[15px] font-bold text-[#EAF3F1] truncate">{activeFieldEntry.name}</p>
+                        <p className="text-[10px] font-mono text-[#9AABAA] truncate">
+                          {(() => { const r = toRai(activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}
+                          {' · '}{activeFieldEntry.lastSprayedTs ? `sprayed ${fmtDate(activeFieldEntry.lastSprayedTs)}` : `created ${fmtDate(activeFieldEntry.ts)}`}
+                        </p>
+                        <p className="text-[10px] font-mono text-[#34C76F] truncate">
+                          Round {activeFieldEntry.round || 1}{activeFieldEntry.cov && activeFieldEntry.cov.sprayedCells > 0
+                            ? ` · ${Math.min(100, (activeFieldEntry.cov.sprayedCells * CELL * CELL) / (activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600) * 100).toFixed(0)}% sprayed`
+                            : ' · not started'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-display text-[15px] font-bold text-[#EAF3F1] truncate">
+                          {fieldLibrary.length > 0 ? 'Tap to choose a saved field' : 'No saved fields yet'}
+                        </p>
+                        <p className="text-[10px] font-mono text-[#9AABAA] truncate">
+                          {fieldLibrary.length > 0 ? `${fieldLibrary.length} field${fieldLibrary.length === 1 ? '' : 's'} in library` : 'Plot a field, then tap SAVE below'}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                  <ChevronDown size={16} className="text-[#2EE6C7]/70 -rotate-90 shrink-0" />
+                </button>
+                <button onClick={startSpraying}
+                  className="shrink-0 w-[104px] rounded-xl bg-[#34C76F] text-[#052112] shadow-[0_3px_0_#1E8A4A] flex flex-col items-center justify-center gap-1.5 px-2 active:translate-y-px">
+                  <Play size={22} strokeWidth={2.6} className="fill-current" />
+                  <span className="font-display font-extrabold text-[11px] tracking-wide leading-tight text-center">START SPRAYING</span>
+                </button>
+              </div>
 
-              {/* Primary action — its own row now, not sharing a Dock with the
-                  setup buttons below, so it's the one unmissable thing to tap
-                  once a field and settings are in place. START SPRAYING is
-                  ALWAYS enabled — the checklist above never gates it. */}
-              <Dock>
-                <DockBtn icon={Play} label="START SPRAYING" tone="green" big onClick={startSpraying} />
-              </Dock>
-
-              {/* Field setup + Tools — each used to be a labelled section
-                  with its own row(s) of always-visible buttons; both are
-                  now one summary row that opens a small sheet, so the Ready
-                  screen's default state shows far less at once. */}
-              <button onClick={() => setShowFieldSetupMenu(true)}
-                className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/92 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
-                <span className="flex items-center gap-2 min-w-0 truncate">
-                  <MapPinned size={13} className="text-[#2EE6C7] shrink-0" />
-                  <span className="truncate text-[#9AABAA]">Field setup</span>
-                </span>
-                <span className="text-[#5C6C6C] shrink-0 text-[9.5px] font-mono">Plot · Station · Save</span>
-              </button>
-              <button onClick={() => setShowToolsMenu(true)}
-                className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#131A1D]/92 border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
-                <span className="flex items-center gap-2 min-w-0 truncate">
-                  <Layers size={13} className="text-[#2EE6C7] shrink-0" />
-                  <span className="truncate text-[#9AABAA]">Tools</span>
-                </span>
-                <span className="text-[#5C6C6C] shrink-0 flex items-center gap-1.5 text-[9.5px] font-mono">
-                  {cacheInfo && cacheInfo.tiles > 0 && <Wifi size={11} className="text-[#34C76F]" />}
-                  {missions.length > 0 && <span>{missions.length} mission{missions.length === 1 ? '' : 's'}</span>}
-                </span>
-              </button>
             </div>
           )}
           {(phase === 'running' || phase === 'paused') && (
@@ -4234,9 +4131,9 @@ function App() {
           zero changes here (see loadLastSettings/saveLastSettings). */}
       {showSpraySettings && (
         <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
-          <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
+          <div className="w-full max-w-[360px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <p className="font-display text-[15px] font-bold tracking-wide">SPRAY SETTINGS</p>
+              <p className="font-display text-[15px] font-bold tracking-wide">SETTINGS</p>
               <button onClick={() => setShowSpraySettings(false)} className="text-[#7C8C8C] p-1"><X size={18} /></button>
             </div>
             <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Tank size and nozzle width · remembered for next time</p>
@@ -4244,56 +4141,116 @@ function App() {
               <Stepper label="Tank" value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
               <Stepper label="Width" value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
             </Glass>
-            <div className="mt-4 flex justify-center">
-              <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
-            </div>
-          </div>
-        </div>
-      )}
+            {(() => {
+              const items = [
+                ['ppe', 'PPE worn'],
+                ['mixedRate', 'Mix rate confirmed'],
+                ['nozzle', 'Nozzle checked'],
+                ['wind', 'Wind checked'],
+              ];
+              const checkedCount = items.filter(([k]) => checklist[k]).length;
+              const uncheckedCount = items.length - checkedCount;
+              const wx = sprayWeather;
+              const wxRisk = !!(wx && (wx.windWarning || wx.rainNowWarning || wx.rainSoonWarning));
+              const applyWeatherReading = () => {
+                if (!wx) return;
+                const parts = [];
+                if (wx.windKmh != null) parts.push(`Wind ${Math.round(wx.windKmh)} km/h`);
+                if (wx.rainSoonProb != null) parts.push(`Rain ${Math.round(wx.rainSoonProb)}%`);
+                setChecklist((c) => {
+                  const next = { ...c, wind: true, weather: parts.join(', ') };
+                  saveChecklist(next);
+                  return next;
+                });
+              };
+              return (
+                <div className="mt-3 rounded-xl border border-[#2A363A] bg-[#0A0E10]">
+                  <button disabled
+                    className="w-full flex items-center justify-between gap-2 px-3.5 py-3 min-h-[44px]">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C] shrink-0">Pre-flight checklist</span>
+                      <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#7C8C8C]' : 'text-[#34C76F]')}>{uncheckedCount > 0 ? `${uncheckedCount} item${uncheckedCount === 1 ? '' : 's'} unchecked` : 'All checked'}</span>
+                      {wxRisk && <AlertTriangle size={12} className="text-[#E6B22E] shrink-0" />}
+                    </span>
+                  </button>
+                  {(
+                    <div className="px-3.5 pb-3.5">
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {items.map(([k, label]) => (
+                          <button key={k} onClick={() => toggleChecklistItem(k)}
+                            className={'flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-lg border text-[11px] font-mono text-left ' + (checklist[k] ? 'border-[#2EE6C7]/50 bg-[#2EE6C7]/10 text-[#2EE6C7]' : 'border-[#2A363A] text-[#7C8C8C]')}>
+                            {checklist[k] ? <Check size={13} className="shrink-0" /> : <span className="w-[13px] h-[13px] rounded-[3px] border border-current shrink-0" />}
+                            <span className="truncate">{label}</span>
+                          </button>
+                        ))}
+                      </div>
 
-      {/* Field Setup menu — Plot/Edit, Station, Save consolidated out of the
-          Ready screen's default view into one sheet (see the summary row
-          above); same three actions, same handlers, just tucked away. */}
-      {showFieldSetupMenu && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
-          <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
-            <div className="flex items-center justify-between">
-              <p className="font-display text-[15px] font-bold tracking-wide">FIELD SETUP</p>
-              <button onClick={() => setShowFieldSetupMenu(false)} className="text-[#7C8C8C] p-1"><X size={18} /></button>
-            </div>
-            <div className="mt-3 flex flex-col gap-2">
+                      {/* Live wind/rain (Open-Meteo) — a convenience layer on top of the
+                          Wind-checked toggle above, never a gate on its own. Only shows
+                          once the field has a real-world GPS anchor; SIM-only fields with
+                          no anchor fall back to the manual toggle + text input exactly as
+                          before. */}
+                      {sprayWeatherStatus === 'loading' && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#7C8C8C] px-0.5">
+                          <Wind size={12} className="shrink-0 animate-pulse" /> Checking live wind/rain…
+                        </div>
+                      )}
+                      {sprayWeatherStatus === 'error' && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#5C6C6C] px-0.5">
+                          <CloudRain size={12} className="shrink-0" /> Live wind/rain unavailable — check manually
+                        </div>
+                      )}
+                      {sprayWeatherStatus === 'ok' && wx && (
+                        <button onClick={applyWeatherReading}
+                          className={'mt-1.5 w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left '
+                            + (wxRisk ? 'border-[#E6B22E]/50 bg-[#E6B22E]/10' : 'border-[#2A363A] bg-[#0A0E10]')}>
+                          <Wind size={14} className={'shrink-0 ' + (wx.windWarning ? 'text-[#E6B22E]' : 'text-[#9AABAA]')} />
+                          <span className={'text-[11px] font-mono shrink-0 ' + (wx.windWarning ? 'text-[#E6B22E]' : 'text-[#D3DEDC]')}>
+                            {wx.windKmh != null ? `${Math.round(wx.windKmh)} km/h` : '—'}
+                            {wx.gustKmh != null && wx.gustKmh > (wx.windKmh || 0) + 5 ? ` (gust ${Math.round(wx.gustKmh)})` : ''}
+                          </span>
+                          <CloudRain size={14} className={'shrink-0 ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#E6B22E]' : 'text-[#9AABAA]')} />
+                          <span className={'text-[11px] font-mono flex-1 min-w-0 truncate ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#E6B22E]' : 'text-[#D3DEDC]')}>
+                            {wx.rainNowWarning ? 'Raining now' : (wx.rainSoonProb != null ? `${Math.round(wx.rainSoonProb)}% next 3h` : '—')}
+                          </span>
+                          <span className="text-[9px] font-mono text-[#5C6C6C] shrink-0">TAP TO USE</span>
+                        </button>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+                        <input value={checklist.operator} onChange={(e) => setChecklistField('operator', e.target.value)}
+                          placeholder="Operator name" maxLength={40}
+                          className="min-h-[36px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[11px] font-mono text-[#D3DEDC] placeholder:text-[#5C6C6C]" />
+                        <input value={checklist.weather} onChange={(e) => setChecklistField('weather', e.target.value)}
+                          placeholder="Weather (e.g. calm, 28°C)" maxLength={40}
+                          className="min-h-[36px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[11px] font-mono text-[#D3DEDC] placeholder:text-[#5C6C6C]" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Field</p>
+            <div className="flex flex-col gap-2">
               <Dock>
-                <DockBtn icon={MapPinned} label="PLOT / EDIT" tone="ghost" onClick={() => { setShowFieldSetupMenu(false); startPlotting(); }} />
-                <DockBtn icon={Droplet} label="STATION" tone="ghost" onClick={() => { setShowFieldSetupMenu(false); startStationSetup(); }} />
+                <DockBtn icon={MapPinned} label="PLOT / EDIT" tone="ghost" onClick={() => { setShowSpraySettings(false); startPlotting(); }} />
+                <DockBtn icon={Droplet} label="STATION" tone="ghost" onClick={() => { setShowSpraySettings(false); startStationSetup(); }} />
               </Dock>
               <Dock>
                 <DockBtn icon={Pencil} label="RENAME FIELD" tone="ghost" big disabled={!activeFieldEntry}
-                  onClick={() => { setShowFieldSetupMenu(false); setSaveFieldName(activeFieldEntry ? activeFieldEntry.name : ''); setShowSaveField(true); }} />
+                  onClick={() => { setShowSpraySettings(false); setSaveFieldName(activeFieldEntry ? activeFieldEntry.name : ''); setShowSaveField(true); }} />
               </Dock>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tools menu — Offline Map / Mission History / Resume Saved Session
-          consolidated the same way. Each row keeps its own live status text
-          exactly as it showed on the Ready screen before. */}
-      {showToolsMenu && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
-          <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
-            <div className="flex items-center justify-between">
-              <p className="font-display text-[15px] font-bold tracking-wide">TOOLS</p>
-              <button onClick={() => setShowToolsMenu(false)} className="text-[#7C8C8C] p-1"><X size={18} /></button>
-            </div>
-            <div className="mt-3 flex flex-col gap-2">
-              <button onClick={() => { setShowToolsMenu(false); setShowOfflineMap(true); refreshCacheInfo(); }}
+            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Tools</p>
+            <div className="flex flex-col gap-2">
+              <button onClick={() => { setShowSpraySettings(false); setShowOfflineMap(true); refreshCacheInfo(); }}
                 className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#9AABAA] bg-[#0A0E10] border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate">
                   {cacheInfo && cacheInfo.tiles > 0 ? <Wifi size={13} className="text-[#34C76F] shrink-0" /> : <CloudOff size={13} className="text-[#7C8C8C] shrink-0" />}
                   <span className="truncate">{cacheInfo && cacheInfo.tiles > 0 ? `Offline map ready · ${fmtBytes(cacheInfo.bytes)}` : 'Offline map — not downloaded'}</span>
                 </span>
               </button>
-              <button onClick={() => { setShowToolsMenu(false); setShowHistory(true); }}
+              <button onClick={() => { setShowSpraySettings(false); setShowHistory(true); }}
                 className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#9AABAA] bg-[#0A0E10] border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate"><History size={13} className="text-[#2EE6C7] shrink-0" />
                   <span className="truncate">{missions.length > 0 ? `${missions.length} mission${missions.length === 1 ? '' : 's'} logged` : 'No missions logged yet'}</span>
@@ -4310,10 +4267,20 @@ function App() {
                 </span>
               </div>
             </div>
+            <div className="mt-4 flex justify-center">
+              <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
+            </div>
           </div>
         </div>
       )}
 
+      {/* Field Setup menu — Plot/Edit, Station, Save consolidated out of the
+          Ready screen's default view into one sheet (see the summary row
+          above); same three actions, same handlers, just tucked away. */}
+
+      {/* Tools menu — Offline Map / Mission History / Resume Saved Session
+          consolidated the same way. Each row keeps its own live status text
+          exactly as it showed on the Ready screen before. */}
       {/* Offline Map Control Bar — pre-fetch the active field's satellite
           tiles (current zoom + the 17–20 native-resolution band) into Cache
           Storage while there's still signal, so the map still renders with

@@ -86,19 +86,30 @@ async function summary(page) {
   return i < 0 ? '' : L.slice(i, i + 30).join(' | ');
 }
 
-/** Plot a boundary by GPS corner-marking, then drop the refill station.
- *  Satellite is switched off first: with it on, plotting is crosshair-based
- *  (drag the map), which is not scriptable from geolocation alone. */
+/** The round Settings button on the home screen: spray settings, checklist,
+ *  field setup (plot / station / rename) and tools, all in one sheet. */
+async function openSettings(page) {
+  await page.locator('[aria-label="Settings"]').locator('visible=true').first().click({ force: true });
+  await page.waitForTimeout(600);
+}
+
+/** Plot a boundary by walking its corners, then drop the refill station.
+ *  The app is satellite-only now (there is no MARK CORNER without the map
+ *  toggle), so each corner is what an operator does on foot: stand there,
+ *  tap Center on my location, tap ADD AT CROSSHAIR. */
 async function makeField(ctx, page, corners = [[0, 0], [80, 0], [80, 80], [0, 80]], station = [-10, -10]) {
-  await page.locator('[aria-label="Toggle satellite imagery"]').click();
-  await page.waitForTimeout(300);
-  for (const [x, y] of corners) { await moveTo(ctx, page, x, y, 600); await tap(page, 'MARK CORNER'); }
+  for (const [x, y] of corners) {
+    await moveTo(ctx, page, x, y, 600);
+    await page.locator('[aria-label="Center on my location"]').click({ force: true });
+    await page.waitForTimeout(350);
+    await tap(page, 'ADD AT CROSSHAIR');
+  }
   await tap(page, 'CLOSE FIELD', { wait: 900 });   // single tap closes; there is no confirm step
-  await tap(page, 'Field setup');
+  await openSettings(page);
   await tap(page, 'STATION');
   await moveTo(ctx, page, station[0], station[1], 800);
   await tap(page, 'MY LOCATION');
   await tap(page, 'CONFIRM STATION', { wait: 800 });
 }
 
-module.exports = { boot, moveTo, walk, tap, tapRe, lines, stat, summary, makeField, toLL };
+module.exports = { boot, moveTo, walk, tap, tapRe, lines, stat, summary, makeField, openSettings, toLL };
