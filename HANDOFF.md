@@ -20,11 +20,11 @@ save-system commit — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 47 checks, ~15 min, expect 47/47
+node test/run.js                     # 52 checks, ~16 min, expect 52/52
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 47/47 on a clean checkout, something in the fixes below
+If `test/run.js` is not 52/52 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -40,8 +40,8 @@ Two notes on running it:
 
 ## Where things stand
 
-- Everything is on `main` and pushed; the last code commit is `23bb1b0`
-  (the owner's workflow: two-tap refill, rounds). `build-48` is built from it and
+- Everything is on `main` and pushed; the last code commit is `f43acbc`
+  (Android back button). `build-51` is built from it and
   installed on the phone.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
@@ -270,6 +270,14 @@ The owner drew the intended flow and it replaced three pieces of the old one:
   `round`, so the next spraying starts on an empty map. History records carry
   `round`, `complete`, `fieldName`. TOUCH-UP and the summary's X (back to
   PAUSED) are gone — continue-later covers both.
+
+Also: the summary has an X that goes home (same as START NEW), and the
+Android back button closes one layer per press — FINISH choice, summary,
+dialogs, history, library, menus, station setup, plotting — then minimizes
+(never exits, so a running mission keeps tracking). `@capacitor/app`
+provides the event; `window.__agrasBack` lets the browser tests press it.
+Verified on the phone with the real key (`adb shell input keyevent
+KEYCODE_BACK`).
 
 Found while testing it: **every field-library write must go through
 `updateLibrary()`**. Three writers (rename, delete, the "last sprayed" stamp)
