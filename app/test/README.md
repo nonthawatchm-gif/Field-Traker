@@ -46,6 +46,9 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | closed boundary is in the library before spraying; station moves are written back | field auto-save |
 | FINISH files the mission; re-finishing updates it; the next mission gets its own | mission auto-save |
 | a 39-rai field's session saves and survives a reload | the localStorage quota blow-out |
+| arriving 5 m from the station pin counts; 4 m from the breakpoint resumes | the 2.5 m / 1.5 m radii that stranded the 2026-09-21 field run |
+| RESUME SPRAYING works from anywhere; tile TANK REFILLED away from the pin moves on | no way out of the refill trip |
+| walking the field during the trip alerts; walking straight to the station doesn't | spraying unrecorded with the screen off |
 
 ## Writing more
 

@@ -168,8 +168,14 @@ const CloudRain     = (p) => <Svg {...p}><path d="M16 13v8"/><path d="M8 13v8"/>
 const CELL = 0.3;
 const PAD_G = 2;
 const BOUND_FRAME = { minX: 0, minY: 0, maxX: 100, maxY: 130 };
-const REFILL_RADIUS = 2.5;      // metres — "arrived at the station"
-const BREAKPOINT_RADIUS = 1.5;  // metres — "arrived back at the breakpoint"
+// Field test 2026-09-21: with GPS at median ±3 m / p90 ±10 m, the operator
+// stood at the tank and the closest fix was 3.0 m from the pin — so under the
+// old 2.5 m arrival radius the app never saw them arrive, stayed in "head to
+// station" for the rest of the mission and recorded none of the next 47
+// minutes of spraying. The arrival radii below are sized to real GPS error.
+const REFILL_RADIUS = 2.5;          // metres — walking this close to the station WHILE SPRAYING starts a refill on its own; kept tight so a lane along the station edge doesn't cut spraying off
+const STATION_ARRIVE_RADIUS = 8;    // metres — after TANK EMPTY, "arrived at the station"
+const BREAKPOINT_RADIUS = 5;        // metres — "arrived back at the breakpoint"
 const REFILL_DWELL_MS = 3000;   // sim-mode only: how long the demo lingers before walking off
 
 /** Default field — traced from an operator-supplied satellite photo of a real
@@ -1528,7 +1534,7 @@ const Tile = ({ icon: Icon, label, value, unit, accent }) => (
 /** Dedicated Liquid & Tank telemetry widget — a live bar gauge (not just a
  *  number) so remaining solution reads at a glance, plus a one-tap "just
  *  refilled" action for a manual top-off outside the formal breakpoint flow. */
-const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty }) => (
+const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = 'TANK EMPTY' }) => (
   <Glass className="pointer-events-auto px-3 py-2 min-w-[104px]">
     <div className="flex items-center gap-1.5 text-[#7C8C8C]">
       <Droplet size={12} strokeWidth={2.25} className="text-[#2EE6C7]" />
@@ -1539,7 +1545,7 @@ const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty }) => (
       <span className="text-[10px] text-[#7C8C8C]">rai · {capacity}L</span>
     </div>
     <p className="text-[8.5px] text-[#7C8C8C] mt-1 whitespace-nowrap">{avgRai != null ? `avg ${avgRai.toFixed(2)} rai / tank` : 'this tank so far'}</p>
-    <button onClick={onEmpty} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#FFB648]/60 text-[#FFB648] text-[10px] font-mono font-bold tracking-wide active:bg-[#FFB648]/15">TANK EMPTY</button>
+    <button onClick={onEmpty} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#FFB648]/60 text-[#FFB648] text-[10px] font-mono font-bold tracking-wide active:bg-[#FFB648]/15">{actionLabel}</button>
   </Glass>
 );
 /** Speed-Based Flow Rate & Pace widget — live km/h against the 2.5–3.5 km/h
@@ -1643,6 +1649,7 @@ function App() {
   const tankAreasRef = useRef([]);         // m² sprayed with each COMPLETED tank (operator taps TANK EMPTY)
   const tankOpenRef = useRef(true);        // a tank is currently in use (false between TANK EMPTY and the refill)
   const coverageBaseRef = useRef({ sprayed: 0, overlap: 0 }); // cells already sprayed when this mission began (restored from the field's saved coverage)
+  const unrecordedRef = useRef({ walked: 0, startDist: 0, lastAlert: 0 }); // walking in the field while the refill trip has spraying switched off
   const refillArmedRef = useRef(false);    // refill-at-station only triggers after the operator has first walked away from it
   const enteredFieldRef = useRef(false);   // out-of-bounds alerts only after the operator has been inside the field once
   const lastFixMsRef = useRef(0);
@@ -2489,6 +2496,27 @@ function App() {
           if (teleport) { AgrasLog.add('FIXAPPLY', `re-anchor, no paint (jump ${Math.round(dist(from, newPos))}m)`); }
           else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, gpsPassId(sim, from, newPos), paintCell);
           else if (onSprayLane) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
+          // Safety net for the failure the field test hit: the refill trip has
+          // spraying switched off, the operator is walking around inside the
+          // field anyway, and with the screen off nothing tells them. 40 m of
+          // walking in the field that doesn't bring them at least 20 m closer
+          // to where the trip is taking them (station, then breakpoint) raises
+          // an alert that works with the screen off. At most every 3 minutes.
+          if (ph === 'running' && opModeRef.current !== 'spray' && !teleport && pointInPoly(newPos, field.poly)) {
+            const u = unrecordedRef.current;
+            const target = opModeRef.current === 'toBreakpoint' ? sim.breakpoint : stationRef.current;
+            if (u.walked === 0) u.startDist = target ? dist(from, target) : 0;
+            u.walked += dist(from, newPos);
+            if (u.walked >= 40) {
+              const closed = u.startDist - (target ? dist(newPos, target) : 0);
+              if (closed < u.walked * 0.5 && Date.now() - u.lastAlert > 180000) {
+                u.lastAlert = Date.now();
+                AgrasLog.add('ALERT', `not recording: walked ${Math.round(u.walked)}m in the field during ${opModeRef.current}`);
+                alertUser([660, 660, 660], 'Spraying is not being recorded', 'The app is still waiting for the refill trip. Tap RESUME SPRAYING if you are spraying.');
+              }
+              u.walked = 0;
+            }
+          } else if (opModeRef.current === 'spray') unrecordedRef.current.walked = 0;
           sim.pos = newPos;
           sim.track.push({ ...newPos }); sim.fixes.push({ ...newPos });
           if (lastLatLngRef.current && !teleport && ph === 'running') sim.distance += haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
@@ -2533,13 +2561,13 @@ function App() {
           // a brief visual pause at the tank before auto-walking back.
           openTank();
           lowLiquidWarnedRef.current = false;
-        } else if (om === 'toStation' && dStation <= REFILL_RADIUS) {
+        } else if (om === 'toStation' && dStation <= STATION_ARRIVE_RADIUS) {
           opModeRef.current = 'refilling'; setOpMode('refilling');
           refillDeadlineRef.current = t + REFILL_DWELL_MS;
           openTank();
           lowLiquidWarnedRef.current = false;
         } else if (om === 'refilling') {
-          if (dStation > REFILL_RADIUS) { opModeRef.current = 'toBreakpoint'; setOpMode('toBreakpoint'); }
+          if (dStation > STATION_ARRIVE_RADIUS) { opModeRef.current = 'toBreakpoint'; setOpMode('toBreakpoint'); }
           else if (sm === 'sim' && !manualPathRef.current && t >= refillDeadlineRef.current) {
             driveTo(sim.breakpoint);
           }
@@ -3093,7 +3121,7 @@ function App() {
     closeTank();
     const dStation = dist(sim.pos, stationRef.current);
     sim.breakpoint = { ...sim.pos };
-    if (dStation <= REFILL_RADIUS) {
+    if (dStation <= STATION_ARRIVE_RADIUS) {
       opModeRef.current = 'refilling'; setOpMode('refilling'); refillDeadlineRef.current = performance.now() + REFILL_DWELL_MS;
       openTank();
       lowLiquidWarnedRef.current = false;
@@ -3117,6 +3145,32 @@ function App() {
     // no tank is actually running.
     if (!tankOpenRef.current) openTank();
     lowLiquidWarnedRef.current = false;
+    // Refilled while the app still thought the operator was on the way to the
+    // station — GPS never put them inside the arrival radius. This tap was the
+    // only thing they did in the field test, and it left spraying switched off
+    // for the rest of the mission. It now counts as having been to the station.
+    if (opModeRef.current === 'toStation') {
+      opModeRef.current = 'toBreakpoint'; setOpMode('toBreakpoint');
+      AgrasLog.add('OPMODE', 'toBreakpoint (refilled away from the station pin)');
+      saveSessionNow();
+    }
+    setTick((n) => n + 1);
+  };
+
+  /** RESUME SPRAYING — the guaranteed way out of the refill trip. The
+   *  automatic flow (arrive at station -> leave -> arrive at breakpoint) is a
+   *  convenience; this works from any of its states, anywhere, and is what the
+   *  dock shows in place of TANK EMPTY until spraying is back on. */
+  const resumeSprayingNow = () => {
+    const sim = simRef.current;
+    if (!tankOpenRef.current) openTank();
+    manualPathRef.current = null; setExcursionActive(false);
+    opModeRef.current = 'spray'; setOpMode('spray');
+    sim.epoch += 1; sim.passHeading = null; sim.breakpoint = null; refillArmedRef.current = false;
+    lowLiquidWarnedRef.current = false;
+    unrecordedRef.current = { walked: 0, startDist: 0, lastAlert: unrecordedRef.current.lastAlert };
+    AgrasLog.add('OPMODE', 'spray (manual RESUME SPRAYING)');
+    saveSessionNow();
     setTick((n) => n + 1);
   };
 
@@ -3634,7 +3688,7 @@ function App() {
           <div className={'flex flex-col gap-2 items-end pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2 items-end" style={running && !showStats ? { display: 'none' } : undefined}>
-                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} />
+                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} actionLabel={opMode === 'spray' ? 'TANK EMPTY' : 'TANK REFILLED'} />
                 <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#34C76F]" />
                 <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#FFB648]' : undefined} />
                 {srcMode === 'gps' && gpsInfo && <Tile icon={Satellite} label="GPS" value={gpsInfo.lat.toFixed(4)} unit={gpsInfo.lng.toFixed(4)} accent={gpsColorClass} />}
@@ -3946,7 +4000,9 @@ function App() {
           )}
           {(phase === 'running' || phase === 'paused') && (
             <Dock>
-              <DockBtn icon={Fuel} label="TANK EMPTY" tone="amber" onClick={tankEmpty} disabled={opMode !== 'spray' || !!manualPathRef.current} />
+              {opMode === 'spray'
+                ? <DockBtn icon={Fuel} label="TANK EMPTY" tone="amber" onClick={tankEmpty} disabled={!!manualPathRef.current} />
+                : <DockBtn icon={Play} label="RESUME SPRAYING" tone="green" onClick={resumeSprayingNow} />}
               <DockBtn icon={running ? Save : Play} label={running ? 'SAVE & PAUSE' : 'RESUME'} tone="teal"
                 onClick={() => { if (running) saveSessionNow(); setPhase(running ? 'paused' : 'running'); }} />
               {/* Spec §4A Rule 3: End Mission must NOT be reachable from the

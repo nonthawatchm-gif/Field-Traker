@@ -20,10 +20,11 @@ save-system commit — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 33 checks, ~12 min, expect 33/33
+node test/run.js                     # 40 checks, ~15 min, expect 40/40
+ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 33/33 on a clean checkout, something in the fixes below
+If `test/run.js` is not 40/40 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -247,6 +248,38 @@ automatically". What was actually broken, and what replaced it:
   (also carried in the session snapshot) makes the record an upsert, so closing
   the summary back to PAUSED and finishing again updates one record.
   `beginNewMission()` clears it at START SPRAYING, START NEW and TOUCH-UP.
+
+### Field test 2026-09-21 — the refill trip silently stopped recording
+
+The owner's first real spraying run on the automatic-save build (16:56–17:48,
+4.90-rai ถั่ว 1, screen off almost throughout). From the test log:
+
+- 16:56–17:00 sprayed and recorded 902 m². 17:00:58 TANK EMPTY → `toStation`.
+- **`sprayed=902m2` never moved again** while `dist` went 194 → 1,700 m. No
+  `refilling`, no `toBreakpoint`, ever. The mission filed at 0.56 rai.
+- Projecting the logged fixes: the operator's closest approach to the station
+  pin after TANK EMPTY was **3.0 m** (GPS ±3 m at the time). The arrival radius
+  was 2.5 m. GPS over the run: 4,785 fixes, median ±3 m, p90 ±10 m.
+- At 17:23 they tapped the tank tile (labelled TANK EMPTY even mid-trip);
+  `refillTank()` opened tank 2 but left `opMode` at `toStation`, so spraying
+  stayed off for the remaining 25 minutes. REFILLED FULL TANK only appears once
+  the app believes you are *at* the station, so it never showed.
+
+Fixed in four parts: `STATION_ARRIVE_RADIUS = 8` m for arriving after TANK
+EMPTY and `BREAKPOINT_RADIUS` 1.5 → 5 m (the spray-time auto-refill trigger
+stays at 2.5 m so a lane past the station does not cut spraying off); a RESUME
+SPRAYING dock button replaces the disabled TANK EMPTY in every refill state;
+the tank tile reads TANK REFILLED mid-trip and, from `toStation`, moves on to
+`toBreakpoint`; and a screen-off alert fires after 40 m walked inside the field
+during the trip that did not bring the operator 20 m closer to its target.
+
+The lost 47 minutes are still in the log as a GPS track; they were not
+reconstructed, because which stretches had the nozzle open is not knowable
+from the log alone (the walk to the tank and the fill are in there too).
+
+Everything else in that log was healthy: continuous fixes with the screen off
+(headless frames every minute), 82 % → 76 % battery in 52 minutes, the mission
+filed itself on FINISH, and the startup restore at 18:04 read both copies.
 
 ### Kill-testing the save on the phone (session 3)
 

@@ -343,8 +343,96 @@ async function bigFieldResume() {
   await browser.close();
 }
 
+/* 13. The refill trip with real GPS error. Field test 2026-09-21: the operator
+ *     stood at the tank, the nearest fix was 3.0 m from the pin, the old 2.5 m
+ *     radius never fired, and the app recorded none of the next 47 minutes. */
+const txt = async (page) => page.evaluate(() => document.body.innerText);
+const sessionOpMode = (page) => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('agras-tracker-active-session')).opMode; } catch (e) { return null; } });
+const appLog = (page) => page.evaluate(() => localStorage.getItem('agras_log_v1') || '');
+async function refillReach() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 40, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 40], [40, 60], 2, 100);
+  await tap(page, 'TANK EMPTY', { wait: 900 });
+  await walk(ctx, page, [40, 60], [-5, -10], 4, 90);          // stop 5 m short of the station pin
+  await page.waitForTimeout(1200);
+  check('stopping 5 m from the station pin counts as arriving', /AT REFILL STATION/.test(await txt(page)), (await txt(page)).match(/HEAD TO REFILL STATION|AT REFILL STATION|RETURN TO BREAKPOINT/)?.[0]);
+  await walk(ctx, page, [-5, -10], [40, 56], 4, 90);          // back to 4 m from the breakpoint
+  await page.waitForTimeout(1200);
+  const areaA = num(await stat(page, 'AREA SPRAYED'));
+  await walk(ctx, page, [40, 56], [20, 56], 2, 100);
+  const areaB = num(await stat(page, 'AREA SPRAYED'));
+  check('coming back within 5 m of the breakpoint resumes recording', areaB > areaA, `${areaA} -> ${areaB} m²`);
+  await browser.close();
+}
+async function manualResume() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 40, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 40], [40, 60], 2, 100);
+  await tap(page, 'TANK EMPTY', { wait: 900 });
+  await walk(ctx, page, [40, 60], [60, 20], 3, 100);          // never goes near the station
+  const areaA = num(await stat(page, 'AREA SPRAYED'));
+  await tap(page, 'RESUME SPRAYING', { wait: 900 });
+  await walk(ctx, page, [60, 20], [60, 50], 2, 100);
+  const areaB = num(await stat(page, 'AREA SPRAYED'));
+  // 30 m at the default 2.5 m swath is ~75 m²; nothing at all was recorded on the walk before the tap
+  check('RESUME SPRAYING turns recording back on from anywhere', areaB - areaA > 50, `${areaA} -> ${areaB} m²`);
+  check('and TANK EMPTY is back on the dock', (await page.locator('text="TANK EMPTY"').locator('visible=true').count()) > 0);
+  await browser.close();
+}
+async function refilledAway() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 40, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 40], [40, 60], 2, 100);
+  await tap(page, 'TANK EMPTY', { wait: 900 });
+  await walk(ctx, page, [40, 60], [10, 30], 3, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await tap(page, 'TANK REFILLED', { wait: 900 });             // the tank tile during the trip: "refilled", nowhere near the pin
+  const om = await sessionOpMode(page);
+  check('refilling away from the station pin moves on to the walk back', om === 'toBreakpoint', `opMode ${om}`);
+  await browser.close();
+}
+async function notRecordingAlert() {
+  {
+    const { browser, ctx, page } = await boot();
+    await page.waitForTimeout(1200);
+    await makeField(ctx, page);
+    await moveTo(ctx, page, 40, 40, 900);
+    await tap(page, 'START SPRAYING', { wait: 1200 });
+    await walk(ctx, page, [40, 40], [40, 60], 2, 100);
+    await tap(page, 'TANK EMPTY', { wait: 900 });
+    await walk(ctx, page, [40, 60], [70, 60], 2, 100);         // spraying on, app waiting: walk the field away from the station
+    await walk(ctx, page, [70, 60], [70, 20], 2, 100);
+    check('walking the field while the app waits for a refill raises an alert', /not recording/.test(await appLog(page)));
+    await browser.close();
+  }
+  {
+    const { browser, ctx, page } = await boot();
+    await page.waitForTimeout(1200);
+    await makeField(ctx, page);
+    await moveTo(ctx, page, 60, 60, 900);
+    await tap(page, 'START SPRAYING', { wait: 1200 });
+    await walk(ctx, page, [60, 60], [60, 70], 2, 100);
+    await tap(page, 'TANK EMPTY', { wait: 900 });
+    await walk(ctx, page, [60, 70], [-10, -10], 2, 100);       // straight to the station, across the field
+    check('walking straight to the station raises no alert', !/not recording/.test(await appLog(page)));
+    await browser.close();
+  }
+}
+
+// ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
+const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume })) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillReach, manualResume, refilledAway, notRecordingAlert }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
