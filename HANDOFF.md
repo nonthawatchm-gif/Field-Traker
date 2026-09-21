@@ -8,11 +8,11 @@ lives in `app/test/`, and every claim here has a check behind it.
 
 `app/src.html` is the whole application — a single self-contained file, vanilla
 React over CDN (precompiled into `www/` by `build.js`), no framework, no build
-step while developing. Across two sessions it has had eight bugs found and
-fixed, each with a regression check behind it in `app/test/run.js` (25 checks,
-all passing). One open item is left, one product question has been decided and
-should not be reopened, and `build-37` — the APK built from the last commit — is
-installed on the owner's phone.
+step while developing. Across three sessions it has had eight bugs found and
+fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
+and its save system made fully automatic — each with regression checks in
+`app/test/run.js` (33 checks, all passing). `build-41` — the APK built from the
+save-system commit — is installed on the owner's phone.
 
 ## Start here
 
@@ -39,8 +39,16 @@ Two notes on running it:
 
 ## Where things stand
 
-- Commits: `283cb4a`, `612cbde`, `b45e263` on `main`, all pushed.
-- `build-37` is the APK built from `b45e263` and is installed on the phone.
+- Everything is on `main` and pushed; the last code commit is `dcf7829`
+  (automatic saving). `build-41` is built from it and installed on the phone.
+- **Check which commit a build came from before installing it.** Build numbers
+  are the workflow run number, and a docs-only push makes a build too — build-39
+  turned out to be the docs commit, not the UI change it was assumed to be, and
+  went onto the phone as "the update". `git ls-remote --tags origin build-N`
+  gives the commit.
+- The owner has a real unfinished mission saved on the phone (4.90-rai field
+  ถั่ว 1, 1,234 m² sprayed, currently restored as PAUSED / out of bounds). It is
+  theirs — don't finish or discard it while testing.
 - The working tree is clean. `playwright` is a committed devDependency, so
   `npm i` on a fresh clone is enough to run the harness — only the browser
   binaries are still separate (`npx playwright install chromium`, or point
@@ -275,6 +283,11 @@ Then talk to `http://localhost:9222/json` over CDP. Three things cost time here:
 ## Still open
 
 In the order I'd do them.
+
+0. **Automatic restore has only been seen on the phone once**, on the owner's
+   own session, and only across a relaunch. Killing the app mid-*running*
+   mission (screen off, battery pull) on the phone has not been tried with this
+   build.
 
 1. **Outbound nav-line colour.** The leg to the station is teal
    (`rgba(46,230,199,.85)`); only the return legs are amber. The test plan
