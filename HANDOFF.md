@@ -20,11 +20,11 @@ save-system commit — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 40 checks, ~15 min, expect 40/40
+node test/run.js                     # 47 checks, ~15 min, expect 47/47
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 40/40 on a clean checkout, something in the fixes below
+If `test/run.js` is not 47/47 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -249,6 +249,34 @@ automatically". What was actually broken, and what replaced it:
   the summary back to PAUSED and finishing again updates one record.
   `beginNewMission()` clears it at START SPRAYING, START NEW and TOUCH-UP.
 
+### The owner's workflow (session 3, from their own diagram)
+
+The owner drew the intended flow and it replaced three pieces of the old one:
+
+- **Refill is two taps, no GPS geometry.** TANK EMPTY turns recording off and
+  points at the station; REFILLED · START SPRAYING (dock, or the tank tile's
+  REFILLED · SPRAY) turns it back on wherever the operator stands. The
+  arrive-at-station / return-to-breakpoint states (`refilling`,
+  `toBreakpoint`), the breakpoint pin, all the radii and the spray-time
+  auto-refill near the station are gone; `opMode` is `spray | toStation`.
+  Sessions saved by older builds map the removed states to `toStation`.
+  The two buttons share a spot on the dock, so each ignores the other for 2 s
+  after a switch (`modeSwitchAtRef`) — a gloved double tap would otherwise undo
+  itself and close a phantom zero-area tank.
+- **FINISH asks**: FIELD DONE · CLOSE ROUND N, or NOT DONE · CONTINUE LATER.
+- **Fields are sprayed in numbered rounds.** `entry.round` is the open round
+  (missing = 1). Continue-later keeps the round and its `cov`; field-done files
+  `{n, finishedTs, rai}` in `entry.rounds`, drops `cov`/`stats` and bumps
+  `round`, so the next spraying starts on an empty map. History records carry
+  `round`, `complete`, `fieldName`. TOUCH-UP and the summary's X (back to
+  PAUSED) are gone — continue-later covers both.
+
+Found while testing it: **every field-library write must go through
+`updateLibrary()`**. Three writers (rename, delete, the "last sprayed" stamp)
+saved from inside a `setFieldLibrary(updater)`, which runs a render later on an
+older list — at FINISH the stamp overwrote the closed round in storage while
+the screen showed round 2. The rounds test reloads and checks what was stored.
+
 ### Field test 2026-09-21 — the refill trip silently stopped recording
 
 The owner's first real spraying run on the automatic-save build (16:56–17:48,
@@ -265,7 +293,7 @@ The owner's first real spraying run on the automatic-save build (16:56–17:48,
   stayed off for the remaining 25 minutes. REFILLED FULL TANK only appears once
   the app believes you are *at* the station, so it never showed.
 
-Fixed in four parts: `STATION_ARRIVE_RADIUS = 8` m for arriving after TANK
+(Superseded by the owner's two-tap workflow above.) First fixed in four parts: `STATION_ARRIVE_RADIUS = 8` m for arriving after TANK
 EMPTY and `BREAKPOINT_RADIUS` 1.5 → 5 m (the spray-time auto-refill trigger
 stays at 2.5 m so a lane past the station does not cut spraying off); a RESUME
 SPRAYING dock button replaces the disabled TANK EMPTY in every refill state;

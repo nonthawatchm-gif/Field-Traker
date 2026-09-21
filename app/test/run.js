@@ -5,7 +5,14 @@
  *   npx http-server www -p 8080   (or: python -m http.server 8080 --directory www)
  *   node test/run.js
  */
-const { boot, moveTo, walk, tap, stat, summary, makeField } = require('./harness');
+const { boot, moveTo, walk, tap, tapRe, stat, summary, makeField } = require('./harness');
+
+/** FINISH now asks whether the field is done (closes the round) or not
+ *  (continue later). Most checks only care about the summary, so default to done. */
+async function finishAs(page, done = true) {
+  await tap(page, 'FINISH', { wait: 700 });
+  await tapRe(page, done ? /FIELD DONE · CLOSE ROUND/ : /NOT DONE · CONTINUE LATER/, { wait: 1800 });
+}
 
 const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`); };
@@ -47,7 +54,7 @@ async function tidyJob() {
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   const ov = num(await stat(page, 'OVERLAP'));
   check('tidy 5-lane job stays under 15% overlap', ov < 15, `${ov}%`);
-  await tap(page, 'FINISH', { wait: 1500 });
+  await finishAs(page);
   const s = await summary(page);
   check('tidy job flags no missed spots', /MISSED SPOTS \| 0\.00 rai/.test(s), s.match(/MISSED SPOTS \| [^|]+/)?.[0]);
   await browser.close();
@@ -66,7 +73,7 @@ async function missed() {
     await tap(page, 'SAVE & PAUSE', { wait: 900 });
     await walk(ctx, page, [40, 70], [15, 70], 2, 100);
     await walk(ctx, page, [15, 70], [15, 20], 2, 100);
-    await tap(page, 'FINISH', { wait: 1500 });
+    await finishAs(page);
     const s = await summary(page);
     const m = num(s.match(/MISSED SPOTS \| ([\d.]+) rai/)?.[1]);
     check('virgin ground walked while PAUSED is flagged missed', m > 0.05, `${m} rai`);
@@ -80,13 +87,13 @@ async function missed() {
     await tap(page, 'START SPRAYING', { wait: 1200 });
     await walk(ctx, page, [40, 40], [40, 60], 2, 100);
     await tap(page, 'TANK EMPTY', { wait: 900 });
-    await walk(ctx, page, [40, 60], [-10, -10], 4, 90);
-    await page.waitForTimeout(1200);
+    await walk(ctx, page, [40, 60], [-10, -10], 4, 90);        // the walk to the tank crosses the field: must not hatch red
+    await page.waitForTimeout(2200);
+    await tap(page, 'REFILLED · START SPRAYING', { wait: 900 });
     await walk(ctx, page, [-10, -10], [40, 58], 4, 90);
-    await walk(ctx, page, [40, 58], [40, 60], 0.5, 200);
     await page.waitForTimeout(900);
     await tap(page, 'SAVE & PAUSE', { wait: 900 });
-    await tap(page, 'FINISH', { wait: 1500 });
+    await finishAs(page);
     const s = await summary(page);
     check('the refill round trip flags nothing missed', /MISSED SPOTS \| 0\.00 rai/.test(s), s.match(/MISSED SPOTS \| [^|]+/)?.[0]);
     await browser.close();
@@ -104,17 +111,19 @@ async function tankCount() {
   await walk(ctx, page, [40, 40], [40, 60], 2, 100);
   await tap(page, 'TANK EMPTY', { wait: 900 });
   await walk(ctx, page, [40, 60], [-10, -10], 4, 90);
-  await page.waitForTimeout(1200);
-  await tap(page, 'REFILLED FULL TANK', { wait: 800 });
-  await tap(page, 'REFILLED FULL TANK', { wait: 800 });
-  await walk(ctx, page, [-10, -10], [40, 58], 4, 90);
-  await walk(ctx, page, [40, 58], [40, 60], 0.5, 200);
+  await page.waitForTimeout(2200);
+  // a double tap: the second lands where TANK EMPTY reappears and must be ignored
+  const btn = page.locator('text="REFILLED · START SPRAYING"').locator('visible=true').first();
+  await btn.click({ force: true }); await page.waitForTimeout(250);
+  await page.locator('text="TANK EMPTY"').locator('visible=true').first().click({ force: true }).catch(() => {});
   await page.waitForTimeout(900);
+  check('a double tap on REFILLED · START SPRAYING leaves spraying on', await sessionOpMode(page) === 'spray', `opMode ${await sessionOpMode(page)}`);
+  await walk(ctx, page, [-10, -10], [40, 58], 4, 90);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1500 });
+  await finishAs(page);
   const tanks = num((await summary(page)).match(/TANKS USED \| (\d+)/)?.[1]);
-  check('one refill is one tank even when confirmed twice', tanks === 2, `TANKS USED ${tanks}`);
-  const phantom = logs.filter((l) => /emptied after 0\.00 rai/.test(l)).length;
+  check('one refill is two tanks, however it was tapped', tanks === 2, `TANKS USED ${tanks}`);
+  const phantom = logs.filter((l) => /emptied after 0\.00 rai/.test(l)).length + ((await appLog(page)).match(/emptied after 0\.00 rai/g) || []).length;
   check('no phantom zero-area tank in the log', phantom === 0, `${phantom} found`);
   await browser.close();
 }
@@ -165,9 +174,10 @@ async function crashRecovery() {
   check('it comes back PAUSED, awaiting a manual resume', paused);
   await tap(page, 'RESUME', { wait: 1200 });
   const after = num(await stat(page, 'AREA SPRAYED'));
-  const bp = num(await stat(page, 'TO BREAKPOINT'));
   check('coverage survives the reload', after === before, `${before} -> ${after} m²`);
-  check('breakpoint survives the reload', Math.abs(bp - 32) < 2, `TO BREAKPOINT ${bp} m (expected ~32)`);
+  const toSt = num(await stat(page, 'TO STATION'));
+  const refillBtn = (await page.locator('text="REFILLED · START SPRAYING"').locator('visible=true').count()) > 0;
+  check('the refill trip survives the reload', refillBtn && Math.abs(toSt - 64) < 3, `button ${refillBtn}, TO STATION ${toSt} m (expected ~64)`);
   await browser.close();
 }
 
@@ -192,7 +202,7 @@ async function windReset() {
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1500 });
+  await finishAs(page);
   await tap(page, 'START NEW', { wait: 1500 });
   const after = await checklistState(page);
   check('FINISH then START NEW clears the wind tick', after.wind === false, `wind=${after.wind}`);
@@ -215,7 +225,7 @@ async function complianceLog() {
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1800 });
+  await finishAs(page);
   const saved = await page.evaluate(() => {
     try { return JSON.parse(localStorage.getItem('agras-tracker-missions') || '[]')[0] || null; } catch (e) { return null; }
   });
@@ -238,22 +248,18 @@ async function overlapSubLine() {
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 10], [40, 60], 2, 100);          // lay a lane down at x=40
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  // virgin ground crossed while paused flags missed spots, which is what puts
-  // the TOUCH-UP button on the summary. Finish standing back on the lane, so
-  // the touch-up run can start without crossing anything new.
-  await walk(ctx, page, [40, 60], [20, 60], 2, 100);
-  await walk(ctx, page, [20, 60], [20, 20], 2, 100);
-  await walk(ctx, page, [20, 20], [40, 20], 2, 100);
-  await tap(page, 'FINISH', { wait: 1500 });
-  await tap(page, 'TOUCH-UP MISSED SPOTS', { wait: 2000 });
-  await walk(ctx, page, [40, 20], [40, 55], 2, 100);          // strictly over ground already sprayed
+  await finishAs(page, false);                                 // not done: the round stays open with this lane on it
+  await tap(page, 'START NEW', { wait: 1500 });
+  await moveTo(ctx, page, 40, 20, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 20], [40, 55], 2, 100);          // the next session re-sprays only that lane
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1500 });
+  await finishAs(page, false);
   const s = await summary(page);
   const sub = s.match(/OVERLAPPED \| [^|]+\| ([^|]+)/)?.[1]?.trim() || '';
   const newRai = num(s.match(/AREA SPRAYED \| [^|]+\| ([\d.]+) rai/)?.[1]);
   const ovRai = num(s.match(/OVERLAPPED \| ([\d.]+) rai/)?.[1]);
-  check('a touch-up over covered ground breaks no new ground', newRai === 0, `AREA SPRAYED ${newRai} rai`);
+  check('continuing a round over its own sprayed ground breaks no new ground', newRai === 0, `AREA SPRAYED ${newRai} rai`);
   check('it still reports the overlapped rai', ovRai > 0, `${ovRai} rai`);
   check('the overlap sub-line is not a bare 0%', !/^0% of sprayed area/.test(sub), sub);
   await browser.close();
@@ -297,27 +303,18 @@ async function missionAutoSave() {
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 10], [40, 40], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1800 });
+  await finishAs(page, false);
   let h = await history(page);
-  check('FINISH files the mission in history on its own', h.length === 1, `${h.length} record(s)`);
-  const firstRai = h[0] ? h[0].raiDec : 0;
-  await page.locator('text="MISSION SUMMARY"').locator('xpath=../..').locator('button').first().click();
-  await page.waitForTimeout(800);
-  await tap(page, 'RESUME', { wait: 800 });
-  await walk(ctx, page, [40, 40], [40, 70], 2, 100);
-  await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1800 });
-  h = await history(page);
-  check('finishing the same mission again updates its record, not a second one', h.length === 1 && h[0].raiDec > firstRai,
-    `${h.length} record(s), ${firstRai.toFixed(2)} -> ${h[0] ? h[0].raiDec.toFixed(2) : '?'} rai`);
+  check('FINISH files the mission in history on its own', h.length === 1 && h[0].round === 1 && h[0].complete === false,
+    `${h.length} record(s)${h[0] ? `, round ${h[0].round}, complete ${h[0].complete}` : ''}`);
   await tap(page, 'START NEW', { wait: 1200 });
   await moveTo(ctx, page, 60, 10, 900);
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [60, 10], [60, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1800 });
+  await finishAs(page, false);
   h = await history(page);
-  check('the next mission gets a record of its own', h.length === 2, `${h.length} record(s)`);
+  check('the next session gets a record of its own, still round 1', h.length === 2 && h[0].round === 1, `${h.length} record(s)`);
   await browser.close();
 }
 
@@ -349,7 +346,7 @@ async function bigFieldResume() {
 const txt = async (page) => page.evaluate(() => document.body.innerText);
 const sessionOpMode = (page) => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('agras-tracker-active-session')).opMode; } catch (e) { return null; } });
 const appLog = (page) => page.evaluate(() => localStorage.getItem('agras_log_v1') || '');
-async function refillReach() {
+async function refillFlow() {
   const { browser, ctx, page } = await boot();
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
@@ -357,48 +354,72 @@ async function refillReach() {
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 40], [40, 60], 2, 100);
   await tap(page, 'TANK EMPTY', { wait: 900 });
-  await walk(ctx, page, [40, 60], [-5, -10], 4, 90);          // stop 5 m short of the station pin
-  await page.waitForTimeout(1200);
-  check('stopping 5 m from the station pin counts as arriving', /AT REFILL STATION/.test(await txt(page)), (await txt(page)).match(/HEAD TO REFILL STATION|AT REFILL STATION|RETURN TO BREAKPOINT/)?.[0]);
-  await walk(ctx, page, [-5, -10], [40, 56], 4, 90);          // back to 4 m from the breakpoint
-  await page.waitForTimeout(1200);
+  check('TANK EMPTY puts REFILLED · START SPRAYING on the dock', /REFILLED · START SPRAYING/.test(await txt(page)) && /REFILL — NOT RECORDING/.test(await txt(page)));
   const areaA = num(await stat(page, 'AREA SPRAYED'));
-  await walk(ctx, page, [40, 56], [20, 56], 2, 100);
+  await walk(ctx, page, [40, 60], [60, 20], 3, 100);          // nowhere near the station
   const areaB = num(await stat(page, 'AREA SPRAYED'));
-  check('coming back within 5 m of the breakpoint resumes recording', areaB > areaA, `${areaA} -> ${areaB} m²`);
-  await browser.close();
-}
-async function manualResume() {
-  const { browser, ctx, page } = await boot();
-  await page.waitForTimeout(1200);
-  await makeField(ctx, page);
-  await moveTo(ctx, page, 40, 40, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
-  await walk(ctx, page, [40, 40], [40, 60], 2, 100);
-  await tap(page, 'TANK EMPTY', { wait: 900 });
-  await walk(ctx, page, [40, 60], [60, 20], 3, 100);          // never goes near the station
-  const areaA = num(await stat(page, 'AREA SPRAYED'));
-  await tap(page, 'RESUME SPRAYING', { wait: 900 });
+  check('nothing is recorded between the two taps', areaB === areaA, `${areaA} -> ${areaB} m²`);
+  await tap(page, 'REFILLED · START SPRAYING', { wait: 900 });
   await walk(ctx, page, [60, 20], [60, 50], 2, 100);
-  const areaB = num(await stat(page, 'AREA SPRAYED'));
-  // 30 m at the default 2.5 m swath is ~75 m²; nothing at all was recorded on the walk before the tap
-  check('RESUME SPRAYING turns recording back on from anywhere', areaB - areaA > 50, `${areaA} -> ${areaB} m²`);
+  const areaC = num(await stat(page, 'AREA SPRAYED'));
+  // 30 m at the default 2.5 m swath is ~75 m²
+  check('REFILLED · START SPRAYING records again from wherever you are', areaC - areaB > 50, `${areaB} -> ${areaC} m²`);
   check('and TANK EMPTY is back on the dock', (await page.locator('text="TANK EMPTY"').locator('visible=true').count()) > 0);
   await browser.close();
 }
-async function refilledAway() {
+async function tileRefill() {
   const { browser, ctx, page } = await boot();
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 40, 900);
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 40], [40, 60], 2, 100);
-  await tap(page, 'TANK EMPTY', { wait: 900 });
-  await walk(ctx, page, [40, 60], [10, 30], 3, 100);
+  await tap(page, 'TANK EMPTY', { wait: 2200 });
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });              // the tank tile is on screen while paused
+  await tap(page, 'REFILLED · SPRAY', { wait: 900 });
+  check('the tank tile ends the refill trip too', await sessionOpMode(page) === 'spray', `opMode ${await sessionOpMode(page)}`);
+  await browser.close();
+}
+
+/* 14. Rounds. "Not done" keeps the round open with its coverage; "field done"
+ *     closes it, and the next spraying of the field is round N+1 on an empty map. */
+async function rounds() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  const field = async () => (await library(page))[0] || {};
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 40], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'TANK REFILLED', { wait: 900 });             // the tank tile during the trip: "refilled", nowhere near the pin
-  const om = await sessionOpMode(page);
-  check('refilling away from the station pin moves on to the walk back', om === 'toBreakpoint', `opMode ${om}`);
+  await finishAs(page, false);
+  let f = await field();
+  check('NOT DONE keeps round 1 open with its sprayed area', (f.round || 1) === 1 && !!f.cov, `round ${f.round || 1}, coverage ${!!f.cov}`);
+  await tap(page, 'START NEW', { wait: 1500 });
+  check('the field card says round 1 continues', /Round 1 · \d+% sprayed — continues/.test(await txt(page)));
+  await moveTo(ctx, page, 60, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [60, 10], [60, 40], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, true);
+  f = await field();
+  const h = await history(page);
+  check('FIELD DONE closes round 1 and opens round 2 with no coverage', f.round === 2 && !f.cov && (f.rounds || []).length === 1,
+    `round ${f.round}, coverage ${!!f.cov}, rounds filed ${(f.rounds || []).length}`);
+  check('the history marks round 1 complete', h[0] && h[0].round === 1 && h[0].complete === true, h[0] ? `round ${h[0].round}, complete ${h[0].complete}` : 'none');
+  await tap(page, 'START NEW', { wait: 1500 });
+  check('the field card says round 2 has not started', /Round 2 · not started/.test(await txt(page)));
+  const areaBefore = num(await stat(page, 'AREA SPRAYED'));
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await page.waitForTimeout(800);
+  const areaAtStart = num(await stat(page, 'AREA SPRAYED'));
+  // standing still at START stamps one spray circle (radius = half the swath, ~5 m²); round 1 left ~150 m² here
+  check('round 2 starts on an empty map', areaAtStart < 20, `AREA SPRAYED ${areaAtStart} m² at the start (card showed ${areaBefore})`);
+  await page.reload();
+  await page.waitForTimeout(3500);
+  const f2 = (await library(page))[0] || {};
+  check('round 2 is what the phone actually stored, not just what the screen showed', f2.round === 2, `stored round ${f2.round}`);
   await browser.close();
 }
 async function notRecordingAlert() {
@@ -432,7 +453,7 @@ async function notRecordingAlert() {
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillReach, manualResume, refilledAway, notRecordingAlert }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

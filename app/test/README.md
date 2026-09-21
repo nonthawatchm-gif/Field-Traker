@@ -42,12 +42,13 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | reload mid-mission: restored by itself, PAUSED, coverage + breakpoint intact | Scenario 5, automatic restore |
 | FINISH → START NEW clears Wind but keeps PPE | the wrong-event wind reset (BUG 4) |
 | the filed compliance log still records Wind as checked | the reset eating the record (BUG 5) |
-| touch-up over covered ground: overlap rai > 0, sub-line not a bare 0% | the seeded pass-id collision (BUG 7) and the zero denominator (BUG 8) |
+| continuing a round over its own ground: overlap rai > 0, sub-line not a bare 0% | the seeded pass-id collision (BUG 7) and the zero denominator (BUG 8) |
 | closed boundary is in the library before spraying; station moves are written back | field auto-save |
 | FINISH files the mission; re-finishing updates it; the next mission gets its own | mission auto-save |
 | a 39-rai field's session saves and survives a reload | the localStorage quota blow-out |
-| arriving 5 m from the station pin counts; 4 m from the breakpoint resumes | the 2.5 m / 1.5 m radii that stranded the 2026-09-21 field run |
-| RESUME SPRAYING works from anywhere; tile TANK REFILLED away from the pin moves on | no way out of the refill trip |
+| TANK EMPTY stops recording; REFILLED · START SPRAYING resumes anywhere; the tile does too | the two-tap refill trip |
+| a double tap on the refill button doesn't undo itself | the shared dock spot |
+| NOT DONE keeps the round; FIELD DONE opens round N+1 on an empty map, and that is what is stored | rounds, and the stale library write |
 | walking the field during the trip alerts; walking straight to the station doesn't | spraying unrecorded with the screen off |
 
 ## Writing more

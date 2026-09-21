@@ -168,15 +168,13 @@ const CloudRain     = (p) => <Svg {...p}><path d="M16 13v8"/><path d="M8 13v8"/>
 const CELL = 0.3;
 const PAD_G = 2;
 const BOUND_FRAME = { minX: 0, minY: 0, maxX: 100, maxY: 130 };
-// Field test 2026-09-21: with GPS at median ±3 m / p90 ±10 m, the operator
-// stood at the tank and the closest fix was 3.0 m from the pin — so under the
-// old 2.5 m arrival radius the app never saw them arrive, stayed in "head to
-// station" for the rest of the mission and recorded none of the next 47
-// minutes of spraying. The arrival radii below are sized to real GPS error.
-const REFILL_RADIUS = 2.5;          // metres — walking this close to the station WHILE SPRAYING starts a refill on its own; kept tight so a lane along the station edge doesn't cut spraying off
-const STATION_ARRIVE_RADIUS = 8;    // metres — after TANK EMPTY, "arrived at the station"
-const BREAKPOINT_RADIUS = 5;        // metres — "arrived back at the breakpoint"
-const REFILL_DWELL_MS = 3000;   // sim-mode only: how long the demo lingers before walking off
+/* The refill trip is two taps and no GPS geometry: TANK EMPTY switches
+ * recording off and points at the station; REFILLED · START SPRAYING switches
+ * it back on wherever the operator is standing. It used to be an automatic
+ * arrive-at-station -> leave -> arrive-at-breakpoint sequence with 2.5 m and
+ * 1.5 m radii; in the 2026-09-21 field test GPS put the operator 3.0 m from the
+ * pin while they stood at the tank, the sequence never advanced, and the app
+ * recorded none of the next 47 minutes of spraying. */
 
 /** Default field — traced from an operator-supplied satellite photo of a real
  *  roadside plot: a narrow wedge tapering to a point where it meets a dirt
@@ -1480,16 +1478,6 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.restore();
   }
 
-  if (sim.breakpoint) {
-    const bx = X_(v, sim.breakpoint.x), by = Y_(v, sim.breakpoint.y);
-    ctx.save(); ctx.translate(bx, by - 9);
-    ctx.fillStyle = '#FFB648';
-    ctx.beginPath(); ctx.moveTo(0, 11); ctx.quadraticCurveTo(-7, 2, -7, -3); ctx.arc(0, -3, 7, Math.PI, 0);
-    ctx.quadraticCurveTo(7, 2, 0, 11); ctx.fill();
-    ctx.fillStyle = '#0A0E10'; ctx.beginPath(); ctx.arc(0, -3, 2.8, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-  }
-
   if (!opts.static) {
     const px = X_(v, sim.pos.x), py = Y_(v, sim.pos.y);
     const col = opts.oob ? '#FF5252' : '#2EE6C7';
@@ -1632,7 +1620,7 @@ const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
  * ============================================================== */
 function App() {
   const [phase, setPhase] = useState('ready');       // boundary | station | ready | running | paused | done
-  const [opMode, setOpMode] = useState('spray');      // spray | toStation | refilling | toBreakpoint
+  const [opMode, setOpMode] = useState('spray');      // spray | toStation (TANK EMPTY tapped: recording off until REFILLED · START SPRAYING)
   const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('agras_dev') === '1'; } catch (e) { return false; } });
   const devTapsRef = useRef({ n: 0, t: 0 });
   const freeRectRef = useRef({ top: 0, h: 0 }); // the map area not covered by the HUD cards / dock (canvas px)
@@ -1649,8 +1637,11 @@ function App() {
   const tankAreasRef = useRef([]);         // m² sprayed with each COMPLETED tank (operator taps TANK EMPTY)
   const tankOpenRef = useRef(true);        // a tank is currently in use (false between TANK EMPTY and the refill)
   const coverageBaseRef = useRef({ sprayed: 0, overlap: 0 }); // cells already sprayed when this mission began (restored from the field's saved coverage)
+  // TANK EMPTY and REFILLED · START SPRAYING occupy the same spot on the dock,
+  // so a double tap on one would land its second tap on the other and undo it
+  // (and close a phantom zero-area tank). Either switch ignores the other for 2 s.
+  const modeSwitchAtRef = useRef(0);
   const unrecordedRef = useRef({ walked: 0, startDist: 0, lastAlert: 0 }); // walking in the field while the refill trip has spraying switched off
-  const refillArmedRef = useRef(false);    // refill-at-station only triggers after the operator has first walked away from it
   const enteredFieldRef = useRef(false);   // out-of-bounds alerts only after the operator has been inside the field once
   const lastFixMsRef = useRef(0);
   const [logMsg, setLogMsg] = useState('');
@@ -1678,7 +1669,6 @@ function App() {
   const [stationDraft, setStationDraft] = useState(null);
   const [oob, setOob] = useState(false);
   const [excursionActive, setExcursionActive] = useState(false);
-  const [resumeFlash, setResumeFlash] = useState(false);
   const [missions, setMissions] = useState(() => loadHistory());
   const [showHistory, setShowHistory] = useState(false);
   const [selectedMissionId, setSelectedMissionId] = useState(null);
@@ -1702,6 +1692,9 @@ function App() {
   const [satelliteOn, setSatelliteOn] = useState(true);    // Esri World Imagery underlay — on by default; only actually renders once a real-world geo-reference (GPS fix or a saved field's stored origin) is available
   const [followMe, setFollowMe] = useState(false);          // true: pan auto-centers on the operator; false: free pan
   const [gpsCardOpen, setGpsCardOpen] = useState(false);   // expandable raw-telemetry card
+  const [showFinishChoice, setShowFinishChoice] = useState(false); // FINISH asks: whole field done (close the round) or continue later
+  const finishKindRef = useRef('complete');   // how the mission now ending was finished; the SIM route-follower's auto-done counts as complete
+  const [finishInfo, setFinishInfo] = useState(null); // { round, complete } for the summary screen
   const [restoredToast, setRestoredToast] = useState(false); // "unfinished mission restored" notice after an automatic restore at startup
   const resumedAtStartRef = useRef(false);
   const missionRecordIdRef = useRef(null); // history record id of the mission in progress, once it has been filed
@@ -1729,7 +1722,6 @@ function App() {
   const manualPathRef = useRef(null);
   const oobRef = useRef(false);
   const opModeRef = useRef('spray');
-  const refillDeadlineRef = useRef(0);
   const prevPhaseRef = useRef('ready');
   const watchIdRef = useRef(null);
   const projectorRef = useRef(null);
@@ -1927,7 +1919,14 @@ function App() {
   };
   const tanksUsedCount = () => tankAreasRef.current.length + (tankOpenRef.current && totalPassAreaNow() - tankBaselineAreaRef.current > 0 ? 1 : 0);
 
-  /* ---- per-field saved coverage ---- */
+  /* ---- per-field saved coverage ----
+     EVERY write to the field library goes through updateLibrary. It applies
+     the change to the ref synchronously and saves right then, so writes land
+     in the order they were made. The old pattern — saveFieldLibrary() inside a
+     setFieldLibrary((list) => ...) updater — runs later, during the next
+     render, on whatever React had queued, and at FINISH that meant the
+     "last sprayed" stamp saved a copy of the list from before the round was
+     closed: the screen said round 2, the phone's storage still said round 1. */
   const updateLibrary = (fn) => {
     const next = fn(fieldLibraryRef.current);
     fieldLibraryRef.current = next;
@@ -2033,7 +2032,7 @@ function App() {
     zoomCeilingRef.current = MAX_NATIVE_ZOOM; // switching fields — give the new location a fresh, optimistic chance at deep zoom
   };
   const deleteFieldFromLibrary = (id) => {
-    setFieldLibrary((list) => { const next = list.filter((f) => f.id !== id); saveFieldLibrary(next); return next; });
+    updateLibrary((list) => list.filter((f) => f.id !== id));
     setConfirmDeleteFieldId(null);
     setActiveFieldId((cur) => (cur === id ? null : cur));
   };
@@ -2042,11 +2041,7 @@ function App() {
   const renameFieldInLibrary = (id, newName) => {
     const trimmed = (newName || '').trim();
     if (!trimmed) { setRenamingFieldId(null); return; }
-    setFieldLibrary((list) => {
-      const next = list.map((f) => (f.id === id ? { ...f, name: trimmed } : f));
-      saveFieldLibrary(next);
-      return next;
-    });
+    updateLibrary((list) => list.map((f) => (f.id === id ? { ...f, name: trimmed } : f)));
     setRenamingFieldId(null);
   };
   /** Stamp the "last sprayed" date on a saved field — called from
@@ -2054,11 +2049,7 @@ function App() {
    *  a field loaded from the library (activeFieldId non-null). */
   const touchFieldLastSprayed = (id) => {
     if (!id) return;
-    setFieldLibrary((list) => {
-      const next = list.map((f) => (f.id === id ? { ...f, lastSprayedTs: Date.now() } : f));
-      saveFieldLibrary(next);
-      return next;
-    });
+    updateLibrary((list) => list.map((f) => (f.id === id ? { ...f, lastSprayedTs: Date.now() } : f)));
   };
 
   /** Startup — an unfinished mission left in storage is restored straight
@@ -2186,7 +2177,28 @@ function App() {
     // Every finished mission is filed in history automatically — there is no
     // SAVE SESSION step any more. Re-finishing the same mission updates its
     // record in place rather than filing a second one.
-    try { recordMission(missionChecklistRef.current); } catch (e) { AgrasLog.add('ERR', 'mission record failed: ' + (e && e.message)); }
+    // Rounds: each field is sprayed in numbered rounds (ครั้งที่ 1, 2, ...).
+    // "Continue later" leaves the round open with its coverage kept on the
+    // field; "field done" files the round and the next spraying of this field
+    // starts round N+1 on an empty map.
+    const id = activeFieldIdRef.current;
+    const entry = id ? fieldLibraryRef.current.find((f) => f.id === id) : null;
+    const round = (entry && entry.round) || 1;
+    const complete = finishKindRef.current === 'complete';
+    finishKindRef.current = 'complete';
+    setFinishInfo({ round, complete });
+    try { recordMission(missionChecklistRef.current, { round, complete, fieldName: entry ? entry.name : null }); } catch (e) { AgrasLog.add('ERR', 'mission record failed: ' + (e && e.message)); }
+    if (complete && entry) {
+      const rai = (simRef.current.sprayedCells * CELL * CELL) / 1600;
+      updateLibrary((list) => list.map((f) => {
+        if (f.id !== id) return f;
+        const { cov, stats, ...rest } = f;
+        return { ...rest, round: round + 1, lastSprayedTs: Date.now(), rounds: [...(f.rounds || []), { n: round, finishedTs: Date.now(), rai }] };
+      }));
+      AgrasLog.add('ROUND', `field ${id} round ${round} closed at ${rai.toFixed(2)} rai; next is round ${round + 1}`);
+    } else if (entry) {
+      AgrasLog.add('ROUND', `field ${id} round ${round} left open (continue later)`);
+    }
     // read through the updater so this needs no `checklist` dependency — with
     // one, the reset it performs would retrigger the effect and loop.
     setChecklist((c) => {
@@ -2198,7 +2210,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
   const missionOn = phase === 'running'; // native foreground GPS service only while spraying — paused mission = no service, no wake-ups
-  useEffect(() => { if (phase === 'running') { refillArmedRef.current = false; enteredFieldRef.current = false; } }, [phase]);
+  useEffect(() => { if (phase === 'running') { enteredFieldRef.current = false; } }, [phase]);
   useEffect(() => { if (phase === 'running' && camModeRef.current === 'fit') return; if (phase === 'ready' || phase === 'boundary' || phase === 'station') { navHeadingRef.current = null; setCamMode('follow'); } }, [phase]);
   useEffect(() => { AgrasLog.add('PHASE', `${phase} src=${srcMode} field=${fieldRef.current.area ? (fieldRef.current.area / 1600).toFixed(2) : '?'}rai`); if (phase === 'running' || phase === 'paused') logBattery('phase ' + phase); AgrasLog.flush(); }, [phase]);
   useEffect(() => { AgrasLog.add('OPMODE', opMode); }, [opMode]);
@@ -2487,7 +2499,7 @@ function App() {
              paused was passed over and skipped, which is exactly what §3C
              calls a missed spot, so paused fixes feed markMissed even though
              only a running mission ever lays real spray down. The refill legs
-             (toStation / refilling / toBreakpoint) stay excluded: the walk to
+             (toStation, after TANK EMPTY) stays excluded: the walk to
              the tank is not a skipped pass and must never hatch the map red. */
           const onSprayLane = missionActive && opModeRef.current === 'spray';
           // first fix after start/resume, or a GPS jump: reposition only, never paint a line from the stale position
@@ -2496,15 +2508,16 @@ function App() {
           if (teleport) { AgrasLog.add('FIXAPPLY', `re-anchor, no paint (jump ${Math.round(dist(from, newPos))}m)`); }
           else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, gpsPassId(sim, from, newPos), paintCell);
           else if (onSprayLane) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
-          // Safety net for the failure the field test hit: the refill trip has
-          // spraying switched off, the operator is walking around inside the
-          // field anyway, and with the screen off nothing tells them. 40 m of
+          // Safety net for the failure the field test hit: TANK EMPTY has
+          // recording switched off, the operator is walking around inside the
+          // field anyway (sprayed from a refill away from the pin, or forgot the
+          // second tap), and with the screen off nothing tells them. 40 m of
           // walking in the field that doesn't bring them at least 20 m closer
-          // to where the trip is taking them (station, then breakpoint) raises
-          // an alert that works with the screen off. At most every 3 minutes.
+          // to the station raises an alert that works with the screen off.
+          // At most every 3 minutes.
           if (ph === 'running' && opModeRef.current !== 'spray' && !teleport && pointInPoly(newPos, field.poly)) {
             const u = unrecordedRef.current;
-            const target = opModeRef.current === 'toBreakpoint' ? sim.breakpoint : stationRef.current;
+            const target = stationRef.current;
             if (u.walked === 0) u.startDist = target ? dist(from, target) : 0;
             u.walked += dist(from, newPos);
             if (u.walked >= 40) {
@@ -2512,7 +2525,7 @@ function App() {
               if (closed < u.walked * 0.5 && Date.now() - u.lastAlert > 180000) {
                 u.lastAlert = Date.now();
                 AgrasLog.add('ALERT', `not recording: walked ${Math.round(u.walked)}m in the field during ${opModeRef.current}`);
-                alertUser([660, 660, 660], 'Spraying is not being recorded', 'The app is still waiting for the refill trip. Tap RESUME SPRAYING if you are spraying.');
+                alertUser([660, 660, 660], 'Spraying is not being recorded', 'Tap REFILLED · START SPRAYING if you are spraying again.');
               }
               u.walked = 0;
             }
@@ -2546,44 +2559,6 @@ function App() {
         }
       } else if (oobRef.current) { oobRef.current = false; setOob(false); }
 
-      // hands-free refill lifecycle — proximity-driven, no taps required
-      if (ph === 'running') {
-        const om = opModeRef.current;
-        const dStation = dist(sim.pos, stationRef.current);
-        if (om === 'spray' && !refillArmedRef.current && dStation > REFILL_RADIUS * 2) refillArmedRef.current = true;
-        if (om === 'spray' && refillArmedRef.current && dStation <= REFILL_RADIUS) {
-          refillArmedRef.current = false;
-          sim.breakpoint = { ...sim.pos };
-          opModeRef.current = 'refilling'; setOpMode('refilling');
-          refillDeadlineRef.current = t + REFILL_DWELL_MS;
-          // tank refills the instant the operator reaches the station — no
-          // manual "Refilled Full Tank" tap required; the dwell below is just
-          // a brief visual pause at the tank before auto-walking back.
-          openTank();
-          lowLiquidWarnedRef.current = false;
-        } else if (om === 'toStation' && dStation <= STATION_ARRIVE_RADIUS) {
-          opModeRef.current = 'refilling'; setOpMode('refilling');
-          refillDeadlineRef.current = t + REFILL_DWELL_MS;
-          openTank();
-          lowLiquidWarnedRef.current = false;
-        } else if (om === 'refilling') {
-          if (dStation > STATION_ARRIVE_RADIUS) { opModeRef.current = 'toBreakpoint'; setOpMode('toBreakpoint'); }
-          else if (sm === 'sim' && !manualPathRef.current && t >= refillDeadlineRef.current) {
-            driveTo(sim.breakpoint);
-          }
-        } else if (om === 'toBreakpoint') {
-          const dBp = sim.breakpoint ? dist(sim.pos, sim.breakpoint) : Infinity;
-          if (dBp <= BREAKPOINT_RADIUS) {
-            opModeRef.current = 'spray'; setOpMode('spray');
-            sim.epoch += 1; sim.passHeading = null; sim.breakpoint = null; refillArmedRef.current = false;
-            setResumeFlash(true); alertUser([1180], 'Back on track', 'Resumed at the breakpoint — spraying.');
-            setTimeout(() => setResumeFlash(false), 2200);
-          } else if (sm === 'sim' && !manualPathRef.current) {
-            driveTo(sim.breakpoint || sim.pos);
-          }
-        }
-      }
-
       // persistent-coverage bug fix: upload whatever changed this frame — from
       // ANY source (sim advance() or a live GPS fix) — so the on-screen mosaic
       // never silently falls behind the authoritative pixel buffer. Chunked to
@@ -2608,8 +2583,6 @@ function App() {
         let navLine = null;
         const om = opModeRef.current;
         if (ph === 'running' && om === 'toStation') navLine = { from: sim.pos, to: stationRef.current, color: 'rgba(46,230,199,.85)' };
-        else if (ph === 'running' && om === 'refilling') navLine = { from: stationRef.current, to: sim.breakpoint, color: 'rgba(255,182,72,.85)' };
-        else if (ph === 'running' && om === 'toBreakpoint') navLine = { from: sim.pos, to: sim.breakpoint, color: 'rgba(255,182,72,.85)' };
 
         const vv = viewRef.current, lv = gpsLiveRef.current;
         // Repaint only when something drawScene actually depends on changed (nothing in it is
@@ -3060,7 +3033,7 @@ function App() {
     }
     sim.pos = saved.simPos || sim.pos;
     sim.heading = saved.simHeading || 0;
-    sim.breakpoint = saved.breakpoint || null;
+    sim.breakpoint = null; // the breakpoint return leg no longer exists
     sim.distance = saved.distance || 0;
     sim.elapsed = saved.elapsed || 0;
     sim.sprayedCells = saved.sprayedCells || 0;
@@ -3098,7 +3071,9 @@ function App() {
       originLatLngRef.current = { lat: saved.originLat, lng: saved.originLng };
     }
     manualPathRef.current = null; setExcursionActive(false); clearAlerts();
-    opModeRef.current = saved.opMode || 'spray'; setOpMode(saved.opMode || 'spray');
+    // 'refilling' / 'toBreakpoint' only exist in sessions saved by older builds
+    const om = saved.opMode === 'spray' || !saved.opMode ? 'spray' : 'toStation';
+    opModeRef.current = om; setOpMode(om);
     swathRef.current = saved.swath; setSwath(saved.swath);
     tankCapacityRef.current = saved.tankCapacity; setTankCapacity(saved.tankCapacity);
     rateLRaiRef.current = saved.rateLRai; setRateLRai(saved.rateLRai);
@@ -3109,79 +3084,47 @@ function App() {
     missionRecordIdRef.current = saved.recordId || null; // a mission already filed once (summary closed back to paused) keeps updating its own record
     lowLiquidWarnedRef.current = false;
     restoredRef.current = true;
-    // always resume into PAUSED — the operator walks back to the breakpoint
-    // (per the spec's own resume workflow) and explicitly taps Resume/Play
+    // always resume into PAUSED — the operator explicitly taps Resume
     setPhase('paused');
     setTick((n) => n + 1);
   };
 
+  /** TANK EMPTY — recording off, point at the station. Nothing about the
+   *  refill trip depends on GPS reaching anywhere; the operator ends it with
+   *  REFILLED · START SPRAYING whenever they start spraying again. */
   const tankEmpty = () => {
     if (opMode !== 'spray' || phase !== 'running') return;
-    const sim = simRef.current;
+    if (Date.now() - modeSwitchAtRef.current < 2000) return; // see modeSwitchAtRef
+    modeSwitchAtRef.current = Date.now();
     closeTank();
-    const dStation = dist(sim.pos, stationRef.current);
-    sim.breakpoint = { ...sim.pos };
-    if (dStation <= STATION_ARRIVE_RADIUS) {
-      opModeRef.current = 'refilling'; setOpMode('refilling'); refillDeadlineRef.current = performance.now() + REFILL_DWELL_MS;
-      openTank();
-      lowLiquidWarnedRef.current = false;
-    } else {
-      opModeRef.current = 'toStation'; setOpMode('toStation');
-      if (srcMode === 'sim') driveTo(stationRef.current);
-    }
+    opModeRef.current = 'toStation'; setOpMode('toStation');
+    unrecordedRef.current = { walked: 0, startDist: 0, lastAlert: unrecordedRef.current.lastAlert };
+    if (srcMode === 'sim') driveTo(stationRef.current);
     saveSessionNow(); // key-event autosave — operator may set the phone down here to walk to the tank
   };
 
-  /** Quick "Refilled Full Tank" action — re-baselines the tank-level math
-   *  against the mission's cumulative spray-pass area right now, instantly
-   *  snapping the live gauge back to 100% without touching the mission-wide
-   *  totals (distance, elapsed time, overall litres) used in the summary. */
-  const refillTank = () => {
-    // Arriving at the station already opened a fresh tank (the hands-free
-    // refill lifecycle in the frame loop). This button is the operator
-    // CONFIRMING that tank is full, not a second refill — so opening again
-    // here would make openTank()'s closeTank() push a phantom 0.00-rai tank
-    // and inflate both TANKS USED and the rai/tank average. Only open when
-    // no tank is actually running.
-    if (!tankOpenRef.current) openTank();
-    lowLiquidWarnedRef.current = false;
-    // Refilled while the app still thought the operator was on the way to the
-    // station — GPS never put them inside the arrival radius. This tap was the
-    // only thing they did in the field test, and it left spraying switched off
-    // for the rest of the mission. It now counts as having been to the station.
-    if (opModeRef.current === 'toStation') {
-      opModeRef.current = 'toBreakpoint'; setOpMode('toBreakpoint');
-      AgrasLog.add('OPMODE', 'toBreakpoint (refilled away from the station pin)');
-      saveSessionNow();
-    }
-    setTick((n) => n + 1);
-  };
-
-  /** RESUME SPRAYING — the guaranteed way out of the refill trip. The
-   *  automatic flow (arrive at station -> leave -> arrive at breakpoint) is a
-   *  convenience; this works from any of its states, anywhere, and is what the
-   *  dock shows in place of TANK EMPTY until spraying is back on. */
+  /** REFILLED · START SPRAYING — a new tank, recording back on, right where the
+   *  operator is standing. The same action from the dock button and from the
+   *  tank tile during the trip. */
   const resumeSprayingNow = () => {
+    if (Date.now() - modeSwitchAtRef.current < 2000) return; // see modeSwitchAtRef
+    modeSwitchAtRef.current = Date.now();
     const sim = simRef.current;
     if (!tankOpenRef.current) openTank();
     manualPathRef.current = null; setExcursionActive(false);
     opModeRef.current = 'spray'; setOpMode('spray');
-    sim.epoch += 1; sim.passHeading = null; sim.breakpoint = null; refillArmedRef.current = false;
+    sim.epoch += 1; sim.passHeading = null; sim.breakpoint = null;
     lowLiquidWarnedRef.current = false;
     unrecordedRef.current = { walked: 0, startDist: 0, lastAlert: unrecordedRef.current.lastAlert };
-    AgrasLog.add('OPMODE', 'spray (manual RESUME SPRAYING)');
+    AgrasLog.add('OPMODE', 'spray (REFILLED · START SPRAYING)');
     saveSessionNow();
     setTick((n) => n + 1);
   };
 
-  /** Tank-tile tap handler (Spec §3D "user taps Refill"). While actively
-   *  spraying, tapping this is the Refill TRIGGER itself — same
-   *  breakpoint + nav-line + refilling flow as a "Tank Empty" tap, not a
-   *  silent instant top-off. Once already en route to/at the station,
-   *  the tap instead confirms the tank is full (refillTank's original job). */
+  /** Tank tile button: TANK EMPTY while spraying, REFILLED during the trip. */
   const onTankTileRefill = () => {
     if (opMode === 'spray') tankEmpty();
-    else refillTank();
+    else resumeSprayingNow();
   };
 
   const simulateExcursion = () => {
@@ -3205,7 +3148,7 @@ function App() {
    *  summary, and compliance record (PPE/user/weather, Spec §5) — in the
    *  persisted mission log. Called automatically on arrival at the summary;
    *  upserts by missionRecordIdRef so the same mission is never filed twice. */
-  const recordMission = (mc) => {
+  const recordMission = (mc, roundInfo) => {
     const s = simRef.current, f = fieldRef.current;
     const cbase = coverageBaseRef.current;
     const mSprayed = Math.max(0, s.sprayedCells - cbase.sprayed), mOverlap = Math.max(0, s.overlapCells - cbase.overlap);
@@ -3237,6 +3180,7 @@ function App() {
     if (!missionRecordIdRef.current) missionRecordIdRef.current = Date.now();
     const record = {
       id: missionRecordIdRef.current, ts: Date.now(),
+      round: roundInfo ? roundInfo.round : null, complete: roundInfo ? roundInfo.complete : null, fieldName: roundInfo ? roundInfo.fieldName : null,
       areaSprayed: areaSprayedNow, rai: raiNow.rai, ngan: raiNow.ngan, wa: raiNow.wa, raiDec: raiDecNow,
       distance: s.distance, elapsed: s.elapsed, overlapRate: overlapRateNow,
       overlapRai: overlapRaiNow,
@@ -3268,53 +3212,6 @@ function App() {
   /** A new mission is about to start: forget the finished one's record id and checklist snapshot. */
   const beginNewMission = () => { missionRecordIdRef.current = null; missionChecklistRef.current = null; };
 
-  /** "Touch-up Missed Spots" (Spec §4D Catch-Up Mode) — starts a NEW mission
-   *  on the SAME field, but seeds the fresh sim's coverage grid with the
-   *  just-finished mission's per-cell state (passes + missed flags) instead
-   *  of a blank one, so the red missed-spot hatch (and existing sprayed/
-   *  overlapped ground) carries straight over. Only meaningful right after
-   *  finishing — simRef.current here is still the mission that just ended. */
-  const startTouchUp = () => {
-    const field = fieldRef.current;
-    const prev = simRef.current;
-    const fresh = makeSim(field, swath);
-    fresh.lastPass.set(prev.lastPass);
-    fresh.passes.set(prev.passes);
-    fresh.missed.set(prev.missed);
-    fresh.sprayedCells = prev.sprayedCells;
-    fresh.overlapCells = prev.overlapCells;
-    // Carry the pass-id counter past everything the seeded lastPass holds.
-    // makeSim() restarts epoch at 0, and stamp() only credits overlap when a
-    // cell's stored id DIFFERS from the incoming one — so with a fresh counter
-    // the touch-up's first lane collided with the ids the finished mission had
-    // written, and walking back over ground you had just sprayed credited
-    // nothing at all: no new area (the cells are not virgin) and no overlap
-    // (the id matched). Ids only ever increase, so prev.epoch + 1 is past all
-    // of them, and past the -1/-2 sentinels for unsprayed and restored ground.
-    fresh.epoch = prev.epoch + 1;
-    simRef.current = fresh;
-    initGrid(field);
-    const img = imgDataRef.current;
-    if (img) {
-      for (let idx = 0; idx < field.GW * field.GH; idx++) {
-        const i = idx % field.GW, j = Math.floor(idx / field.GW);
-        if (fresh.passes[idx] > 0) paintCell(i, j, fresh.passes[idx]);
-        else if (fresh.missed[idx]) paintCell(i, j, -1);
-      }
-      flushGridFull(gridCanvasRef.current, imgDataRef.current);
-    }
-    field.__ctx.lastPass = fresh.lastPass;
-    manualPathRef.current = null; setExcursionActive(false); resetOpMode(); clearAlerts();
-    // the seeded coverage is the new mission's starting point, so its metrics and first tank count only what is sprayed from here on
-    coverageBaseRef.current = { sprayed: fresh.sprayedCells, overlap: fresh.overlapCells };
-    tankAreasRef.current = []; tankOpenRef.current = true;
-    tankBaselineAreaRef.current = (fresh.sprayedCells + fresh.overlapCells) * CELL * CELL; lowLiquidWarnedRef.current = false;
-    refillArmedRef.current = false; lastLatLngRef.current = null;
-    // touch-up is only reachable from the summary, which already filed the
-    // finished mission and expired wind/weather on the way in
-    beginNewMission();
-    setPhase('running');
-  };
 
   const clearHistory = () => {
     if (!confirmClear) { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 4000); return; }
@@ -3372,7 +3269,6 @@ function App() {
   const totalPassArea = (sim.sprayedCells + sim.overlapCells) * CELL * CELL;
   const running = phase === 'running';
   const dStation = dist(sim.pos, stationRef.current);
-  const dBreakpoint = sim.breakpoint ? dist(sim.pos, sim.breakpoint) : null;
   // Spec §4C: direction back to the boundary for the Auto-Pause banner arrow.
   const oobArrowDeg = oob ? bearingTo(sim.pos, nearestEdgePoint(sim.pos, field.poly).proj) : 0;
   const gpsQuality = gpsInfo ? (gpsInfo.accuracy <= 5 ? 'STRONG' : gpsInfo.accuracy <= 15 ? 'FAIR' : 'WEAK') : null;
@@ -3408,12 +3304,10 @@ function App() {
     phase === 'ready' ? 'READY' :
     phase === 'done' ? 'COMPLETE' :
     phase === 'paused' ? 'PAUSED' :
-    { spray: 'SPRAYING', toStation: 'HEAD TO REFILL STATION', refilling: 'AT REFILL STATION', toBreakpoint: 'RETURN TO BREAKPOINT' }[opMode]
+    { spray: 'SPRAYING', toStation: 'REFILL · NOT RECORDING' }[opMode]
   );
   const guidanceCopy = {
-    toStation: { title: 'HEAD TO REFILL STATION', tone: 'cyan' },
-    refilling: { title: 'REFILLING…', sub: 'AT REFILL STATION - TANK FILLING...', tone: 'amber' },
-    toBreakpoint: { title: 'RETURN TO BREAKPOINT', tone: 'amber' }
+    toStation: { title: 'REFILL — NOT RECORDING', sub: 'Tap REFILLED · START SPRAYING when you spray again', tone: 'cyan' },
   }[opMode];
 
   // Which single hint panel — GPS acquisition, boundary help, station help —
@@ -3437,7 +3331,6 @@ function App() {
       }}
     >
       {oob && <div className="oob-border absolute inset-0 z-30 pointer-events-none" />}
-      {resumeFlash && <div className="green-flash absolute inset-0 z-30 pointer-events-none" />}
 
       {/* Map viewport — full-bleed background layer. Everything else below is
           one flex column stacked ON TOP of it (z-10), never positioned by
@@ -3502,26 +3395,19 @@ function App() {
           {/* Emergency alerts — dedicated slot, highest z-index, always the
               first thing in the column so it can never be obscured by (or
               obscure) the status row or telemetry below it. */}
-          {(oob || resumeFlash) && (
+          {oob && (
             <div className="z-40 flex justify-center pointer-events-none">
-              {oob ? (
-                // Spec §4C: a full-width ORANGE banner (not red — red is
-                // reserved for the tank/critical-alert palette elsewhere),
-                // plus an arrow pointing back toward the nearest boundary
-                // point so the operator knows which way to walk.
-                <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#FFB648] text-[#3A2400] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(255,182,72,.5)]">
-                  <Navigation size={22} strokeWidth={2.4} className="shrink-0" style={{ transform: `rotate(${oobArrowDeg}deg)` }} />
-                  <div className="leading-tight min-w-0">
-                    <p className="font-display font-extrabold text-sm tracking-wide">OUT OF BOUNDS — PAUSED</p>
-                    <p className="text-xs opacity-90 mt-0.5">Spraying auto-cut off — walk back inside to resume</p>
-                  </div>
+              {/* Spec §4C: a full-width ORANGE banner (not red — red is
+                  reserved for the tank/critical-alert palette elsewhere),
+                  plus an arrow pointing back toward the nearest boundary
+                  point so the operator knows which way to walk. */}
+              <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#FFB648] text-[#3A2400] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(255,182,72,.5)]">
+                <Navigation size={22} strokeWidth={2.4} className="shrink-0" style={{ transform: `rotate(${oobArrowDeg}deg)` }} />
+                <div className="leading-tight min-w-0">
+                  <p className="font-display font-extrabold text-sm tracking-wide">OUT OF BOUNDS — PAUSED</p>
+                  <p className="text-xs opacity-90 mt-0.5">Spraying auto-cut off — walk back inside to resume</p>
                 </div>
-              ) : (
-                <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#34C76F] text-[#052112] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(52,199,111,.5)]">
-                  <CheckCircle2 size={22} strokeWidth={2.4} className="shrink-0" />
-                  <p className="font-display font-extrabold text-sm tracking-wide">BREAKPOINT REACHED - SPRAYING RESUMED</p>
-                </div>
-              )}
+              </div>
             </div>
           )}
 
@@ -3688,7 +3574,7 @@ function App() {
           <div className={'flex flex-col gap-2 items-end pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2 items-end" style={running && !showStats ? { display: 'none' } : undefined}>
-                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} actionLabel={opMode === 'spray' ? 'TANK EMPTY' : 'TANK REFILLED'} />
+                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} actionLabel={opMode === 'spray' ? 'TANK EMPTY' : 'REFILLED · SPRAY'} />
                 <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#34C76F]" />
                 <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#FFB648]' : undefined} />
                 {srcMode === 'gps' && gpsInfo && <Tile icon={Satellite} label="GPS" value={gpsInfo.lat.toFixed(4)} unit={gpsInfo.lng.toFixed(4)} accent={gpsColorClass} />}
@@ -3741,29 +3627,17 @@ function App() {
                 <div className="px-4 pt-3 pb-2.5 flex items-center gap-3">
                   <div className={'shrink-0 w-10 h-10 rounded-full flex items-center justify-center ' + (guidanceCopy.tone === 'cyan' ? 'bg-[#2EE6C7]/15' : 'bg-[#FFB648]/15')}>
                     <Navigation size={20} className={guidanceCopy.tone === 'cyan' ? 'text-[#2EE6C7]' : 'text-[#FFB648]'}
-                      style={{ transform: `rotate(${opMode === 'toStation' ? bearingTo(sim.pos, stationRef.current) : bearingTo(sim.pos, sim.breakpoint || sim.pos)}deg)` }} />
+                      style={{ transform: `rotate(${bearingTo(sim.pos, stationRef.current)}deg)` }} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={'font-display text-sm font-bold tracking-wide truncate ' + (guidanceCopy.tone === 'cyan' ? 'text-[#2EE6C7]' : 'text-[#FFB648]')}>{guidanceCopy.title}</p>
-                    {guidanceCopy.sub && <p className="text-xs text-[#9AABAA] mt-0.5 truncate">{guidanceCopy.sub}</p>}
+                    {guidanceCopy.sub && <p className="text-xs text-[#9AABAA] mt-0.5 leading-snug">{guidanceCopy.sub}</p>}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-px bg-[#2A363A]">
-                  <div className="px-3.5 py-2 bg-[#131A1D] min-w-0">
-                    <p className="text-[8.5px] tracking-[.12em] font-mono text-[#7C8C8C]">TO STATION</p>
-                    <p className="font-mono tnum text-base font-bold text-[#2EE6C7] mt-0.5 truncate">{dStation.toFixed(1)} m</p>
-                  </div>
-                  <div className="px-3.5 py-2 bg-[#131A1D] min-w-0">
-                    <p className="text-[8.5px] tracking-[.12em] font-mono text-[#7C8C8C]">TO BREAKPOINT</p>
-                    <p className="font-mono tnum text-base font-bold text-[#FFB648] mt-0.5 truncate">{dBreakpoint != null ? dBreakpoint.toFixed(1) + ' m' : '—'}</p>
-                  </div>
+                <div className="px-3.5 py-2 bg-[#131A1D] border-t border-[#2A363A] min-w-0">
+                  <p className="text-[8.5px] tracking-[.12em] font-mono text-[#7C8C8C]">TO STATION</p>
+                  <p className="font-mono tnum text-base font-bold text-[#2EE6C7] mt-0.5 truncate">{dStation.toFixed(1)} m</p>
                 </div>
-                {opMode === 'refilling' && (
-                  <button onClick={refillTank}
-                    className="w-full min-h-[48px] flex items-center justify-center gap-1.5 text-sm font-display font-bold tracking-wide text-[#06231D] bg-[#2EE6C7] py-2.5">
-                    <Droplet size={14} strokeWidth={2.5} /> REFILLED FULL TANK
-                  </button>
-                )}
               </Glass>
             </div>
           </div>
@@ -3837,6 +3711,11 @@ function App() {
                       <p className="text-[10px] font-mono text-[#9AABAA] truncate">
                         {(() => { const r = toRai(activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}
                         {' · '}{activeFieldEntry.lastSprayedTs ? `sprayed ${fmtDate(activeFieldEntry.lastSprayedTs)}` : `created ${fmtDate(activeFieldEntry.ts)}`}
+                      </p>
+                      <p className="text-[10px] font-mono text-[#34C76F] truncate">
+                        Round {activeFieldEntry.round || 1}{activeFieldEntry.cov
+                          ? ` · ${Math.min(100, (activeFieldEntry.cov.sprayedCells * CELL * CELL) / (activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600) * 100).toFixed(0)}% sprayed — continues`
+                          : ' · not started'}
                       </p>
                     </>
                   ) : (
@@ -4002,17 +3881,38 @@ function App() {
             <Dock>
               {opMode === 'spray'
                 ? <DockBtn icon={Fuel} label="TANK EMPTY" tone="amber" onClick={tankEmpty} disabled={!!manualPathRef.current} />
-                : <DockBtn icon={Play} label="RESUME SPRAYING" tone="green" onClick={resumeSprayingNow} />}
+                : <DockBtn icon={Play} label="REFILLED · START SPRAYING" tone="green" onClick={resumeSprayingNow} />}
               <DockBtn icon={running ? Save : Play} label={running ? 'SAVE & PAUSE' : 'RESUME'} tone="teal"
                 onClick={() => { if (running) saveSessionNow(); setPhase(running ? 'paused' : 'running'); }} />
               {/* Spec §4A Rule 3: End Mission must NOT be reachable from the
                   live running screen — only once the operator has already
                   paused, to prevent an accidental mid-spray termination. */}
-              {phase === 'paused' && <DockBtn icon={Square} label="FINISH" tone="red" onClick={finishMission} />}
+              {phase === 'paused' && <DockBtn icon={Square} label="FINISH" tone="red" onClick={() => setShowFinishChoice(true)} />}
             </Dock>
           )}
         </div>
       </div>
+
+      {showFinishChoice && phase === 'paused' && (() => {
+        const e = activeFieldId ? fieldLibrary.find((f) => f.id === activeFieldId) : null;
+        const round = (e && e.round) || 1;
+        const choose = (kind) => { finishKindRef.current = kind; setShowFinishChoice(false); finishMission(); };
+        return (
+          <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
+            <div className="w-full max-w-[360px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
+              <p className="font-display text-[15px] font-bold tracking-wide">FINISH · ROUND {round}</p>
+              <p className="text-[10.5px] text-[#7C8C8C] mt-0.5">{e ? e.name : 'This field'} · {coveragePct.toFixed(0)}% sprayed this round</p>
+              <div className="mt-4 flex flex-col gap-2.5">
+                <DockBtn icon={CheckCircle2} label={`FIELD DONE · CLOSE ROUND ${round}`} tone="green" big onClick={() => choose('complete')} />
+                <p className="text-[10px] text-[#7C8C8C] -mt-1 px-1">Next time this field starts round {round + 1} on an empty map.</p>
+                <DockBtn icon={Save} label="NOT DONE · CONTINUE LATER" tone="teal" big onClick={() => choose('partial')} />
+                <p className="text-[10px] text-[#7C8C8C] -mt-1 px-1">Round {round} stays open; its sprayed area is kept for next time.</p>
+                <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={() => setShowFinishChoice(false)} />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {phase === 'done' && (
         <div className="absolute inset-0 z-20 bg-[#0A0E10]/80 flex items-center justify-center p-4">
@@ -4020,9 +3920,10 @@ function App() {
             <div className="flex items-start justify-between px-4 pt-4 pb-2">
               <div>
                 <p className="font-display text-[16px] font-bold tracking-wide">MISSION SUMMARY</p>
-                <p className="text-[10.5px] text-[#7C8C8C]">Spray mission complete</p>
+                <p className="text-[10.5px] text-[#7C8C8C]">
+                  {finishInfo ? (finishInfo.complete ? `Round ${finishInfo.round} · field done` : `Round ${finishInfo.round} · continue later`) : 'Spray mission complete'}
+                </p>
               </div>
-              <button onClick={() => setPhase('paused')} className="text-[#7C8C8C] p-1"><X size={18} /></button>
             </div>
             <div className="px-4 pb-2">
               <div className="h-[160px] rounded-xl overflow-hidden bg-[#0A0E10] border border-[#2A363A]">
@@ -4036,7 +3937,7 @@ function App() {
                 ['AREA SPRAYED', `${mRai.rai}-${mRai.ngan}-${mRai.wa} rai`, `${mRaiDec.toFixed(2)} rai · ${mArea.toFixed(0)} m²${cbase.sprayed > 0 ? ` · field ${coveragePct.toFixed(0)}% done` : ''}`],
                 // Spec §4D "Metrics Rule": physical quantities, not bare percentages.
                 ['OVERLAPPED', `${mOverlapRai.toFixed(2)} rai`, overlapSub],
-                ['MISSED SPOTS', `${missedRai.toFixed(2)} rai`, missedCellsCount > 0 ? 'flagged red on the map — touch up below' : 'none flagged'],
+                ['MISSED SPOTS', `${missedRai.toFixed(2)} rai`, missedCellsCount > 0 ? 'flagged red on the map' : 'none flagged'],
                 ['TANKS USED', `${tanksUsed}`, `${tankCapacity}L tank${avgTankRai != null ? ` · avg ${avgTankRai.toFixed(2)} rai/tank` : ''}`]
               ].map(([label, val, sub]) => (
                 <div key={label} className="bg-[#131A1D] p-3">
@@ -4047,13 +3948,10 @@ function App() {
               ))}
             </dl>
             <div className="p-3 flex flex-col gap-2.5">
-              {missedCellsCount > 0 && (
-                <DockBtn icon={Crosshair} label="TOUCH-UP MISSED SPOTS" tone="amber" big onClick={startTouchUp} />
-              )}
               <p className="flex items-center justify-center gap-1.5 text-[10.5px] font-mono text-[#34C76F]">
                 <Check size={13} /> Saved to mission history
               </p>
-              <DockBtn icon={RotateCcw} label="START NEW" tone="teal" onClick={() => { beginNewMission(); resetSim(swath); }} />
+              <DockBtn icon={RotateCcw} label="START NEW" tone="teal" onClick={() => { beginNewMission(); setFinishInfo(null); resetSim(swath); }} />
             </div>
           </div>
         </div>
@@ -4098,7 +3996,7 @@ function App() {
                       </div>
                       <div className="flex-1 min-w-0 py-2.5 pr-3 flex flex-col justify-between">
                         <div>
-                          <p className="font-mono text-[10px] text-[#7C8C8C]">{fmtDate(m.ts)}</p>
+                          <p className="font-mono text-[10px] text-[#7C8C8C] truncate">{fmtDate(m.ts)}{m.round ? ` · ${m.fieldName ? m.fieldName + ' · ' : ''}round ${m.round}${m.complete ? ' ✓' : ' · open'}` : ''}</p>
                           <p className="font-mono tnum text-[15px] font-bold text-[#34C76F] mt-0.5">{m.rai}-{m.ngan}-{m.wa} rai</p>
                         </div>
                         <div className="flex items-center gap-3 text-[9.5px] font-mono text-[#9AABAA] mt-1">
@@ -4227,9 +4125,9 @@ function App() {
                             </p>
                             {f.cov ? (
                               <p className="text-[10px] font-mono text-[#34C76F] mt-0.5 truncate">
-                                sprayed {Math.min(100, (f.cov.sprayedCells * CELL * CELL) / (f.areaSqm != null ? f.areaSqm : f.areaRai * 1600) * 100).toFixed(0)}% · {(f.cov.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai{f.stats ? ` · ${f.stats.missions} mission${f.stats.missions === 1 ? '' : 's'}` : ''}
+                                round {f.round || 1} · sprayed {Math.min(100, (f.cov.sprayedCells * CELL * CELL) / (f.areaSqm != null ? f.areaSqm : f.areaRai * 1600) * 100).toFixed(0)}% · {(f.cov.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai{f.stats ? ` · ${f.stats.missions} mission${f.stats.missions === 1 ? '' : 's'}` : ''}
                               </p>
-                            ) : <p className="text-[10px] font-mono text-[#5C6C6C] mt-0.5">nothing sprayed yet</p>}
+                            ) : <p className="text-[10px] font-mono text-[#5C6C6C] mt-0.5">round {f.round || 1} · not started{(f.rounds && f.rounds.length) ? ` · ${f.rounds.length} round${f.rounds.length === 1 ? '' : 's'} done` : ''}</p>}
                           </button>
                         )}
                         {!isRenaming && (
