@@ -2974,19 +2974,48 @@ function App() {
     AgrasLog.add('RESET', 'all saved data erased');
     resetSim(swathRef.current);
   };
-  const startPlotting = () => { clearActiveSession(); panRef.current = null; setDraft([]); setConfirmCloseField(false); setPhase('boundary'); };
+  /** editId = the saved field being redrawn (EDIT BOUNDARY), or null for a new
+   *  field (ADD FIELD, or nothing saved is active yet). */
+  const editingFieldIdRef = useRef(null);
+  const startPlotting = (editId = null) => { editingFieldIdRef.current = editId; clearActiveSession(); panRef.current = null; setDraft([]); setConfirmCloseField(false); setPhase('boundary'); };
   const undoPoint = () => { setConfirmCloseField(false); setDraft((d) => d.slice(0, -1)); };
   const closeBoundary = () => {
     if (draft.length < 3) return;
     setConfirmCloseField(false);
     panRef.current = null;
+    const editing = editingFieldIdRef.current ? fieldLibraryRef.current.find((e) => e.id === editingFieldIdRef.current) : null;
+    editingFieldIdRef.current = null;
     resetField(draft, swath);
+    if (editing) {
+      // Redrawing a saved field (the owner's call): it stays the same field —
+      // name, refill station, round number and finished rounds all kept — so
+      // there is no station step. Only the open round's sprayed area goes,
+      // because its cells were laid out on the old boundary.
+      const f = fieldRef.current, origin = originLatLngRef.current;
+      stationRef.current = editing.station || stationRef.current;
+      updateLibrary((list) => list.map((e) => {
+        if (e.id !== editing.id) return e;
+        const { cov, stats, ...rest } = e;
+        return { ...rest, poly: f.poly, gpsAnchored: f.gpsAnchored, areaRai: f.area / 1600, areaSqm: f.area,
+          originLat: origin ? origin.lat : e.originLat, originLng: origin ? origin.lng : e.originLng };
+      }));
+      activeFieldIdRef.current = editing.id; setActiveFieldId(editing.id);
+      AgrasLog.add('SAVE', `field ${editing.id} boundary redrawn (${(f.area / 1600).toFixed(2)} rai); station and rounds kept`);
+      return;
+    }
     // Saved to the field library right here, under an automatic name the
     // operator can change later (Field setup -> RENAME). It used to stay an
     // unsaved plot until someone tapped SAVE or START SPRAYING, so closing
     // the app in between lost the whole boundary walk.
     saveCurrentFieldToLibrary(autoFieldName());
     AgrasLog.add('SAVE', `field auto-saved on close (${(fieldRef.current.area / 1600).toFixed(2)} rai)`);
+    // Next step of the owner's flow (draw field -> set refill station): go
+    // straight to placing the station. CONFIRM writes it to the saved field;
+    // CANCEL keeps the default spot. Either way it lands on the home screen —
+    // prevPhaseRef is set by hand because `phase` is still 'boundary' here.
+    prevPhaseRef.current = 'ready';
+    setStationDraft({ ...stationRef.current });
+    setPhase('station');
   };
   const cancelPlotting = () => { setConfirmCloseField(false); if (fieldRef.current.gpsAnchored || srcMode === 'sim') { setDraft([]); setPhase('ready'); } };
   const markCorner = () => { const live = gpsLiveRef.current; if (live.lat != null) setDraft((d) => [...d, { x: live.x, y: live.y }]); };
@@ -4027,7 +4056,7 @@ function App() {
             <button onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); }} className="text-[#7C8C8C] p-1 shrink-0"><X size={20} /></button>
           </div>
           <div className="shrink-0 px-4 pt-3 flex">
-            <DockBtn icon={Plus} label="ADD FIELD" tone="teal" onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); startPlotting(); }} />
+            <DockBtn icon={Plus} label="ADD FIELD" tone="teal" onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); startPlotting(null); }} />
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {fieldLibrary.length === 0 ? (
@@ -4233,7 +4262,7 @@ function App() {
             <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Field</p>
             <div className="flex flex-col gap-2">
               <Dock>
-                <DockBtn icon={MapPinned} label="PLOT / EDIT" tone="ghost" onClick={() => { setShowSpraySettings(false); startPlotting(); }} />
+                <DockBtn icon={MapPinned} label={activeFieldEntry ? 'EDIT BOUNDARY' : 'PLOT FIELD'} tone="ghost" onClick={() => { setShowSpraySettings(false); startPlotting(activeFieldEntry ? activeFieldEntry.id : null); }} />
                 <DockBtn icon={Droplet} label="STATION" tone="ghost" onClick={() => { setShowSpraySettings(false); startStationSetup(); }} />
               </Dock>
               <Dock>

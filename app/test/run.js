@@ -278,6 +278,7 @@ async function fieldAutoSave() {
   await makeField(ctx, page, undefined, [-10, -10]);
   let lib = await library(page);
   check('a closed boundary is saved to the library without START SPRAYING', lib.length === 1, `${lib.length} field(s)`);
+  check('and the station step came straight after CLOSE FIELD, landing on the home screen', /START SPRAYING/.test(await txt(page)) && !/CONFIRM STATION/.test(await txt(page)));
   // field-local y grows southward (screen-style), so harness [-10,-10] is stored as x=-10, y=+10
   check('it saves with the station set right after plotting', lib[0] && Math.round(lib[0].station.x) === -10 && Math.round(lib[0].station.y) === 10,
     lib[0] ? `station ${lib[0].station.x.toFixed(1)},${lib[0].station.y.toFixed(1)}` : 'no field');
@@ -499,10 +500,45 @@ async function homeDesign() {
   await browser.close();
 }
 
+/* 17. A new field goes straight to the station step; redrawing a saved field
+ *     (EDIT BOUNDARY) keeps that field — name, station, rounds — and skips it. */
+async function editBoundary() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);                                   // new field: CLOSE FIELD -> station -> home
+  // round 1 done, so there is round history to keep; then some coverage in round 2
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 30], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, true);
+  await tap(page, 'START NEW', { wait: 1500 });
+  const before = (await library(page))[0];
+  await openSettings(page);
+  await tap(page, 'EDIT BOUNDARY', { wait: 900 });
+  for (const [x, y] of [[0, 0], [60, 0], [60, 60], [0, 60]]) {
+    await moveTo(ctx, page, x, y, 600);
+    await page.locator('[aria-label="Center on my location"]').click({ force: true });
+    await page.waitForTimeout(350);
+    await tap(page, 'ADD AT CROSSHAIR');
+  }
+  await tap(page, 'CLOSE FIELD', { wait: 1200 });
+  const t = await txt(page);
+  check('redrawing a saved field skips the station step', /START SPRAYING/.test(t) && !/CONFIRM STATION/.test(t));
+  const lib = await library(page);
+  const after = lib[0] || {};
+  check('it is still one field, same name, same station', lib.length === 1 && after.name === before.name
+    && Math.round(after.station.x) === Math.round(before.station.x) && Math.round(after.station.y) === Math.round(before.station.y),
+    `${lib.length} field(s), ${after.name}`);
+  check('its rounds are kept and the new boundary is stored', after.round === 2 && (after.rounds || []).length === 1 && Math.abs(after.areaSqm - 3600) < 60,
+    `round ${after.round}, rounds filed ${(after.rounds || []).length}, ${Math.round(after.areaSqm)} m²`);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

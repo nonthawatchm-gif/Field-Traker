@@ -104,9 +104,7 @@ async function makeField(ctx, page, corners = [[0, 0], [80, 0], [80, 80], [0, 80
     await page.waitForTimeout(350);
     await tap(page, 'ADD AT CROSSHAIR');
   }
-  await tap(page, 'CLOSE FIELD', { wait: 900 });   // single tap closes; there is no confirm step
-  await openSettings(page);
-  await tap(page, 'STATION');
+  await tap(page, 'CLOSE FIELD', { wait: 900 });   // single tap closes and goes straight to placing the station
   await moveTo(ctx, page, station[0], station[1], 800);
   await tap(page, 'MY LOCATION');
   await tap(page, 'CONFIRM STATION', { wait: 800 });

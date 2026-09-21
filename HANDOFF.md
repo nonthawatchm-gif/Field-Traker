@@ -20,11 +20,11 @@ save-system commit — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 56 checks, ~17 min, expect 56/56
+node test/run.js                     # 60 checks, ~18 min, expect 60/60
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 56/56 on a clean checkout, something in the fixes below
+If `test/run.js` is not 60/60 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -291,6 +291,11 @@ log) all live in one SETTINGS sheet behind a round button (aria-label
 "Settings") with an amber dot while the checklist is incomplete or the weather
 warns. The two top cards are equal size. The field boundary is a white line on
 a dark halo. The Offline map screen closes itself when its download finishes.
+A **new** field (ADD FIELD in the library, or nothing saved active) goes from
+CLOSE FIELD straight to placing the refill station. **Redrawing** a saved field
+(Settings → EDIT BOUNDARY) edits it in place — name, station, round number and
+filed rounds kept, no station step — and drops only the open round's `cov`,
+since its cells were laid out on the old boundary (`editingFieldIdRef`).
 Every design round was shown to the owner as phone-sized screenshots (their
 real field's coordinates, tiles allowed) before anything was built.
 
