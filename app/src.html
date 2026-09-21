@@ -3209,6 +3209,8 @@ function App() {
     touchFieldLastSprayed(activeFieldIdRef.current); // stamp the saved field's "last sprayed" date
     AgrasLog.add('SAVE', `mission filed in history (${record.raiDec.toFixed(2)} rai)`);
   };
+  /** Leave the summary for the home (ready) screen — START NEW and the X. */
+  const goHomeFromSummary = () => { beginNewMission(); setFinishInfo(null); resetSim(swathRef.current); };
   /** A new mission is about to start: forget the finished one's record id and checklist snapshot. */
   const beginNewMission = () => { missionRecordIdRef.current = null; missionChecklistRef.current = null; };
 
@@ -3924,6 +3926,9 @@ function App() {
                   {finishInfo ? (finishInfo.complete ? `Round ${finishInfo.round} · field done` : `Round ${finishInfo.round} · continue later`) : 'Spray mission complete'}
                 </p>
               </div>
+              {/* Close = back to the home screen, same as START NEW. The mission is
+                  already filed, so there is nothing to lose by closing. */}
+              <button onClick={goHomeFromSummary} aria-label="Close" className="text-[#7C8C8C] p-2 -mr-1 -mt-1"><X size={20} /></button>
             </div>
             <div className="px-4 pb-2">
               <div className="h-[160px] rounded-xl overflow-hidden bg-[#0A0E10] border border-[#2A363A]">
@@ -3951,7 +3956,7 @@ function App() {
               <p className="flex items-center justify-center gap-1.5 text-[10.5px] font-mono text-[#34C76F]">
                 <Check size={13} /> Saved to mission history
               </p>
-              <DockBtn icon={RotateCcw} label="START NEW" tone="teal" onClick={() => { beginNewMission(); setFinishInfo(null); resetSim(swath); }} />
+              <DockBtn icon={RotateCcw} label="START NEW" tone="teal" onClick={goHomeFromSummary} />
             </div>
           </div>
         </div>

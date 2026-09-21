@@ -407,7 +407,9 @@ async function rounds() {
   check('FIELD DONE closes round 1 and opens round 2 with no coverage', f.round === 2 && !f.cov && (f.rounds || []).length === 1,
     `round ${f.round}, coverage ${!!f.cov}, rounds filed ${(f.rounds || []).length}`);
   check('the history marks round 1 complete', h[0] && h[0].round === 1 && h[0].complete === true, h[0] ? `round ${h[0].round}, complete ${h[0].complete}` : 'none');
-  await tap(page, 'START NEW', { wait: 1500 });
+  await page.locator('[aria-label="Close"]').locator('visible=true').first().click();   // the summary's X instead of START NEW
+  await page.waitForTimeout(1500);
+  check('the summary X goes back to the home screen', /START SPRAYING/.test(await txt(page)) && !/MISSION SUMMARY/.test(await txt(page)));
   check('the field card says round 2 has not started', /Round 2 · not started/.test(await txt(page)));
   const areaBefore = num(await stat(page, 'AREA SPRAYED'));
   await moveTo(ctx, page, 40, 10, 900);
