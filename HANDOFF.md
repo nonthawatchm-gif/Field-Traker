@@ -49,15 +49,12 @@ Two notes on running it:
   gives the commit.
 - The owner has a real unfinished mission saved on the phone (4.90-rai field
   ถั่ว 1, 13,709 cells = 1,234 m² sprayed). It is theirs — don't finish or
-  discard it while testing. **As of the end of session 3 it is polluted with
-  SIM kill-test coverage**: the phone disconnected before the restore could run.
-  The clean copy is `ls_backup5.json` in that session's scratchpad (all
-  localStorage keys, taken right after build-43 was installed). Restoring it
-  needs BOTH copies written — localStorage and the native
-  `DATA/active-session.json` — or the newer native file wins on the next launch;
-  and it needs `Storage.prototype.setItem` plus `Filesystem.writeFile` stubbed
-  out before the reload, or the app's save-on-unload writes the test state
-  straight back.
+  discard it while testing. To test on the phone, back up every localStorage
+  key first, and restore BOTH copies afterwards — localStorage and the native
+  `DATA/active-session.json` — or the newer native file wins on the next launch.
+  Stub `Storage.prototype.setItem` and `Filesystem.writeFile` before the
+  reload, or the app's save-on-unload writes the test state straight back.
+  Wait ~20 s after the reload before killing anything (WebView commit delay).
 - The working tree is clean. `playwright` is a committed devDependency, so
   `npm i` on a fresh clone is enough to run the harness — only the browser
   binaries are still separate (`npx playwright install chromium`, or point
