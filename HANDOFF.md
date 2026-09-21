@@ -40,8 +40,8 @@ Two notes on running it:
 
 ## Where things stand
 
-- Everything is on `main` and pushed; the last code commit is `f43acbc`
-  (Android back button). `build-51` is built from it and
+- Everything is on `main` and pushed; the last code commit is `05b67de`
+  (home-screen redesign). `build-53` is built from it and
   installed on the phone.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
