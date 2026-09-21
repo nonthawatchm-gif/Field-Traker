@@ -39,16 +39,25 @@ Two notes on running it:
 
 ## Where things stand
 
-- Everything is on `main` and pushed; the last code commit is `dcf7829`
-  (automatic saving). `build-41` is built from it and installed on the phone.
+- Everything is on `main` and pushed; the last code commit is `f2fbcfe`
+  (native session file + 5 s autosave). `build-43` is built from it and
+  installed on the phone.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
   turned out to be the docs commit, not the UI change it was assumed to be, and
   went onto the phone as "the update". `git ls-remote --tags origin build-N`
   gives the commit.
 - The owner has a real unfinished mission saved on the phone (4.90-rai field
-  ถั่ว 1, 1,234 m² sprayed, currently restored as PAUSED / out of bounds). It is
-  theirs — don't finish or discard it while testing.
+  ถั่ว 1, 13,709 cells = 1,234 m² sprayed). It is theirs — don't finish or
+  discard it while testing. **As of the end of session 3 it is polluted with
+  SIM kill-test coverage**: the phone disconnected before the restore could run.
+  The clean copy is `ls_backup5.json` in that session's scratchpad (all
+  localStorage keys, taken right after build-43 was installed). Restoring it
+  needs BOTH copies written — localStorage and the native
+  `DATA/active-session.json` — or the newer native file wins on the next launch;
+  and it needs `Storage.prototype.setItem` plus `Filesystem.writeFile` stubbed
+  out before the reload, or the app's save-on-unload writes the test state
+  straight back.
 - The working tree is clean. `playwright` is a committed devDependency, so
   `npm i` on a fresh clone is enough to run the harness — only the browser
   binaries are still separate (`npx playwright install chromium`, or point
@@ -242,6 +251,30 @@ automatically". What was actually broken, and what replaced it:
   the summary back to PAUSED and finishing again updates one record.
   `beginNewMission()` clears it at START SPRAYING, START NEW and TOUCH-UP.
 
+### Kill-testing the save on the phone (session 3)
+
+Driven over CDP with `am force-stop` as the kill, SIM at 20×:
+
+| | build-41 (localStorage only, 15 s autosave) | build-43 (+ native file, 5 s) |
+|---|---|---|
+| screen off, then killed | nothing lost | — |
+| killed mid-spray | lost 1,242 m² (the last 15 s) | lost 77–89 m² |
+| killed ~0.5 s after SAVE & PAUSE | that save lost, 3 of 3 | that save restored, 3 of 3 |
+
+The cause: **Android's WebView does not commit localStorage to disk when
+`setItem` returns** — it holds writes for several seconds, and a process kill
+in that window drops them. In the build-43 runs the app's own log shows the
+localStorage copy 12 s stale at every relaunch and the native file 4–5 s old,
+and restores from the file. Screen-off is safe on both builds because the
+visibility save has time to commit before Android gets round to killing the
+process. Real walking is ~20× slower than the SIM, so the build-43 mid-spray
+loss is on the order of 5 m².
+
+Not covered: a real power loss (the file write is in the OS page cache, not
+fsync'd), and whether a mission finished and then killed within a few seconds
+can come back — the delete of both copies has the same commit window as a
+write, so it can, and FINISH on it would just update the same history record.
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against
@@ -284,10 +317,6 @@ Then talk to `http://localhost:9222/json` over CDP. Three things cost time here:
 
 In the order I'd do them.
 
-0. **Automatic restore has only been seen on the phone once**, on the owner's
-   own session, and only across a relaunch. Killing the app mid-*running*
-   mission (screen off, battery pull) on the phone has not been tried with this
-   build.
 
 1. **Outbound nav-line colour.** The leg to the station is teal
    (`rgba(46,230,199,.85)`); only the return legs are amber. The test plan
