@@ -11,8 +11,8 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (33 checks, all passing). `build-41` — the APK built from the
-save-system commit — is installed on the owner's phone.
+`app/test/run.js` (77 checks, all passing). `build-59` — the APK built from the
+farmer walk-through fixes (`72fd2d2`) — is installed on the owner's phone.
 
 ## Start here
 
@@ -20,11 +20,11 @@ save-system commit — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 68 checks, ~20 min, expect 68/68
+node test/run.js                     # 77 checks, ~20 min, expect 77/77
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 68/68 on a clean checkout, something in the fixes below
+If `test/run.js` is not 77/77 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -40,8 +40,8 @@ Two notes on running it:
 
 ## Where things stand
 
-- Everything is on `main` and pushed; the last code commit is `5227419`
-  (spray report). `build-57` is built from it and
+- Everything is on `main` and pushed; the last code commit is `72fd2d2`
+  (farmer walk-through fixes). `build-59` is built from it and
   installed on the phone.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
@@ -405,7 +405,9 @@ fix everything except the language:
   - Round N+1 is pre-filled with the field's previous round's whole set.
   - Otherwise it uses the last set entered (`agras-tracker-chemicals-last`), not just the first chemical.
 
-Test `farmerFixes` covers these; 77/77 pass. **Not built or installed yet.**
+Test `farmerFixes` covers these; 77/77 pass. Built as `build-59` and installed with `adb install -r`
+(data kept). On the phone only the wider plotting view and the "0 corners" card
+have been seen so far; the rest was checked in Playwright screenshots.
 
 ## Verified on the phone, and what wasn't
 
