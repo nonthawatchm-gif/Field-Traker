@@ -499,10 +499,10 @@ async function homeDesign() {
     const a = start.getBoundingClientRect(), c = card.getBoundingClientRect();
     return Math.abs(a.top - c.top) < 4 && a.left > c.right - 2;
   }));
-  const dot = () => page.evaluate(() => !!document.querySelector('[aria-label="Settings"] span.rounded-full'));
+  const dot = () => page.evaluate(() => !!document.querySelector('[aria-label="Settings"] span span'));
   check('the Settings button shows an amber dot while the checklist is incomplete', await dot());
   await openSettings(page);
-  for (const item of ['PPE worn', 'Mix rate confirmed', 'Nozzle checked', 'Wind checked']) await tap(page, item, { wait: 300 });
+  for (const item of ['PPE worn', 'Mix rate OK', 'Nozzle checked', 'Wind checked']) await tap(page, item, { wait: 300 });
   await tap(page, 'DONE', { wait: 500 });
   check('and none once it is complete', !(await dot()));
   await browser.close();
@@ -589,10 +589,69 @@ async function sprayReport() {
   await browser.close();
 }
 
+/* 19. Fixes from the farmer walk-through: plotting opens at field scale and can
+ *     frame all its corners, the hint says when to close, a new field is named
+ *     right after its station, the Settings button says why it is amber, DONE
+ *     is on screen without scrolling, and round 2 gets the whole chemical set. */
+async function farmerFixes() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1500);
+  check('no sample-field area shows before a field is plotted', !/3\.63|3-2-\d+ rai/.test(await txt(page)));
+  const span = await page.evaluate(() => { const d = window.__agrasDbg, c = document.querySelector('canvas'); return d && d.pan ? c.width / d.pan.s : 0; });
+  check('plotting opens at field scale (about 100 m across, not 20 m)', span >= 80, `${span.toFixed(0)} m across`);
+  for (const [x, y] of [[0, 0], [80, 0], [80, 80]]) {
+    await moveTo(ctx, page, x, y, 600);
+    await page.locator('[aria-label="Center on my location"]').click({ force: true });
+    await page.waitForTimeout(350);
+    await tap(page, 'ADD AT CROSSHAIR');
+  }
+  check('with 3 corners the hint says to tap CLOSE FIELD', /tap CLOSE FIELD/.test(await txt(page)) && !/map a real boundary/.test(await txt(page)));
+  const before = await page.evaluate(() => ({ ...window.__agrasDbg.pan }));
+  await page.locator('[aria-label="Show all corners"]').click({ force: true }); await page.waitForTimeout(500);
+  const after = await page.evaluate(() => ({ ...window.__agrasDbg.pan }));
+  check('Show all corners centres the view on the corners', Math.abs(after.x - 40) < 2 && Math.abs(Math.abs(after.y) - 40) < 2,
+    `centre ${after.x.toFixed(0)},${after.y.toFixed(0)} (was ${before.x.toFixed(0)},${before.y.toFixed(0)})`);
+  await moveTo(ctx, page, 0, 80, 600);
+  await page.locator('[aria-label="Center on my location"]').click({ force: true }); await page.waitForTimeout(350);
+  await tap(page, 'ADD AT CROSSHAIR');
+  await tap(page, 'CLOSE FIELD', { wait: 900 });
+  await moveTo(ctx, page, -10, -10, 800);
+  await tap(page, 'MY LOCATION');
+  await tap(page, 'CONFIRM STATION', { wait: 800 });
+  check('a new field asks for its name after the station step', /NAME THIS FIELD/.test(await txt(page)));
+  await page.locator('[aria-label="Field name"]').fill('นาหลังบ้าน');
+  await tap(page, 'SAVE', { wait: 600 });
+  const lib = await library(page);
+  check('the name is saved to the field', lib[0] && lib[0].name === 'นาหลังบ้าน', lib[0] && lib[0].name);
+  const home = await txt(page);
+  check('the Settings button is captioned and says why it wants attention', /SETTINGS/.test(home) && /4 checks left/.test(home));
+  await openSettings(page);
+  const vp = page.viewportSize();
+  const box = await page.locator('text="DONE"').locator('visible=true').first().boundingBox();
+  check('Settings DONE is on screen without scrolling', !!box && box.y + box.height <= vp.height && box.y > 0, box ? `DONE at y=${box.y.toFixed(0)} of ${vp.height}` : 'no DONE');
+  await tap(page, 'DONE', { wait: 500 });
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 800 });
+  await page.locator('[aria-label="Chemical name"]').first().fill('30-20-10');
+  await page.locator('[aria-label="Rate per tank"]').first().fill('100');
+  await tap(page, 'ADD CHEMICAL', { wait: 300 });
+  await page.locator('[aria-label="Chemical name"]').nth(1).fill('อิมา');
+  await page.locator('[aria-label="Rate per tank"]').nth(1).fill('20');
+  await tap(page, 'SAVE & START', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 30], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, true);
+  await tap(page, 'START NEW', { wait: 1500 });
+  await tap(page, 'START SPRAYING', { wait: 800 });
+  const names = await page.locator('[aria-label="Chemical name"]').evaluateAll((els) => els.map((e) => e.value));
+  check('round 2 is pre-filled with the whole previous set', names.length === 2 && names[0] === '30-20-10' && names[1] === 'อิมา', JSON.stringify(names));
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

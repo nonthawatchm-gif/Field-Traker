@@ -376,6 +376,37 @@ fsync'd), and whether a mission finished and then killed within a few seconds
 can come back — the delete of both copies has the same commit window as a
 write, so it can, and FINISH on it would just update the same history record.
 
+### Farmer walk-through fixes (after build-57)
+
+A role-play test on the phone as a first-time farmer scored the app 6/10. The owner asked to
+fix everything except the language:
+
+- **Plotting opens at field scale.** `liveDraftBBox` now has a 100 m minimum span
+  (it was 20 m, which made a 5-rai field take dozens of drags). A **Show all corners**
+  button (from 2 corners) frames the draft in the middle 60% of the screen, clear of the
+  zoom buttons.
+- **The plotting hint** says "all corners in? tap CLOSE FIELD" once there are 3 or more
+  points, instead of "map a real boundary to continue".
+- **Settings.**
+  - The round button has a SETTINGS caption.
+  - The amber dot always comes with a chip saying why. Weather comes first ("Rain 71% in 3 h", "Wind … km/h"), then "N checks left".
+  - The sheet spells out the weather risk.
+  - DONE is sticky at the bottom of the sheet.
+  - "Mix rate confirmed" was shortened to "Mix rate OK".
+- **The top card** no longer shows the sample field's 3.63 rai before a real field
+  exists ("no field yet"). Area is shown as rai-ngan-wa.
+- **Station marker.**
+  - It is now a pin with a water drop, scaled by the device pixel ratio (`opts.thumb` keeps thumbnails at 1×).
+  - The boundary line on the home screen now also scales, because `static` no longer means 1×.
+- **Naming a new field.**
+  - A new field is offered NAME THIS FIELD right after its station step. SKIP keeps the date name.
+  - Leaving the station step for home resets the camera, so the whole field is framed (it used to stay on the station).
+- **Chemicals.**
+  - Round N+1 is pre-filled with the field's previous round's whole set.
+  - Otherwise it uses the last set entered (`agras-tracker-chemicals-last`), not just the first chemical.
+
+Test `farmerFixes` covers these; 77/77 pass. **Not built or installed yet.**
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against
@@ -417,6 +448,10 @@ Then talk to `http://localhost:9222/json` over CDP. Three things cost time here:
 ## Still open
 
 In the order I'd do them.
+
+0. **The UI is mostly English.** The farmer role-play (build-57, scored 6/10)
+   found this the biggest obstacle. The owner chose to leave it for later. Items 2–4
+   from that walk-through are fixed (see below).
 
 
 1. **Outbound nav-line colour.** The leg to the station is teal

@@ -108,6 +108,9 @@ async function makeField(ctx, page, corners = [[0, 0], [80, 0], [80, 80], [0, 80
   await moveTo(ctx, page, station[0], station[1], 800);
   await tap(page, 'MY LOCATION');
   await tap(page, 'CONFIRM STATION', { wait: 800 });
+  // a new field is offered a name next; keep the automatic one
+  const skip = page.locator('text="SKIP"').locator('visible=true').first();
+  if (await skip.count()) { await skip.click({ force: true }); await page.waitForTimeout(400); }
 }
 
 module.exports = { boot, moveTo, walk, tap, tapRe, lines, stat, summary, makeField, openSettings, toLL };

@@ -449,11 +449,14 @@ function buildField(poly, gpsAnchored, swath) {
 function defaultStation(bbox) {
   return { x: bbox.minX - 3, y: bbox.minY + Math.min(6, bbox.h * 0.2) };
 }
-function liveDraftBBox(pts) {
-  if (!pts.length) return { minX: -10, minY: -10, maxX: 10, maxY: 10, w: 20, h: 20 };
+/** minSpan: the smallest area (metres) the view shows. 100 m by default so
+ *  plotting opens at field scale — a 20 m minimum meant a 5-rai field took
+ *  dozens of drags to walk the crosshair round. */
+function liveDraftBBox(pts, minSpan = 100) {
+  if (!pts.length) return { minX: -minSpan / 2, minY: -minSpan / 2, maxX: minSpan / 2, maxY: minSpan / 2, w: minSpan, h: minSpan };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   pts.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
-  const w = Math.max(20, maxX - minX), h = Math.max(20, maxY - minY);
+  const w = Math.max(minSpan, maxX - minX), h = Math.max(minSpan, maxY - minY);
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
   return { minX: cx - w / 2, minY: cy - h / 2, maxX: cx + w / 2, maxY: cy + h / 2, w, h };
 }
@@ -747,7 +750,10 @@ function rleDecode(b64, len) {
 const CHEMICALS_KEY = 'agras-tracker-chemicals';
 const CHEM_UNITS = ['cc', 'ml', 'g', 'L', 'kg'];
 function loadChemicalMemory() { try { const a = JSON.parse(localStorage.getItem(CHEMICALS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+const CHEMICALS_LAST_KEY = 'agras-tracker-chemicals-last';   // the most recent full set, as entered
+function loadLastChemicalSet() { try { const a = JSON.parse(localStorage.getItem(CHEMICALS_LAST_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
 function rememberChemicals(list) {
+  try { localStorage.setItem(CHEMICALS_LAST_KEY, JSON.stringify(list)); } catch (e) { /* best-effort */ }
   try {
     const seen = new Set(), out = [];
     [...list, ...loadChemicalMemory()].forEach((c) => { const k = (c.name || '').trim(); if (k && !seen.has(k)) { seen.add(k); out.push({ name: k, rate: c.rate || '', unit: c.unit || 'cc' }); } });
@@ -1516,7 +1522,7 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
   // Field boundary: a bright line on a dark halo, so it reads over any
   // satellite imagery (a thin grey line disappeared into tree canopy).
   {
-    const k = opts.static ? 1 : Math.min(2, window.devicePixelRatio || 1);
+    const k = opts.thumb ? 1 : Math.min(2, window.devicePixelRatio || 1);
     ctx.save();
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -1543,16 +1549,22 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.restore();
   }
 
+  // Refill station: a map pin (tip on the spot) with a water drop, sized for
+  // the screen — the old 7 px dot was hard to find on satellite imagery.
   if (station && !opts.hideStation) {
+    const k = opts.thumb ? 0.7 : Math.min(2, window.devicePixelRatio || 1);
     const sx = X_(v, station.x), sy = Y_(v, station.y);
+    const r = 10 * k, cy = sy - 15 * k, b = Math.acos(r / (sy - cy));
     ctx.save();
-    ctx.fillStyle = 'rgba(46,230,199,.16)'; ctx.beginPath(); ctx.arc(sx, sy, 11, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#2EE6C7'; ctx.beginPath(); ctx.arc(sx, sy, 7.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(sx, sy, 5 * k, 2 * k, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(sx, sy);
+    ctx.arc(sx, cy, r, Math.PI / 2 + b, Math.PI / 2 - b); ctx.closePath();
+    ctx.fillStyle = '#2EE6C7'; ctx.fill();
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2 * k; ctx.lineJoin = 'round'; ctx.stroke();
     ctx.fillStyle = '#06231D';
-    ctx.beginPath(); ctx.moveTo(sx, sy - 4);
-    ctx.quadraticCurveTo(sx - 3.4, sy + 1, sx, sy + 4.2);
-    ctx.quadraticCurveTo(sx + 3.4, sy + 1, sx, sy - 4); ctx.fill();
-    ctx.strokeStyle = '#0A0E10'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(sx, sy, 7.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx, cy - 5.5 * k);
+    ctx.quadraticCurveTo(sx - 4.6 * k, cy + 1.2 * k, sx, cy + 5.2 * k);
+    ctx.quadraticCurveTo(sx + 4.6 * k, cy + 1.2 * k, sx, cy - 5.5 * k); ctx.fill();
     ctx.restore();
   }
 
@@ -1762,6 +1774,8 @@ function App() {
   const [fieldLibrary, setFieldLibrary] = useState(() => loadFieldLibrary());
   const [showFieldLibrary, setShowFieldLibrary] = useState(false);
   const [showSaveField, setShowSaveField] = useState(false);
+  const [namingNewField, setNamingNewField] = useState(false); // the rename sheet opened by itself for a just-plotted field
+  const askNameAfterStationRef = useRef(false);
   const [saveFieldName, setSaveFieldName] = useState('');
   const [confirmDeleteFieldId, setConfirmDeleteFieldId] = useState(null);
   const [confirmCloseField, setConfirmCloseField] = useState(false);
@@ -2707,7 +2721,9 @@ function App() {
           const pt = stationDraftRef.current || stationRef.current;
           const v = viewRef.current, ctx = cv.getContext('2d');
           ctx.save(); ctx.strokeStyle = 'rgba(46,230,199,.6)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
-          ctx.beginPath(); ctx.arc(X_(v, pt.x), Y_(v, pt.y), 13 + 3 * Math.sin(t / 220), 0, Math.PI * 2); ctx.stroke();
+          const kk = Math.min(2, window.devicePixelRatio || 1);
+          ctx.lineWidth = 1.5 * kk;
+          ctx.beginPath(); ctx.arc(X_(v, pt.x), Y_(v, pt.y), (13 + 3 * Math.sin(t / 220)) * kk, 0, Math.PI * 2); ctx.stroke();
           ctx.restore();
         }
       }
@@ -2757,6 +2773,18 @@ function App() {
     if (live.lat == null) return;
     const s = panRef.current ? panRef.current.s : viewRef.current.s;
     panRef.current = { x: live.x, y: live.y, s, a: panRef.current ? (panRef.current.a || 0) : 0 };
+  };
+  /** Frame every corner placed so far in the open middle of the screen,
+   *  clear of the side buttons, so none hides under the zoom controls. */
+  const fitDraftInView = () => {
+    const c = canvasRef.current, d = draftRef.current;
+    if (!c || d.length < 2) return;
+    const bb = liveDraftBBox(d, 20), fr = freeRectRef.current;
+    const h = fr && fr.h > 0 ? fr.h : c.height * 0.5;
+    const s = Math.max(MIN_ZOOM_S, Math.min(MAX_ZOOM_S, Math.min(c.width * 0.6 / (bb.w + 8), h * 0.75 / (bb.h + 8))));
+    followMeRef.current = false;
+    panRef.current = { x: (bb.minX + bb.maxX) / 2, y: (bb.minY + bb.maxY) / 2, s, a: 0 };
+    setTick((n) => n + 1);
   };
   const addPointAtCrosshair = () => {
     const wrap = wrapRef.current;
@@ -3040,8 +3068,10 @@ function App() {
     const e = fieldLibraryRef.current.find((f) => f.id === activeFieldIdRef.current);
     // first START of a round: ask what is being sprayed (skippable, editable later)
     if (e && !(e.roundMeta && e.roundMeta.chemicalsAsked)) {
-      const last = loadChemicalMemory();
-      setChemDraft(last.length ? [{ ...last[0] }] : [{ name: '', rate: '', unit: 'cc' }]);
+      // prefill with this field's previous round, else the last set entered anywhere
+      const prev = (e.rounds || []).slice().reverse().find((r) => r.chemicals && r.chemicals.length);
+      const last = prev ? prev.chemicals : loadLastChemicalSet();
+      setChemDraft(last.length ? last.map((c) => ({ ...c })) : [{ name: '', rate: '', unit: 'cc' }]);
       setChemSheet('start');
       return;
     }
@@ -3085,7 +3115,7 @@ function App() {
   /** editId = the saved field being redrawn (EDIT BOUNDARY), or null for a new
    *  field (ADD FIELD, or nothing saved is active yet). */
   const editingFieldIdRef = useRef(null);
-  const startPlotting = (editId = null) => { editingFieldIdRef.current = editId; clearActiveSession(); panRef.current = null; setDraft([]); setConfirmCloseField(false); setPhase('boundary'); };
+  const startPlotting = (editId = null) => { editingFieldIdRef.current = editId; askNameAfterStationRef.current = false; clearActiveSession(); panRef.current = null; setDraft([]); setConfirmCloseField(false); setPhase('boundary'); };
   const undoPoint = () => { setConfirmCloseField(false); setDraft((d) => d.slice(0, -1)); };
   const closeBoundary = () => {
     if (draft.length < 3) return;
@@ -3122,8 +3152,18 @@ function App() {
     // CANCEL keeps the default spot. Either way it lands on the home screen —
     // prevPhaseRef is set by hand because `phase` is still 'boundary' here.
     prevPhaseRef.current = 'ready';
+    askNameAfterStationRef.current = true;
     setStationDraft({ ...stationRef.current });
     setPhase('station');
+  };
+  /** After a new field's station step: offer to name it (the automatic
+   *  date name stays if the operator skips). */
+  const askNameIfNewField = () => {
+    if (!askNameAfterStationRef.current) return;
+    askNameAfterStationRef.current = false;
+    const e = fieldLibraryRef.current.find((f) => f.id === activeFieldIdRef.current);
+    if (!e) return;
+    setSaveFieldName(e.name); setNamingNewField(true); setShowSaveField(true);
   };
   const cancelPlotting = () => { setConfirmCloseField(false); if (fieldRef.current.gpsAnchored || srcMode === 'sim') { setDraft([]); setPhase('ready'); } };
   const markCorner = () => { const live = gpsLiveRef.current; if (live.lat != null) setDraft((d) => [...d, { x: live.x, y: live.y }]); };
@@ -3137,9 +3177,16 @@ function App() {
       const id = activeFieldIdRef.current;
       if (id) updateLibrary((list) => list.map((e) => (e.id === id ? { ...e, station: { ...stationDraft } } : e)));
     }
-    setPhase(prevPhaseRef.current);
+    leaveStationStep();
   };
-  const cancelStationSetup = () => setPhase(prevPhaseRef.current);
+  const cancelStationSetup = () => leaveStationStep();
+  /** Back to where the station step was opened from; the home screen re-frames
+   *  the whole field (the camera was still on the station, field half off screen). */
+  const leaveStationStep = () => {
+    if (prevPhaseRef.current === 'ready') panRef.current = null;
+    setPhase(prevPhaseRef.current);
+    askNameIfNewField();
+  };
 
   /** Android back button / back gesture. Closes whatever is on top, one layer
    *  per press; with nothing left to close it sends the app to the background
@@ -3152,7 +3199,7 @@ function App() {
     if (chemSheet) { setChemSheet(null); return 'chemicals'; }
     if (reportFieldId != null) { setReportFieldId(null); return 'report'; }
     if (phase === 'done') { goHomeFromSummary(); return 'summary'; }
-    if (showSaveField) { setShowSaveField(false); return 'rename'; }
+    if (showSaveField) { setShowSaveField(false); setNamingNewField(false); return 'rename'; }
     if (confirmDeleteFieldId != null || confirmResetCovId != null || confirmResetAll) {
       setConfirmDeleteFieldId(null); setConfirmResetCovId(null); setConfirmResetAll(false); return 'confirm';
     }
@@ -3369,7 +3416,7 @@ function App() {
       const off = document.createElement('canvas');
       off.width = 480; off.height = 300;
       const v = computeView(off.width, off.height, f.bbox, 4);
-      drawScene(off.getContext('2d'), off.width, off.height, v, f, s, gridCanvasRef.current, stationRef.current, { static: true });
+      drawScene(off.getContext('2d'), off.width, off.height, v, f, s, gridCanvasRef.current, stationRef.current, { static: true, thumb: true });
       thumb = off.toDataURL('image/png');
     } catch (e) { /* canvas export unavailable — record is kept without a thumbnail */ }
 
@@ -3619,7 +3666,12 @@ function App() {
               <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#FF5252]' : running ? 'text-[#2EE6C7]' : 'text-[#7C8C8C]')} />
               <div className="leading-tight min-w-0">
                 <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#FF5252]' : '')}>{statusLabel}</p>
-                <p className="text-[9px] text-[#7C8C8C] font-mono truncate">{(field.area / 1600).toFixed(2)} rai · swath {swath.toFixed(1)}m</p>
+                <p className="text-[9px] text-[#7C8C8C] font-mono truncate">
+                  {phase === 'boundary' ? `${draft.length} corner${draft.length === 1 ? '' : 's'}`
+                    : (activeFieldId || phase === 'running' || phase === 'paused' || phase === 'done')
+                    ? (() => { const r = toRai(field.area); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()
+                    : 'no field yet'} · swath {swath.toFixed(1)}m
+                </p>
               </div>
             </Glass>
 
@@ -3743,7 +3795,7 @@ function App() {
                   ? 'Walk the real edges and tap Mark Corner at each one, or tap the map.'
                   : 'Tap the field edges in order, ' + Math.max(0, 3 - draft.length) + ' more to close.'}
               </p>
-              <p className="font-mono text-[10px] text-[#7C8C8C] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{srcMode === 'gps' && !fieldRef.current.gpsAnchored ? ' · map a real boundary to continue' : ''}</p>
+              <p className="font-mono text-[10px] text-[#7C8C8C] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{draft.length >= 3 ? ' · all corners in? tap CLOSE FIELD' : srcMode === 'gps' && !fieldRef.current.gpsAnchored ? ' · map a real boundary to continue' : ''}</p>
             </Glass>
           )}
           {topHint === 'station' && (
@@ -3795,6 +3847,7 @@ function App() {
                     <MapCtrlBtn icon={ZoomIn} onClick={() => zoomMap(1)} title="Zoom in" />
                     <MapCtrlBtn icon={ZoomOut} onClick={() => zoomMap(-1)} title="Zoom out" />
                     <MapCtrlBtn icon={LocateFixed} onClick={centerOnMyLocation} disabled={gpsStatus !== 'active'} title="Center on my location" />
+                    {phase === 'boundary' && draft.length >= 2 && <MapCtrlBtn icon={OverviewIcon} onClick={fitDraftInView} title="Show all corners" />}
 </>
                 )}
                 {/* compass: only when the map has been rotated; tap = north up */}
@@ -3898,13 +3951,26 @@ function App() {
                   checklist (or a wind/rain warning) asking for attention. */}
               {(() => {
                 const unchecked = ['ppe', 'mixedRate', 'nozzle', 'wind'].filter((k) => !checklist[k]).length;
-                const wxRisk = !!(sprayWeather && (sprayWeather.windWarning || sprayWeather.rainNowWarning || sprayWeather.rainSoonWarning));
+                const wx = sprayWeather;
+                // the amber dot always comes with its reason, weather first
+                const reason = wx && wx.rainNowWarning ? 'Raining now'
+                  : wx && wx.rainSoonWarning ? `Rain ${wx.rainSoonProb != null ? Math.round(wx.rainSoonProb) + '% ' : ''}in 3 h`
+                  : wx && wx.windWarning ? `Wind ${Math.round(wx.windKmh || 0)} km/h`
+                  : unchecked > 0 ? `${unchecked} check${unchecked === 1 ? '' : 's'} left` : null;
                 return (
-                  <div className="flex justify-end">
-                    <button onClick={() => setShowSpraySettings(true)} aria-label="Settings"
-                      className="relative w-14 h-14 rounded-full bg-[#131A1D] border border-[#2A363A] shadow-[0_2px_14px_rgba(0,0,0,.5)] flex items-center justify-center text-[#2EE6C7]">
-                      <SlidersIcon size={24} />
-                      {(unchecked > 0 || wxRisk) && <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[#FFB648] border-2 border-[#131A1D]" />}
+                  <div className="flex justify-end items-center gap-2">
+                    {reason && (
+                      <button onClick={() => setShowSpraySettings(true)}
+                        className="flex items-center gap-1.5 rounded-full bg-[#131A1D] border border-[#FFB648]/50 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(0,0,0,.5)] text-[11px] font-mono font-bold text-[#FFB648]">
+                        <AlertTriangle size={13} className="shrink-0" />{reason}
+                      </button>
+                    )}
+                    <button onClick={() => setShowSpraySettings(true)} aria-label="Settings" className="flex flex-col items-center gap-0.5">
+                      <span className="relative w-14 h-14 rounded-full bg-[#131A1D] border border-[#2A363A] shadow-[0_2px_14px_rgba(0,0,0,.5)] flex items-center justify-center text-[#2EE6C7]">
+                        <SlidersIcon size={24} />
+                        {reason && <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[#FFB648] border-2 border-[#131A1D]" />}
+                      </span>
+                      <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#EAF3F1] [text-shadow:0_1px_3px_#000]">SETTINGS</span>
                     </button>
                   </div>
                 );
@@ -4376,15 +4442,18 @@ function App() {
       {showSaveField && (
         <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
-            <p className="font-display text-[15px] font-bold tracking-wide">RENAME FIELD</p>
-            <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Save this field to reuse it next time · {(fieldRef.current.area / 1600).toFixed(2)} rai</p>
-            <input autoFocus value={saveFieldName} onChange={(e) => setSaveFieldName(e.target.value)}
+            <p className="font-display text-[15px] font-bold tracking-wide">{namingNewField ? 'NAME THIS FIELD' : 'RENAME FIELD'}</p>
+            <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">
+              {namingNewField ? 'Field saved · ' : ''}{(() => { const r = toRai(fieldRef.current.area); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}{namingNewField ? ' · SKIP keeps the date name' : ''}
+            </p>
+            <input autoFocus={!namingNewField} value={saveFieldName} onChange={(e) => setSaveFieldName(e.target.value)} aria-label="Field name"
+              onFocus={(e) => { if (namingNewField) e.target.select(); }}
               placeholder="e.g. Soybean Field 1"
               className="w-full min-h-[46px] px-3 rounded-lg bg-[#0A0E10] border border-[#3A464B] text-[#D3DEDC] text-sm font-sans placeholder:text-[#5C6C6C] outline-none focus:border-[#2EE6C7]" />
             <div className="grid grid-cols-2 gap-2.5 mt-4">
-              <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={() => setShowSaveField(false)} />
+              <DockBtn icon={X} label={namingNewField ? 'SKIP' : 'CANCEL'} tone="ghost" onClick={() => { setShowSaveField(false); setNamingNewField(false); }} />
               <DockBtn icon={Save} label="SAVE" tone="teal" disabled={!saveFieldName.trim()}
-                onClick={() => { if (activeFieldIdRef.current) renameFieldInLibrary(activeFieldIdRef.current, saveFieldName); setShowSaveField(false); }} />
+                onClick={() => { if (activeFieldIdRef.current) renameFieldInLibrary(activeFieldIdRef.current, saveFieldName); setShowSaveField(false); setNamingNewField(false); }} />
             </div>
           </div>
         </div>
@@ -4409,7 +4478,7 @@ function App() {
             {(() => {
               const items = [
                 ['ppe', 'PPE worn'],
-                ['mixedRate', 'Mix rate confirmed'],
+                ['mixedRate', 'Mix rate OK'],
                 ['nozzle', 'Nozzle checked'],
                 ['wind', 'Wind checked'],
               ];
@@ -4481,6 +4550,13 @@ function App() {
                           <span className="text-[9px] font-mono text-[#5C6C6C] shrink-0">TAP TO USE</span>
                         </button>
                       )}
+                      {sprayWeatherStatus === 'ok' && wxRisk && (
+                        <p className="mt-1 px-0.5 text-[10.5px] leading-snug text-[#E6B22E]">
+                          {wx.rainNowWarning ? 'Raining now: the spray will wash off.'
+                            : wx.rainSoonWarning ? 'Rain likely within 3 hours: the spray may wash off.'
+                            : 'Strong wind: the spray will drift.'}
+                        </p>
+                      )}
 
                       <div className="grid grid-cols-2 gap-1.5 mt-1.5">
                         <input value={checklist.operator} onChange={(e) => setChecklistField('operator', e.target.value)}
@@ -4545,7 +4621,8 @@ function App() {
                 </span>
               </div>
             </div>
-            <div className="mt-4 flex justify-center">
+            {/* DONE stays pinned to the bottom of the sheet while it scrolls */}
+            <div className="sticky -bottom-4 -mx-4 -mb-4 mt-4 px-4 pt-3 pb-4 bg-[#131A1D] border-t border-[#2A363A] flex justify-center">
               <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
             </div>
           </div>
@@ -4632,7 +4709,7 @@ function MiniMap({ field, sim, gridCanvas, station }) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     c.width = r.width * dpr; c.height = r.height * dpr;
     const v = computeView(c.width, c.height, field.bbox, 4);
-    drawScene(c.getContext('2d'), c.width, c.height, v, field, sim, gridCanvas, station, { static: true });
+    drawScene(c.getContext('2d'), c.width, c.height, v, field, sim, gridCanvas, station, { static: true, thumb: true });
   }, [field, sim, gridCanvas, station]);
   return <canvas ref={ref} className="w-full h-full" />;
 }
