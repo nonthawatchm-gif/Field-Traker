@@ -158,12 +158,11 @@ async function crashRecovery() {
   await page.waitForTimeout(1000);
   const before = num(await stat(page, 'AREA SPRAYED'));
   await page.reload();
-  await page.waitForTimeout(3000);
-  const modal = (await page.locator('text="UNFINISHED MISSION DETECTED"').count()) > 0;
-  check('unfinished-mission modal appears after a reload', modal);
-  await tap(page, 'RESUME SPRAYING', { wait: 2500 });
+  await page.waitForTimeout(3500);
+  const notice = (await page.getByText(/Unfinished mission restored/).count()) > 0;
+  check('an unfinished mission is restored by itself after a reload', notice);
   const paused = (await page.locator('text="PAUSED"').count()) > 0;
-  check('resumes into PAUSED, awaiting a manual resume', paused);
+  check('it comes back PAUSED, awaiting a manual resume', paused);
   await tap(page, 'RESUME', { wait: 1200 });
   const after = num(await stat(page, 'AREA SPRAYED'));
   const bp = num(await stat(page, 'TO BREAKPOINT'));
@@ -216,8 +215,7 @@ async function complianceLog() {
   await tap(page, 'START SPRAYING', { wait: 1200 });
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
-  await tap(page, 'FINISH', { wait: 1500 });
-  await tap(page, 'SAVE SESSION', { wait: 1800 });
+  await tap(page, 'FINISH', { wait: 1800 });
   const saved = await page.evaluate(() => {
     try { return JSON.parse(localStorage.getItem('agras-tracker-missions') || '[]')[0] || null; } catch (e) { return null; }
   });
@@ -261,8 +259,92 @@ async function overlapSubLine() {
   await browser.close();
 }
 
+/* 10. Fields save themselves. A closed boundary is in the library before any
+ *     spraying starts, and moving its station is written back to it. */
+const library = (page) => page.evaluate(() => {
+  try { return JSON.parse(localStorage.getItem('agras-tracker-field-library') || '[]'); } catch (e) { return []; }
+});
+async function fieldAutoSave() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page, undefined, [-10, -10]);
+  let lib = await library(page);
+  check('a closed boundary is saved to the library without START SPRAYING', lib.length === 1, `${lib.length} field(s)`);
+  // field-local y grows southward (screen-style), so harness [-10,-10] is stored as x=-10, y=+10
+  check('it saves with the station set right after plotting', lib[0] && Math.round(lib[0].station.x) === -10 && Math.round(lib[0].station.y) === 10,
+    lib[0] ? `station ${lib[0].station.x.toFixed(1)},${lib[0].station.y.toFixed(1)}` : 'no field');
+  await tap(page, 'Field setup');
+  await tap(page, 'STATION');
+  await moveTo(ctx, page, 90, 40, 800);
+  await tap(page, 'MY LOCATION');
+  await tap(page, 'CONFIRM STATION', { wait: 800 });
+  lib = await library(page);
+  check('moving the station is written back to the saved field', lib.length === 1 && Math.round(lib[0].station.x) === 90,
+    lib[0] ? `${lib.length} field(s), station x=${lib[0].station.x.toFixed(1)}` : 'no field');
+  await browser.close();
+}
+
+/* 11. Missions file themselves in history on FINISH. Closing the summary back
+ *     to PAUSED and finishing again is the same mission: one record, updated. */
+const history = (page) => page.evaluate(() => {
+  try { return JSON.parse(localStorage.getItem('agras-tracker-missions') || '[]'); } catch (e) { return []; }
+});
+async function missionAutoSave() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 40], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await tap(page, 'FINISH', { wait: 1800 });
+  let h = await history(page);
+  check('FINISH files the mission in history on its own', h.length === 1, `${h.length} record(s)`);
+  const firstRai = h[0] ? h[0].raiDec : 0;
+  await page.locator('text="MISSION SUMMARY"').locator('xpath=../..').locator('button').first().click();
+  await page.waitForTimeout(800);
+  await tap(page, 'RESUME', { wait: 800 });
+  await walk(ctx, page, [40, 40], [40, 70], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await tap(page, 'FINISH', { wait: 1800 });
+  h = await history(page);
+  check('finishing the same mission again updates its record, not a second one', h.length === 1 && h[0].raiDec > firstRai,
+    `${h.length} record(s), ${firstRai.toFixed(2)} -> ${h[0] ? h[0].raiDec.toFixed(2) : '?'} rai`);
+  await tap(page, 'START NEW', { wait: 1200 });
+  await moveTo(ctx, page, 60, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [60, 10], [60, 30], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await tap(page, 'FINISH', { wait: 1800 });
+  h = await history(page);
+  check('the next mission gets a record of its own', h.length === 2, `${h.length} record(s)`);
+  await browser.close();
+}
+
+/* 12. A big field's unfinished mission must survive a reload. The old snapshot
+ *     stored the raw pixel grid and blew the ~5M-char localStorage quota
+ *     somewhere past 12-16 rai, and the save failed without a word. */
+async function bigFieldResume() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page, [[0, 0], [250, 0], [250, 250], [0, 250]], [-10, -10]);
+  await moveTo(ctx, page, 20, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [20, 10], [20, 60], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 1500 });
+  const size = await page.evaluate(() => (localStorage.getItem('agras-tracker-active-session') || '').length);
+  check('a 39-rai field session is actually saved', size > 0, `${(size / 1000).toFixed(0)}k chars`);
+  const before = num(await stat(page, 'AREA SPRAYED'));
+  await page.reload();
+  await page.waitForTimeout(4000);
+  const paused = (await page.locator('text="PAUSED"').count()) > 0;
+  const after = num(await stat(page, 'AREA SPRAYED'));
+  check('and it comes back after a reload with its coverage', paused && after === before && before > 0, `${before} -> ${after} m²${paused ? '' : ', not paused'}`);
+  await browser.close();
+}
+
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine })) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume })) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

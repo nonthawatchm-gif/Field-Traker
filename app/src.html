@@ -733,14 +733,20 @@ function rleDecode(b64, len) {
   return out;
 }
 /** Extra state stamped into every autosaved session (kept current by the App each render). */
-let __sessionExtras = { fieldId: null, covBase: { sprayed: 0, overlap: 0 }, tankAreas: [], tankOpen: true };
+let __sessionExtras = { fieldId: null, covBase: { sprayed: 0, overlap: 0 }, tankAreas: [], tankOpen: true, recordId: null };
 
 /** Build the persisted-session record from live refs/state. Pure function —
  *  no localStorage I/O here — so it's easy to reason about and to reuse for
  *  both the 5-second autosave and the explicit "Save & Pause" tap. */
 function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankCapacity, rateLRai, tankBaselineArea, imgData, originLatLng }) {
   return {
-    v: 1,
+    // v2 stores only the per-cell pass counts and missed flags, run-length
+    // encoded. v1 also stored the raw RGBA pixel buffer and the Int32 lastPass
+    // array as base64 — about 1 M chars for a 4-rai field and 4 M for 16 rai,
+    // so anything much past ~12 rai ran into the ~5 M-char localStorage quota
+    // and the autosave failed without a word. Both are derivable from passes
+    // and missed, so restore rebuilds them instead of reading them back.
+    v: 2,
     ts: Date.now(),
     poly: field.poly,
     gpsAnchored: field.gpsAnchored,
@@ -751,24 +757,29 @@ function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankC
     breakpoint: sim.breakpoint, wp: sim.wp,
     simPos: sim.pos, simHeading: sim.heading,
     fieldId: __sessionExtras.fieldId, covBase: __sessionExtras.covBase, tankAreas: __sessionExtras.tankAreas, tankOpen: __sessionExtras.tankOpen,
+    recordId: __sessionExtras.recordId,
     distance: sim.distance, elapsed: sim.elapsed,
     sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, epoch: sim.epoch,
-    pixels: u8ToB64(new Uint8Array(imgData.data.buffer)),
-    lastPass: u8ToB64(new Uint8Array(sim.lastPass.buffer)),
-    passes: u8ToB64(sim.passes),
-    missed: u8ToB64(sim.missed),
+    cells: sim.passes.length,
+    passes: rleEncode(sim.passes),
+    missed: rleEncode(sim.missed),
   };
 }
 function saveActiveSession(snapshot) {
   try { localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(snapshot)); return true; }
-  catch (e) { return false; } // quota/private-mode — autosave is best-effort, never blocks spraying
+  catch (e) {
+    // still never blocks spraying, but no longer silent: a failed autosave is
+    // exactly the thing to find in the test log after a resume goes wrong
+    try { AgrasLog.add('ERR', 'session autosave failed: ' + ((e && e.name) || e)); } catch (e2) { /* ignore */ }
+    return false;
+  }
 }
 function loadActiveSession() {
   try {
     const raw = localStorage.getItem(ACTIVE_SESSION_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    return (s && s.v === 1 && Array.isArray(s.poly)) ? s : null;
+    return (s && (s.v === 1 || s.v === 2) && Array.isArray(s.poly)) ? s : null;
   } catch (e) { return null; }
 }
 function clearActiveSession() {
@@ -1640,8 +1651,9 @@ function App() {
   const [satelliteOn, setSatelliteOn] = useState(true);    // Esri World Imagery underlay — on by default; only actually renders once a real-world geo-reference (GPS fix or a saved field's stored origin) is available
   const [followMe, setFollowMe] = useState(false);          // true: pan auto-centers on the operator; false: free pan
   const [gpsCardOpen, setGpsCardOpen] = useState(false);   // expandable raw-telemetry card
-  const [pendingResume, setPendingResume] = useState(null); // unfinished-session summary, shown at startup
-  const [noSavedSessionFlash, setNoSavedSessionFlash] = useState(false); // brief "nothing to resume" feedback for the manual Resume Session tap
+  const [restoredToast, setRestoredToast] = useState(false); // "unfinished mission restored" notice after an automatic restore at startup
+  const resumedAtStartRef = useRef(false);
+  const missionRecordIdRef = useRef(null); // history record id of the mission in progress, once it has been filed
   const [checklist, setChecklist] = useState(() => loadChecklist()); // Spec §4B preflight checklist
   const [checklistExpanded, setChecklistExpanded] = useState(false); // collapsed by default — declutters the Ready screen; tap the summary row to open
   const [sprayWeather, setSprayWeather] = useState(null);      // { windKmh, gustKmh, rainSoonProb, ... } from Open-Meteo, or null until fetched
@@ -1987,7 +1999,7 @@ function App() {
     setRenamingFieldId(null);
   };
   /** Stamp the "last sprayed" date on a saved field — called from
-   *  saveMission() whenever the mission that just finished was run against
+   *  recordMission() whenever the mission that just finished was run against
    *  a field loaded from the library (activeFieldId non-null). */
   const touchFieldLastSprayed = (id) => {
     if (!id) return;
@@ -1998,38 +2010,20 @@ function App() {
     });
   };
 
-  /** Shared by the startup check below AND the manual "Resume Saved
-   *  Session" tap in the Ready screen's Tools list — builds the lightweight
-   *  summary (date, area %, tank litres) the pending-resume modal shows;
-   *  the full snapshot is only ever applied once the operator explicitly
-   *  taps Resume inside that modal. Returns true if a session was found
-   *  (and the modal opened), false otherwise — the manual button uses that
-   *  to show brief "nothing to resume" feedback instead of doing nothing. */
-  const checkForPendingResume = () => {
-    const saved = loadActiveSession();
-    if (!saved) return false;
-    try {
-      const field = buildField(saved.poly, saved.gpsAnchored, saved.swath);
-      const areaPct = field.area > 0 ? Math.min(100, ((saved.sprayedCells || 0) * CELL * CELL / field.area) * 100) : 0;
-      const totalPassArea = ((saved.sprayedCells || 0) + (saved.overlapCells || 0)) * CELL * CELL;
-      const cap = saved.tankCapacity || DEFAULT_TANK_CAPACITY_L;
-      setPendingResume({ ts: saved.ts, areaPct, tanksUsed: (Array.isArray(saved.tankAreas) ? saved.tankAreas.length : 0) + 1, tankCapacity: cap, raw: saved });
-      return true;
-    } catch (e) { return false; /* a corrupted record just won't offer a resume — never blocks anything */ }
-  };
-  /** Manual entry point — a saved session used to only ever surface itself
-   *  once, automatically, on the very next app launch. This lets the
-   *  operator pull it back up on demand instead, e.g. after dismissing the
-   *  startup prompt, or after it was superseded by starting a new field
-   *  without ever finishing/discarding the old one properly. */
-  const tryResumeSession = () => {
-    const found = checkForPendingResume();
-    if (!found) { setNoSavedSessionFlash(true); setTimeout(() => setNoSavedSessionFlash(false), 2200); }
-  };
-  /** Startup check — once, on mount, before the operator has touched
-   *  anything — for an unfinished mission left in localStorage. */
+  /** Startup — an unfinished mission left in storage is restored straight
+   *  away, into PAUSED, with a short notice saying so. There used to be an
+   *  "Unfinished mission detected" modal to confirm first; with saving now
+   *  fully automatic, the only thing that modal did was add a tap between
+   *  the operator and their own work (and DISCARD is still one FINISH away). */
   useEffect(() => {
-    checkForPendingResume();
+    const saved = loadActiveSession();
+    if (!saved) return;
+    try {
+      applySessionSnapshot(saved);
+      resumedAtStartRef.current = true;
+      setRestoredToast(true); setTimeout(() => setRestoredToast(false), 7000);
+      AgrasLog.add('SAVE', 'unfinished mission restored at startup');
+    } catch (e) { AgrasLog.add('ERR', 'restore at startup failed: ' + (e && e.message)); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2042,6 +2036,7 @@ function App() {
    *  underneath it — Resume, if tapped, overwrites this with the saved
    *  session's own field anyway. */
   useEffect(() => {
+    if (resumedAtStartRef.current) return; // the restored mission already brought its own field
     const last = loadLastSettings();
     if (!last || !last.activeFieldId) return;
     const entry = fieldLibrary.find((f) => f.id === last.activeFieldId);
@@ -2056,6 +2051,16 @@ function App() {
   useEffect(() => {
     saveLastSettings({ tankCapacity, rateLRai, swath, activeFieldId });
   }, [tankCapacity, rateLRai, swath, activeFieldId]);
+  /** The active field remembers its own spray width and tank size, so the
+   *  next time it is loaded it comes back set up the way it was last used. */
+  useEffect(() => {
+    const id = activeFieldIdRef.current;
+    if (!id) return;
+    const e = fieldLibraryRef.current.find((f) => f.id === id);
+    if (!e || (e.settings && e.settings.swath === swath && e.settings.tankCapacity === tankCapacity)) return;
+    updateLibrary((list) => list.map((f) => (f.id === id ? { ...f, settings: { ...(f.settings || {}), swath, tankCapacity } } : f)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [swath, tankCapacity, activeFieldId]);
 
   /** Auto-save every 5 seconds while a mission is live (running or paused) —
    *  on top of the key-event saves at tank-empty, out-of-bounds, and
@@ -2091,7 +2096,7 @@ function App() {
      or manual "switch to Sim and back" dance required. */
   useEffect(() => { if (phase === 'done') persistCoverage(activeFieldIdRef.current, true); }, [phase]);
 
-  /** The checklist as it stood when the mission ended. saveMission() runs from
+  /** The checklist as it stood when the mission ended. recordMission() runs on
    *  the summary screen, by which point the wind reset below has already fired,
    *  so reading the live checklist there would file a compliance record saying
    *  Wind was never checked on a mission where it was. The snapshot is taken
@@ -2108,15 +2113,24 @@ function App() {
    *  walks the last leg, and that path used to leave Wind ticked. */
   useEffect(() => {
     if (phase !== 'done') return;
+    // Snapshot first, from this render's checklist (still pre-reset). Only the
+    // first arrival at the summary takes it: closing the summary back to
+    // PAUSED and finishing again is the same mission, and by then wind has
+    // already been expired.
+    if (!missionChecklistRef.current) missionChecklistRef.current = { ...checklist };
+    // Every finished mission is filed in history automatically — there is no
+    // SAVE SESSION step any more. Re-finishing the same mission updates its
+    // record in place rather than filing a second one.
+    try { recordMission(missionChecklistRef.current); } catch (e) { AgrasLog.add('ERR', 'mission record failed: ' + (e && e.message)); }
     // read through the updater so this needs no `checklist` dependency — with
     // one, the reset it performs would retrigger the effect and loop.
     setChecklist((c) => {
-      if (!c.wind && !c.weather) return c;   // nothing to expire; leave the snapshot alone
-      missionChecklistRef.current = { ...c };
+      if (!c.wind && !c.weather) return c;
       const next = { ...c, wind: false, weather: '' };
       saveChecklist(next);
       return next;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
   const missionOn = phase === 'running'; // native foreground GPS service only while spraying — paused mission = no service, no wake-ups
   useEffect(() => { if (phase === 'running') { refillArmedRef.current = false; enteredFieldRef.current = false; } }, [phase]);
@@ -2857,12 +2871,13 @@ function App() {
     } catch (e) { /* best-effort */ }
   };
 
-  /** Every field keeps its sprayed area: an unsaved plot is added to the library (auto-named) the moment spraying starts. */
+  const autoFieldName = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `แปลง ${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  /** Fields are saved the moment their boundary is closed (closeBoundary);
+   *  this is only the safety net for a field that somehow never was, e.g.
+   *  the built-in sample field. */
   const startSpraying = () => {
-    if (!activeFieldIdRef.current) {
-      const d = new Date(), p = (n) => String(n).padStart(2, '0');
-      saveCurrentFieldToLibrary(`แปลง ${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`);
-    }
+    if (!activeFieldIdRef.current) saveCurrentFieldToLibrary(autoFieldName());
+    beginNewMission();
     setPhase('running');
   };
   const resetFieldCoverage = (id) => {
@@ -2887,12 +2902,27 @@ function App() {
     setConfirmCloseField(false);
     panRef.current = null;
     resetField(draft, swath);
+    // Saved to the field library right here, under an automatic name the
+    // operator can change later (Field setup -> RENAME). It used to stay an
+    // unsaved plot until someone tapped SAVE or START SPRAYING, so closing
+    // the app in between lost the whole boundary walk.
+    saveCurrentFieldToLibrary(autoFieldName());
+    AgrasLog.add('SAVE', `field auto-saved on close (${(fieldRef.current.area / 1600).toFixed(2)} rai)`);
   };
   const cancelPlotting = () => { setConfirmCloseField(false); if (fieldRef.current.gpsAnchored || srcMode === 'sim') { setDraft([]); setPhase('ready'); } };
   const markCorner = () => { const live = gpsLiveRef.current; if (live.lat != null) setDraft((d) => [...d, { x: live.x, y: live.y }]); };
 
   const startStationSetup = () => { prevPhaseRef.current = phase; setStationDraft({ ...stationRef.current }); setPhase('station'); };
-  const confirmStation = () => { if (stationDraft) stationRef.current = stationDraft; setPhase(prevPhaseRef.current); };
+  const confirmStation = () => {
+    if (stationDraft) {
+      stationRef.current = stationDraft;
+      // write the new station back to the saved field — before this, moving a
+      // saved field's station only lasted until the field was next loaded
+      const id = activeFieldIdRef.current;
+      if (id) updateLibrary((list) => list.map((e) => (e.id === id ? { ...e, station: { ...stationDraft } } : e)));
+    }
+    setPhase(prevPhaseRef.current);
+  };
   const cancelStationSetup = () => setPhase(prevPhaseRef.current);
   const useMyLocationForStation = () => {
     const live = gpsLiveRef.current;
@@ -2928,9 +2958,20 @@ function App() {
   const applySessionSnapshot = (saved) => {
     const field = buildField(saved.poly, saved.gpsAnchored, saved.swath);
     const sim = makeSim(field, saved.swath);
-    try { sim.lastPass = new Int32Array(b64ToU8(saved.lastPass).buffer); } catch (e) { /* keep fresh lastPass */ }
-    try { if (saved.passes) sim.passes = b64ToU8(saved.passes); } catch (e) { /* keep fresh passes */ }
-    try { if (saved.missed) sim.missed = b64ToU8(saved.missed); } catch (e) { /* keep fresh missed flags */ }
+    const cells = field.GW * field.GH;
+    if (saved.v === 2) {
+      try { sim.passes = rleDecode(saved.passes, cells); } catch (e) { /* keep fresh passes */ }
+      try { sim.missed = rleDecode(saved.missed, cells); } catch (e) { /* keep fresh missed flags */ }
+      // Cells sprayed before the save get the "restored" sentinel, the same
+      // one applyCoverage() uses: any stamp after the resume carries an id
+      // >= 0, so re-spraying them counts as overlap. The one cost is a
+      // sliver of overlap where the resumed lane joins the old one.
+      for (let k = 0; k < cells; k++) sim.lastPass[k] = sim.passes[k] > 0 ? -2 : -1;
+    } else {
+      try { sim.lastPass = new Int32Array(b64ToU8(saved.lastPass).buffer); } catch (e) { /* keep fresh lastPass */ }
+      try { if (saved.passes) sim.passes = b64ToU8(saved.passes); } catch (e) { /* keep fresh passes */ }
+      try { if (saved.missed) sim.missed = b64ToU8(saved.missed); } catch (e) { /* keep fresh missed flags */ }
+    }
     sim.pos = saved.simPos || sim.pos;
     sim.heading = saved.simHeading || 0;
     sim.breakpoint = saved.breakpoint || null;
@@ -2947,10 +2988,20 @@ function App() {
     initGrid(field); // reads simRef.current.lastPass — must run after the assignment above
 
     try {
-      const pixelBytes = b64ToU8(saved.pixels);
-      if (imgDataRef.current && imgDataRef.current.data.length === pixelBytes.length) {
-        imgDataRef.current.data.set(pixelBytes);
-        flushGridFull(gridCanvasRef.current, imgDataRef.current);
+      if (saved.v === 2) {
+        if (imgDataRef.current) {
+          for (let k = 0; k < cells; k++) {
+            if (sim.passes[k] > 0) paintCell(k % field.GW, Math.floor(k / field.GW), sim.passes[k]);
+            else if (sim.missed[k]) paintCell(k % field.GW, Math.floor(k / field.GW), -1);
+          }
+          flushGridFull(gridCanvasRef.current, imgDataRef.current);
+        }
+      } else {
+        const pixelBytes = b64ToU8(saved.pixels);
+        if (imgDataRef.current && imgDataRef.current.data.length === pixelBytes.length) {
+          imgDataRef.current.data.set(pixelBytes);
+          flushGridFull(gridCanvasRef.current, imgDataRef.current);
+        }
       }
     } catch (e) { /* pixel restore failed — geometry/telemetry still resume correctly */ }
 
@@ -2969,6 +3020,7 @@ function App() {
     tankAreasRef.current = Array.isArray(saved.tankAreas) ? saved.tankAreas : []; tankOpenRef.current = saved.tankOpen !== false;
     coverageBaseRef.current = saved.covBase || { sprayed: 0, overlap: 0 };
     if (saved.fieldId != null) { activeFieldIdRef.current = saved.fieldId; setActiveFieldId(saved.fieldId); }
+    missionRecordIdRef.current = saved.recordId || null; // a mission already filed once (summary closed back to paused) keeps updating its own record
     lowLiquidWarnedRef.current = false;
     restoredRef.current = true;
     // always resume into PAUSED — the operator walks back to the breakpoint
@@ -3037,10 +3089,11 @@ function App() {
      (see the effect above), so the SIM route-follower's auto-done gets it too. */
   const finishMission = () => { manualPathRef.current = null; clearAlerts(); resetOpMode(); clearActiveSession(); setPhase('done'); };
 
-  /** Snapshot the finished mission — coverage thumbnail, physical-quantity
-   *  summary, and compliance record (PPE/user/weather, Spec §5) — into the
-   *  persisted mission log, then start fresh. */
-  const saveMission = () => {
+  /** File the finished mission — coverage thumbnail, physical-quantity
+   *  summary, and compliance record (PPE/user/weather, Spec §5) — in the
+   *  persisted mission log. Called automatically on arrival at the summary;
+   *  upserts by missionRecordIdRef so the same mission is never filed twice. */
+  const recordMission = (mc) => {
     const s = simRef.current, f = fieldRef.current;
     const cbase = coverageBaseRef.current;
     const mSprayed = Math.max(0, s.sprayedCells - cbase.sprayed), mOverlap = Math.max(0, s.overlapCells - cbase.overlap);
@@ -3058,10 +3111,7 @@ function App() {
     const missedRaiNow = (missedCellsNow * CELL * CELL) / 1600;
     const overlapRaiNow = (mOverlap * CELL * CELL) / 1600;
 
-    // the checklist as it stood when the mission ended; falls back to the live
-    // one for a mission that ended before this snapshot existed (a restored
-    // session) or that had nothing to expire.
-    const mc = missionChecklistRef.current || checklist;
+    mc = mc || checklist;
 
     let thumb = null;
     try {
@@ -3072,8 +3122,9 @@ function App() {
       thumb = off.toDataURL('image/png');
     } catch (e) { /* canvas export unavailable — record is kept without a thumbnail */ }
 
+    if (!missionRecordIdRef.current) missionRecordIdRef.current = Date.now();
     const record = {
-      id: Date.now(), ts: Date.now(),
+      id: missionRecordIdRef.current, ts: Date.now(),
       areaSprayed: areaSprayedNow, rai: raiNow.rai, ngan: raiNow.ngan, wa: raiNow.wa, raiDec: raiDecNow,
       distance: s.distance, elapsed: s.elapsed, overlapRate: overlapRateNow,
       overlapRai: overlapRaiNow,
@@ -3094,16 +3145,16 @@ function App() {
       } : null,
     };
     setMissions((prev) => {
-      const next = [record, ...prev].slice(0, HISTORY_CAP);
+      const at = prev.findIndex((m) => m.id === record.id);
+      const next = at >= 0 ? prev.map((m, k) => (k === at ? record : m)) : [record, ...prev].slice(0, HISTORY_CAP);
       saveHistory(next);
       return next;
     });
-    touchFieldLastSprayed(activeFieldId); // stamp the saved field's "last sprayed" date, if this mission ran against one
-    // wind/weather already expired on entry to 'done' — this screen cannot be
-    // reached any other way, so there is nothing left to reset here.
-    missionChecklistRef.current = null;
-    resetSim(swath);
+    touchFieldLastSprayed(activeFieldIdRef.current); // stamp the saved field's "last sprayed" date
+    AgrasLog.add('SAVE', `mission filed in history (${record.raiDec.toFixed(2)} rai)`);
   };
+  /** A new mission is about to start: forget the finished one's record id and checklist snapshot. */
+  const beginNewMission = () => { missionRecordIdRef.current = null; missionChecklistRef.current = null; };
 
   /** "Touch-up Missed Spots" (Spec §4D Catch-Up Mode) — starts a NEW mission
    *  on the SAME field, but seeds the fresh sim's coverage grid with the
@@ -3147,9 +3198,9 @@ function App() {
     tankAreasRef.current = []; tankOpenRef.current = true;
     tankBaselineAreaRef.current = (fresh.sprayedCells + fresh.overlapCells) * CELL * CELL; lowLiquidWarnedRef.current = false;
     refillArmedRef.current = false; lastLatLngRef.current = null;
-    // touch-up is only reachable from the summary, which already expired
-    // wind/weather on the way in; the snapshot belonged to the finished mission
-    missionChecklistRef.current = null;
+    // touch-up is only reachable from the summary, which already filed the
+    // finished mission and expired wind/weather on the way in
+    beginNewMission();
     setPhase('running');
   };
 
@@ -3170,7 +3221,7 @@ function App() {
   };
 
   const sim = simRef.current, field = fieldRef.current;
-  __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current };
+  __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current, recordId: missionRecordIdRef.current };
   const areaSprayed = sim.sprayedCells * CELL * CELL;
   const coveragePct = Math.min(100, (areaSprayed / field.area) * 100) || 0;
   const overlapRate = sim.sprayedCells > 0 ? (sim.overlapCells / sim.sprayedCells) * 100 : 0;
@@ -3328,6 +3379,13 @@ function App() {
 
         {/* ---------- TOP SAFE ZONE ---------- */}
         <div className="flex flex-col gap-2 p-3 shrink-0" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
+
+          {restoredToast && (phase === 'paused' || phase === 'running') && (
+            <div className="pointer-events-auto rounded-xl border border-[#FFB648]/50 bg-[#1C1710]/95 px-3.5 py-2.5 flex items-center gap-2.5">
+              <History size={16} className="text-[#FFB648] shrink-0" />
+              <p className="text-[11px] leading-snug text-[#E8DCC8] min-w-0">Unfinished mission restored. Tap Resume below to keep spraying, or Finish to end it.</p>
+            </div>
+          )}
 
           {/* Emergency alerts — dedicated slot, highest z-index, always the
               first thing in the column so it can never be obscured by (or
@@ -3878,10 +3936,10 @@ function App() {
               {missedCellsCount > 0 && (
                 <DockBtn icon={Crosshair} label="TOUCH-UP MISSED SPOTS" tone="amber" big onClick={startTouchUp} />
               )}
-              <div className="grid grid-cols-2 gap-2.5">
-                <DockBtn icon={RotateCcw} label="START NEW" tone="ghost" onClick={() => resetSim(swath)} />
-                <DockBtn icon={Save} label="SAVE SESSION" tone="teal" onClick={saveMission} />
-              </div>
+              <p className="flex items-center justify-center gap-1.5 text-[10.5px] font-mono text-[#34C76F]">
+                <Check size={13} /> Saved to mission history
+              </p>
+              <DockBtn icon={RotateCcw} label="START NEW" tone="teal" onClick={() => { beginNewMission(); resetSim(swath); }} />
             </div>
           </div>
         </div>
@@ -4103,7 +4161,7 @@ function App() {
       {showSaveField && (
         <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
-            <p className="font-display text-[15px] font-bold tracking-wide">SAVE FIELD TO LIBRARY</p>
+            <p className="font-display text-[15px] font-bold tracking-wide">RENAME FIELD</p>
             <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Save this field to reuse it next time · {(fieldRef.current.area / 1600).toFixed(2)} rai</p>
             <input autoFocus value={saveFieldName} onChange={(e) => setSaveFieldName(e.target.value)}
               placeholder="e.g. Soybean Field 1"
@@ -4111,7 +4169,7 @@ function App() {
             <div className="grid grid-cols-2 gap-2.5 mt-4">
               <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={() => setShowSaveField(false)} />
               <DockBtn icon={Save} label="SAVE" tone="teal" disabled={!saveFieldName.trim()}
-                onClick={() => { saveCurrentFieldToLibrary(saveFieldName); setShowSaveField(false); }} />
+                onClick={() => { if (activeFieldIdRef.current) renameFieldInLibrary(activeFieldIdRef.current, saveFieldName); setShowSaveField(false); }} />
             </div>
           </div>
         </div>
@@ -4156,7 +4214,7 @@ function App() {
                 <DockBtn icon={Droplet} label="STATION" tone="ghost" onClick={() => { setShowFieldSetupMenu(false); startStationSetup(); }} />
               </Dock>
               <Dock>
-                <DockBtn icon={Save} label={activeFieldEntry ? 'SAVE NEW' : 'SAVE'} tone="ghost" big
+                <DockBtn icon={Pencil} label="RENAME FIELD" tone="ghost" big disabled={!activeFieldEntry}
                   onClick={() => { setShowFieldSetupMenu(false); setSaveFieldName(activeFieldEntry ? activeFieldEntry.name : ''); setShowSaveField(true); }} />
               </Dock>
             </div>
@@ -4198,15 +4256,6 @@ function App() {
                     className="min-h-[36px] px-2 rounded-md border border-[#3A464B] text-[#9AABAA]">CLEAR</button>
                 </span>
               </div>
-              <button onClick={tryResumeSession}
-                className="flex items-center justify-between gap-2 text-[10px] font-mono bg-[#0A0E10] border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
-                <span className="flex items-center gap-2 min-w-0 truncate">
-                  <RotateCcw size={13} className={(noSavedSessionFlash ? 'text-[#7C8C8C]' : 'text-[#FFB648]') + ' shrink-0'} />
-                  <span className={'truncate ' + (noSavedSessionFlash ? 'text-[#7C8C8C]' : 'text-[#9AABAA]')}>
-                    {noSavedSessionFlash ? 'No saved session found' : 'Resume saved session'}
-                  </span>
-                </span>
-              </button>
             </div>
           </div>
         </div>
@@ -4273,39 +4322,6 @@ function App() {
         </div>
       )}
 
-      {/* "Unfinished Mission Detected" — checked once at startup, before
-          anything else is touched. Sits above every other overlay (z-40). */}
-      {pendingResume && (
-        <div className="absolute inset-0 z-40 bg-[#0A0E10]/92 flex items-center justify-center p-4">
-          <div className="w-full max-w-[380px] rounded-2xl bg-[#131A1D] border border-[#2A363A] overflow-hidden">
-            <div className="px-5 pt-5 pb-3 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FFB648]/15 flex items-center justify-center shrink-0">
-                <History size={20} className="text-[#FFB648]" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-display text-[15px] font-bold tracking-wide leading-tight">UNFINISHED MISSION DETECTED</p>
-                <p className="text-[10.5px] text-[#7C8C8C] mt-0.5">Unfinished mission found · saved {fmtDate(pendingResume.ts)}</p>
-              </div>
-            </div>
-            <dl className="grid grid-cols-2 gap-px bg-[#2A363A] mt-1">
-              <div className="bg-[#131A1D] p-3">
-                <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">AREA COMPLETED</dt>
-                <dd className="font-mono tnum text-[18px] font-bold mt-1">{pendingResume.areaPct.toFixed(0)}%</dd>
-              </div>
-              <div className="bg-[#131A1D] p-3">
-                <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">TANKS USED</dt>
-                <dd className="font-mono tnum text-[18px] font-bold mt-1">{pendingResume.tanksUsed}</dd>
-              </div>
-            </dl>
-            <div className="p-4 flex flex-col gap-2.5">
-              <DockBtn icon={Play} label="RESUME SPRAYING" tone="green" big
-                onClick={() => { const raw = pendingResume.raw; setPendingResume(null); applySessionSnapshot(raw); }} />
-              <DockBtn icon={Trash2} label="DISCARD & START NEW FIELD" tone="ghost"
-                onClick={() => { clearActiveSession(); setPendingResume(null); }} />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

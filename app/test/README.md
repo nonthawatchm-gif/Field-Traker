@@ -39,10 +39,13 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | refill round trip → no missed spots | the walk to the tank hatching the map red |
 | refill confirmed twice → TANKS USED 2, no 0.00-rai tank | the phantom-tank regression (BUG 1) |
 | geofence: banner, painting halts, auto-resumes | Scenario 2 |
-| reload mid-mission: modal, PAUSED, coverage + breakpoint restored | Scenario 5 |
+| reload mid-mission: restored by itself, PAUSED, coverage + breakpoint intact | Scenario 5, automatic restore |
 | FINISH → START NEW clears Wind but keeps PPE | the wrong-event wind reset (BUG 4) |
 | the filed compliance log still records Wind as checked | the reset eating the record (BUG 5) |
 | touch-up over covered ground: overlap rai > 0, sub-line not a bare 0% | the seeded pass-id collision (BUG 7) and the zero denominator (BUG 8) |
+| closed boundary is in the library before spraying; station moves are written back | field auto-save |
+| FINISH files the mission; re-finishing updates it; the next mission gets its own | mission auto-save |
+| a 39-rai field's session saves and survives a reload | the localStorage quota blow-out |
 
 ## Writing more
 

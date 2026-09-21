@@ -20,10 +20,10 @@ installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 25 checks, ~9 min, expect 25/25
+node test/run.js                     # 33 checks, ~12 min, expect 33/33
 ```
 
-If `test/run.js` is not 25/25 on a clean checkout, something in the fixes below
+If `test/run.js` is not 33/33 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -200,6 +200,39 @@ actually been closed, since it is derived from the measured rai-per-tank.
   `tankAreasRef` and `tankBaselineAreaRef` onto the seeded grid. Before this the
   new mission's first tank and its overlap rai counted the *previous* mission's
   ground, so a touch-up run opened with a wildly inflated rai/tank figure.
+
+### Saving is fully automatic (session 3)
+
+The owner reported the save system as unusable and chose "save everything
+automatically". What was actually broken, and what replaced it:
+
+- **Resume silently failed on any real-sized field.** The session snapshot
+  stored the raw RGBA pixel grid plus the Int32 `lastPass` array as base64:
+  measured 1.05 M chars for 4 rai, 3.99 M for 16 rai, and **nothing at all for
+  39 rai** — `localStorage` tops out near 5 M chars, `saveActiveSession()`
+  swallowed the quota error, and the phone's log and history already use
+  ~0.6 M. Snapshot v2 keeps only `passes` and `missed`, run-length encoded
+  (39 rai: 17 k chars), and restore rebuilds the pixels with `paintCell()` and
+  `lastPass` with the `-2` "restored" sentinel. v1 snapshots still load. A
+  failed autosave now writes an `ERR` line to the test log instead of vanishing.
+- **Restore is automatic.** The "Unfinished mission detected" modal and the
+  Tools menu "Resume saved session" row are gone; an unfinished mission comes
+  back on launch, PAUSED, with a notice. The "reopen last field" startup effect
+  is skipped when that happens (`resumedAtStartRef`), or it would reset the sim.
+  The notice is plain text on purpose — an earlier version bolded RESUME as its
+  own element and a text match hit it instead of the dock button.
+- **Fields save the moment the boundary closes** (`closeBoundary()`), named
+  `แปลง DD/MM HH:MM`. Before, a plotted field stayed unsaved until SAVE or START
+  SPRAYING, so closing the app lost the walk. Field setup's SAVE / SAVE NEW
+  (which made duplicates) is now RENAME FIELD.
+- **Station, spray width and tank size are written back to the active field.**
+  Moving a saved field's station used to last only until it was reloaded.
+- **Missions file themselves in history on arrival at the summary**
+  (`recordMission()` from the `phase === 'done'` effect). SAVE SESSION is gone;
+  START NEW no longer silently throws the mission away. `missionRecordIdRef`
+  (also carried in the session snapshot) makes the record an upsert, so closing
+  the summary back to PAUSED and finishing again updates one record.
+  `beginNewMission()` clears it at START SPRAYING, START NEW and TOUCH-UP.
 
 ## Verified on the phone, and what wasn't
 
