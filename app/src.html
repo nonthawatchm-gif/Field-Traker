@@ -2983,6 +2983,42 @@ function App() {
     setPhase(prevPhaseRef.current);
   };
   const cancelStationSetup = () => setPhase(prevPhaseRef.current);
+
+  /** Android back button / back gesture. Closes whatever is on top, one layer
+   *  per press; with nothing left to close it sends the app to the background
+   *  (never exits), so a mission keeps tracking and the screen comes back as it
+   *  was. Rebuilt every render so it always sees current state; the native
+   *  listener below just calls whatever this is. */
+  const backHandlerRef = useRef(null);
+  backHandlerRef.current = () => {
+    if (showFinishChoice) { setShowFinishChoice(false); return 'finish-choice'; }
+    if (phase === 'done') { goHomeFromSummary(); return 'summary'; }
+    if (showSaveField) { setShowSaveField(false); return 'rename'; }
+    if (confirmDeleteFieldId != null || confirmResetCovId != null || confirmResetAll) {
+      setConfirmDeleteFieldId(null); setConfirmResetCovId(null); setConfirmResetAll(false); return 'confirm';
+    }
+    if (renamingFieldId != null) { setRenamingFieldId(null); return 'inline-rename'; }
+    if (showHistory) { if (selectedMissionId != null) setSelectedMissionId(null); else setShowHistory(false); return 'history'; }
+    if (showFieldLibrary) { setShowFieldLibrary(false); return 'library'; }
+    if (showOfflineMap) { setShowOfflineMap(false); return 'offline-map'; }
+    if (showSpraySettings) { setShowSpraySettings(false); return 'spray-settings'; }
+    if (showFieldSetupMenu) { setShowFieldSetupMenu(false); return 'field-setup'; }
+    if (showToolsMenu) { setShowToolsMenu(false); return 'tools'; }
+    if (phase === 'station') { cancelStationSetup(); return 'station'; }
+    if (phase === 'boundary' && (fieldRef.current.gpsAnchored || srcMode === 'sim')) { cancelPlotting(); return 'plotting'; }
+    const A = nativePlugin('App');
+    if (A && A.minimizeApp) Promise.resolve(A.minimizeApp()).catch(() => {});
+    return 'minimize';
+  };
+  useEffect(() => {
+    window.__agrasBack = () => backHandlerRef.current(); // lets the browser test harness press "back"
+    const A = nativePlugin('App');
+    if (!A || !A.addListener) return;
+    // registering any backButton listener switches off Capacitor's default
+    // (which navigates the WebView history and then closes the activity)
+    const h = A.addListener('backButton', () => { AgrasLog.add('BACK', String(backHandlerRef.current())); });
+    return () => { Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {}); };
+  }, []);
   const useMyLocationForStation = () => {
     const live = gpsLiveRef.current;
     if (live.lat == null) return;

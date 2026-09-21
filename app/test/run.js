@@ -452,10 +452,30 @@ async function notRecordingAlert() {
   }
 }
 
+/* 15. The phone's back button closes one layer at a time and never exits. */
+const back = (page) => page.evaluate(() => window.__agrasBack && window.__agrasBack());
+async function backButton() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await tap(page, 'Field setup');
+  check('back closes the Field setup menu', (await back(page)) === 'field-setup' && !/FIELD SETUP/.test(await txt(page)));
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 30], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await tap(page, 'FINISH', { wait: 700 });
+  check('back cancels the FINISH choice, back to PAUSED', (await back(page)) === 'finish-choice' && /PAUSED/.test(await txt(page)) && !/FINISH · ROUND/.test(await txt(page)));
+  await finishAs(page, false);
+  check('back on the summary goes to the home screen', (await back(page)) === 'summary' && /START SPRAYING/.test(await txt(page)) && !/MISSION SUMMARY/.test(await txt(page)));
+  check('back with nothing open minimizes instead of exiting', (await back(page)) === 'minimize');
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
