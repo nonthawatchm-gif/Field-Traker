@@ -145,7 +145,6 @@ const Star         = (p) => <Svg {...p}><polygon points="12 2 15.09 8.26 22 9.27
 const Check        = (p) => <Svg {...p}><polyline points="20 6 9 17 4 12"/></Svg>;
 const Plus         = (p) => <Svg {...p}><path d="M12 5v14M5 12h14"/></Svg>;
 const OverviewIcon = (p) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></Svg>;
-const TiltIcon     = (p) => <Svg {...p}><path d="M3 19 8 8h8l5 11z"/><path d="M9 13h6"/></Svg>;
 const Lock         = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
 const CloudOff     = (p) => <Svg {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5 2 2"/><path d="m2 2 20 20"/><path d="M4.51 9.51A5 5 0 0 0 6 19h12"/></Svg>;
 const Wifi         = (p) => <Svg {...p}><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M8.5 16.35a6 6 0 0 1 7 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></Svg>;
@@ -154,9 +153,6 @@ const ZoomOut      = (p) => <Svg {...p}><circle cx="11" cy="11" r="8"/><line x1=
 const Compass      = (p) => <Svg {...p}><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor"/></Svg>;
 const ChevronDown  = (p) => <Svg {...p}><path d="m6 9 6 6 6-6"/></Svg>;
 const Move         = (p) => <Svg {...p}><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></Svg>;
-// Google-Maps-style "head this way" glyph — a chevron with a dashed tail,
-// used only by the opt-in Navigation-Style HUD's top direction banner.
-const NavArrowUp   = (p) => <Svg {...p}><path d="M6 11 12 4l6 7"/><path d="M12 20V10" strokeDasharray="1.2 3.4"/></Svg>;
 const Wind         = (p) => <Svg {...p}><path d="M12.8 19.2A2 2 0 1 0 14 16H2"/><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2"/><path d="M9.8 4.4A2 2 0 1 1 11 8H2"/></Svg>;
 const CloudRain     = (p) => <Svg {...p}><path d="M16 13v8"/><path d="M8 13v8"/><path d="M12 15v8"/><path d="M20 16.6A5 5 0 0 0 18 7h-1.3A8 8 0 1 0 4 15.5"/></Svg>;
 
@@ -194,19 +190,6 @@ const SAMPLE_STATION = { x: 109.5, y: 35.8 };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const bearingTo = (a, b) => Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI;
-// ---- Google-Maps-style navigation HUD helpers (opt-in "Navigation-Style
-// HUD" setting) — an 8-point compass word for the top direction banner, and
-// the remaining route length (current position -> current waypoint -> every
-// remaining leg) for the bottom ETA bar's distance/time figures. ----
-const COMPASS_WORDS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
-const compassWord = (deg) => COMPASS_WORDS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
-function routeRemainingDistance(sim) {
-  if (!sim.route || sim.route.length === 0) return 0;
-  const wp = Math.min(sim.wp, sim.route.length - 1);
-  let d = dist(sim.pos, sim.route[wp]);
-  for (let i = wp; i < sim.route.length - 1; i++) d += dist(sim.route[i], sim.route[i + 1]);
-  return d;
-}
 const fmtTime = (s) => {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
@@ -1597,8 +1580,8 @@ function App() {
   const [camMode, setCamModeState] = useState('follow');   // spraying camera: 'follow' (heading-up, chase view) | 'fit' (whole field) | 'free' (user panned)
   const camModeRef = useRef('follow');
   const setCamMode = (m) => { camModeRef.current = m; setCamModeState(m); if (m !== 'free') lastSigRef.current = ''; };
-  const [tiltOn, setTiltOn] = useState(true);
   const [showStats, setShowStats] = useState(false);
+  const [devPanelOpen, setDevPanelOpen] = useState(false); // dev/SIM controls stay folded away unless opened
   const navHeadingRef = useRef(null);
   const navScaleRef = useRef(0);          // px per metre in follow mode (0 = auto)
   const gestureRef = useRef(null);
@@ -1627,10 +1610,6 @@ function App() {
   const [gpsInfo, setGpsInfo] = useState(null);       // { lat, lng, accuracy }
   const [gpsRetryTick, setGpsRetryTick] = useState(0); // bumped to re-run GPS acquisition without a full mode toggle
   const [swath, setSwath] = useState(() => { const s = loadLastSettings(); return s && s.swath ? s.swath : 2.5; });
-  const [navHud, setNavHud] = useState(() => {
-    try { if (!localStorage.getItem('agras_navhud_v2')) { localStorage.setItem('agras_navhud_v2', '1'); return true; } } catch (e) { /* ignore */ }
-    const s = loadLastSettings(); return s && s.navHud !== undefined ? !!s.navHud : true;
-  }); // opt-in Google-Maps-style direction banner + ETA bar while running
   const [mult, setMult] = useState(20);
   const [autoWalk, setAutoWalk] = useState(true);
   const [draft, setDraft] = useState([]);
@@ -2075,8 +2054,8 @@ function App() {
    *  change, so the NEXT app open (the effect above) has something to
    *  restore. */
   useEffect(() => {
-    saveLastSettings({ tankCapacity, rateLRai, swath, activeFieldId, navHud });
-  }, [tankCapacity, rateLRai, swath, activeFieldId, navHud]);
+    saveLastSettings({ tankCapacity, rateLRai, swath, activeFieldId });
+  }, [tankCapacity, rateLRai, swath, activeFieldId]);
 
   /** Auto-save every 5 seconds while a mission is live (running or paused) —
    *  on top of the key-event saves at tank-empty, out-of-bounds, and
@@ -3237,30 +3216,6 @@ function App() {
   const gpsColor = gpsQuality === 'STRONG' ? '#34C76F' : gpsQuality === 'FAIR' ? '#FFB648' : '#FF5252';
   const gpsColorClass = gpsQuality === 'STRONG' ? 'text-[#34C76F]' : gpsQuality === 'FAIR' ? 'text-[#FFB648]' : 'text-[#FF5252]';
 
-  // ---- Navigation-Style HUD (opt-in) ----------------------------------
-  // Direction banner target follows whatever the operator is actually
-  // walking toward right now — the next route waypoint while spraying, the
-  // station while heading in to refill, the breakpoint while walking back
-  // out — same targets the nav-line on the map already points at.
-  const navTarget =
-    opMode === 'toStation' ? stationRef.current :
-    opMode === 'toBreakpoint' ? (sim.breakpoint || sim.pos) :
-    opMode === 'refilling' ? null :
-    (sim.route && sim.route[Math.min(sim.wp, sim.route.length - 1)]) || sim.pos;
-  const navBearingDeg = navTarget ? bearingTo(sim.pos, navTarget) : 0;
-  const navDirWord = navTarget ? compassWord(navBearingDeg) : null;
-  // Distance/ETA use the remaining route length while spraying (the
-  // boustrophedon passes still to walk), or straight-line distance while
-  // running an errand to/from the station — whichever matches navTarget.
-  const navDistanceM = opMode === 'spray' ? routeRemainingDistance(sim) : (navTarget ? dist(sim.pos, navTarget) : 0);
-  const navEffSpeedMs = liveSpeedMs > 0.15 ? liveSpeedMs : (sim.elapsed > 5 ? sim.distance / sim.elapsed : 0);
-  const navEtaSec = navEffSpeedMs > 0 ? navDistanceM / navEffSpeedMs : null;
-  const navEtaLabel = navEtaSec == null ? '—' : navEtaSec < 60 ? '<1 min' : `${Math.round(navEtaSec / 60)} min`;
-  const navDistLabel = navDistanceM >= 1000 ? `${(navDistanceM / 1000).toFixed(1)} km` : `${Math.round(navDistanceM)} m`;
-  const navArrivalLabel = navEtaSec == null ? '--:--' : (() => {
-    const d = new Date(Date.now() + navEtaSec * 1000);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  })();
 
   // ---- Tank & Liquid Volume Tracker -----------------------------------
   // Tank tracking is manual: the operator taps TANK EMPTY, the app records the area each tank covered.
@@ -3338,14 +3293,10 @@ function App() {
             understands wins — a plain inline style object can't hold both, so
             this is a real <style> rule instead. */}
         <style>{'.agras-map-canvas{image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges;}'}</style>
-        <canvas ref={canvasRef} className="absolute inset-0 touch-none agras-map-canvas"
-          style={(phase === 'running' || phase === 'paused') && camMode === 'follow' && tiltOn ? { transform: 'perspective(900px) rotateX(40deg) scale(1.55)', transformOrigin: '50% 80%' } : undefined} />
-        {(phase === 'running' || phase === 'paused') && camMode === 'follow' && tiltOn && (
-          <div className="absolute inset-x-0 top-0 h-[22%] pointer-events-none" style={{ background: 'linear-gradient(#0A0E10, rgba(10,14,16,0))' }} />
-        )}
+        <canvas ref={canvasRef} className="absolute inset-0 touch-none agras-map-canvas" />
         {(() => {
           const v = viewRef.current, dpr = Math.min(2, window.devicePixelRatio || 1), fr = freeRectRef.current;
-          if (!v || !(v.s > 0) || phase === 'done' || (camMode === 'follow' && tiltOn && (phase === 'running' || phase === 'paused'))) return null;
+          if (!v || !(v.s > 0) || phase === 'done') return null;
           const mPerPx = dpr / v.s, nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
           let L = nice[0]; for (const n of nice) if (n / mPerPx <= 110) L = n;
           const w = L / mPerPx;
@@ -3377,28 +3328,6 @@ function App() {
 
         {/* ---------- TOP SAFE ZONE ---------- */}
         <div className="flex flex-col gap-2 p-3 shrink-0" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
-
-          {/* Navigation-Style HUD (opt-in, Spray Settings) — a Google
-              Maps-style direction banner naming which way the operator is
-              currently walking (next swath leg / to the station / back to
-              the breakpoint). Suppressed during an active OOB alert or the
-              resume flash — those already carry their own directional
-              guidance and take priority. */}
-          {navHud && running && !oob && !resumeFlash && (
-            <div className="pointer-events-auto rounded-2xl bg-[#0B4A44] text-white px-4 py-3.5 flex items-center gap-3 shadow-[0_8px_24px_rgba(11,74,68,.5)]">
-              {opMode === 'refilling' ? (
-                <>
-                  <Fuel size={24} strokeWidth={2.4} className="shrink-0" />
-                  <p className="font-display font-extrabold text-lg tracking-wide truncate">Refilling at station</p>
-                </>
-              ) : (
-                <>
-                  <NavArrowUp size={26} strokeWidth={2.6} className="shrink-0" style={{ transform: `rotate(${navBearingDeg}deg)` }} />
-                  <p className="font-display font-extrabold text-lg tracking-wide truncate">Head {navDirWord}</p>
-                </>
-              )}
-            </div>
-          )}
 
           {/* Emergency alerts — dedicated slot, highest z-index, always the
               first thing in the column so it can never be obscured by (or
@@ -3439,8 +3368,14 @@ function App() {
             </Glass>
 
             <Glass data-hud className="pointer-events-auto px-2.5 py-2 flex flex-col gap-1.5 w-[176px] shrink-0 overflow-hidden">
-              {devMode && <Toggle2 value={srcMode} onChange={setSrcMode} options={[{ v: 'sim', label: 'SIM' }, { v: 'gps', label: 'GPS' }]} />}
-{devMode && srcMode === 'sim' && (
+              {devMode && (
+                <button onClick={() => setDevPanelOpen((v) => !v)} className="flex items-center justify-between w-full text-[9px] font-mono tracking-[.14em] text-[#5C6C6C]">
+                  <span>DEV{srcMode === 'sim' ? ' · SIM' : ''}</span>
+                  <ChevronDown size={11} className={'transition-transform ' + (devPanelOpen ? 'rotate-180' : '')} />
+                </button>
+              )}
+              {devMode && devPanelOpen && <Toggle2 value={srcMode} onChange={setSrcMode} options={[{ v: 'sim', label: 'SIM' }, { v: 'gps', label: 'GPS' }]} />}
+{devMode && devPanelOpen && srcMode === 'sim' && (
                 <>
                   <div className="flex items-center justify-between gap-2">
                     <Switch on={autoWalk} onChange={setAutoWalk} label="AUTO-WALK" />
@@ -3475,7 +3410,7 @@ function App() {
                   "Field setup" menu below (less clutter up here) — kept as a
                   quick one-tap action only while a mission is actually live,
                   where reaching for a menu mid-spray would be annoying. */}
-              {(phase === 'running' || phase === 'paused') && (
+              {(!devMode || devPanelOpen) && (phase === 'running' || phase === 'paused') && (
                 <button onClick={startStationSetup} className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#2EE6C7] border border-[#2A363A] rounded py-1">
                   <Droplet size={11} /> SET STATION
                 </button>
@@ -3573,7 +3508,7 @@ function App() {
           {/* Spec §4C "Dim all numbers" while Auto-Paused out-of-bounds. */}
           <div className={'flex flex-col gap-2 pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
-              <div className="flex flex-col gap-2" style={navHud && running && !showStats ? { display: 'none' } : undefined}>
+              <div className="flex flex-col gap-2" style={running && !showStats ? { display: 'none' } : undefined}>
                 <Tile icon={TimerIcon} label="Time" value={fmtTime(sim.elapsed)} />
                 <Tile icon={Footprints} label="Distance" value={sim.distance.toFixed(0)} unit="m" />
                 <PaceTile kmh={liveSpeedKmh} label={paceLabel} color={paceColor} />
@@ -3582,7 +3517,7 @@ function App() {
           </div>
           <div className={'flex flex-col gap-2 items-end pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
-              <div className="flex flex-col gap-2 items-end" style={navHud && running && !showStats ? { display: 'none' } : undefined}>
+              <div className="flex flex-col gap-2 items-end" style={running && !showStats ? { display: 'none' } : undefined}>
                 <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} />
                 <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#34C76F]" />
                 <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#FFB648]' : undefined} />
@@ -3617,7 +3552,6 @@ function App() {
                   <>
                     <MapCtrlBtn icon={LocateFixed} active={camMode === 'follow'} onClick={() => { navHeadingRef.current = null; setCamMode('follow'); }} title="Re-center on me" />
                     <MapCtrlBtn icon={OverviewIcon} active={camMode === 'fit'} onClick={() => setCamMode('fit')} title="Whole field" />
-                    <MapCtrlBtn icon={TiltIcon} active={tiltOn} onClick={() => setTiltOn((v) => !v)} title="3D tilt" />
                     <MapCtrlBtn icon={Gauge} active={showStats} onClick={() => setShowStats((v) => !v)} title="Show stats" />
                   </>
                 )}
@@ -3693,22 +3627,6 @@ function App() {
           </div>
         )}
 
-        {/* ---------- NAVIGATION-STYLE HUD — ETA bar (opt-in) ----------
-            Google Maps' bottom card, restyled for coverage spraying: time
-            + distance remaining on the current leg (route while spraying,
-            straight-line while running to/from the station), and the clock
-            time spraying would finish at this pace. Sits right above the
-            dock, its own row so it never overlaps the Save & Pause/Finish
-            buttons below it. */}
-        {navHud && (running || phase === 'paused') && (
-          <div className="shrink-0 pointer-events-auto px-3 pb-2">
-            <div className="rounded-2xl bg-[#F4F7F6] text-[#0A0E10] px-4 pt-2 pb-3 shadow-[0_8px_24px_rgba(0,0,0,.35)]">
-              <div className="w-9 h-1 rounded-full bg-[#C7D0CE] mx-auto mb-2" />
-              <p className="text-center font-display text-2xl font-extrabold tracking-tight">{navEtaLabel}</p>
-              <p className="text-center text-[12px] text-[#5C6C6C] mt-0.5 font-mono">{navDistLabel} · ETA {navArrivalLabel}</p>
-            </div>
-          </div>
-        )}
 
         {/* ---------- BOTTOM DOCK — fixed safe-area strip, always last ----------
             Not flex-1, so it always renders at its natural height and is
@@ -4215,13 +4133,6 @@ function App() {
               <Stepper label="Tank" value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
               <Stepper label="Width" value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
             </Glass>
-            <div className="flex items-center justify-between px-1 mt-3 pt-3 border-t border-[#2A363A]">
-              <div className="min-w-0 pr-2">
-                <span className="text-[10px] tracking-[.12em] uppercase font-mono text-[#7C8C8C]">Navigation-style HUD</span>
-                <p className="text-[9.5px] text-[#5C6C6C] mt-0.5 leading-snug">Google Maps–style direction banner + ETA bar while spraying</p>
-              </div>
-              <Switch on={navHud} onChange={setNavHud} label="" />
-            </div>
             <div className="mt-4 flex justify-center">
               <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
             </div>
