@@ -20,11 +20,11 @@ save-system commit — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 60 checks, ~18 min, expect 60/60
+node test/run.js                     # 68 checks, ~20 min, expect 68/68
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 60/60 on a clean checkout, something in the fixes below
+If `test/run.js` is not 68/68 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -298,6 +298,21 @@ filed rounds kept, no station step — and drops only the open round's `cov`,
 since its cells were laid out on the old boundary (`editingFieldIdRef`).
 Every design round was shown to the owner as phone-sized screenshots (their
 real field's coordinates, tiles allowed) before anything was built.
+
+### Spray report (session 3)
+
+Per field, per round: chemicals (name + rate + unit per tank), start and
+finish date/time, area, and the weather at the start of every session
+(wind, gust, rain, temperature, humidity — the last two added to the
+Open-Meteo call — plus operator and note from the checklist). Chemicals are
+asked on the first START of a round (`chemSheet`, skippable, pre-filled from
+`agras-tracker-chemicals` memory) and live on the field as `roundMeta` until
+FIELD DONE moves them, with `startedTs`, into `entry.rounds[]`. Session
+records gain `fieldId`, `startedTs`, `weatherStart`, `chemicals`. The report
+opens from REPORT on each library card and shares as Thai text
+(`fieldReportText`, Buddhist-era dates). Records from before this have no
+chemicals and an estimated start. Tests skip the chemicals sheet through
+`startSpray()`.
 
 Found while testing it: **every field-library write must go through
 `updateLibrary()`**. Three writers (rename, delete, the "last sprayed" stamp)

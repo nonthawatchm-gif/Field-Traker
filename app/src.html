@@ -651,7 +651,7 @@ async function fetchSprayWeather(lat, lon) {
   if (cached) return cached;
   const url = 'https://api.open-meteo.com/v1/forecast'
     + `?latitude=${lat}&longitude=${lon}`
-    + '&current=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation'
+    + '&current=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,temperature_2m,relative_humidity_2m'
     + '&hourly=precipitation_probability,precipitation'
     + '&wind_speed_unit=kmh&precipitation_unit=mm&timezone=Asia%2FBangkok&forecast_days=1';
   const res = await fetch(url);
@@ -680,8 +680,10 @@ function evaluateSprayConditions(json) {
   const gustKmh = typeof cur.wind_gusts_10m === 'number' ? cur.wind_gusts_10m : null;
   const windDir = typeof cur.wind_direction_10m === 'number' ? cur.wind_direction_10m : null;
   const rainNowMm = typeof cur.precipitation === 'number' ? cur.precipitation : null;
+  const tempC = typeof cur.temperature_2m === 'number' ? cur.temperature_2m : null;
+  const humidity = typeof cur.relative_humidity_2m === 'number' ? cur.relative_humidity_2m : null;
   return {
-    windKmh, gustKmh, windDir, rainNowMm, rainSoonProb,
+    windKmh, gustKmh, windDir, rainNowMm, rainSoonProb, tempC, humidity,
     windWarning: windKmh != null && windKmh > SPRAY_WEATHER_WIND_WARN_KMH,
     rainNowWarning: rainNowMm != null && rainNowMm > 0,
     rainSoonWarning: rainSoonProb != null && rainSoonProb >= SPRAY_WEATHER_RAIN_PROB_WARN,
@@ -736,8 +738,78 @@ function rleDecode(b64, len) {
   for (let i = 0; i + 1 < a.length && p < len; i += 2) { out.fill(a[i], p, p + a[i + 1]); p += a[i + 1]; }
   return out;
 }
+/* ---- spray report (per field, per round) ----
+ * Chemicals are entered once per round, the first time START SPRAYING is
+ * tapped in it, and live on the field entry as roundMeta until the round is
+ * closed, when they move into entry.rounds[] with its start/finish times.
+ * Each spraying session's own record (mission history) carries its start
+ * time and the weather read at the start, so the report can list them. */
+const CHEMICALS_KEY = 'agras-tracker-chemicals';
+const CHEM_UNITS = ['cc', 'ml', 'g', 'L', 'kg'];
+function loadChemicalMemory() { try { const a = JSON.parse(localStorage.getItem(CHEMICALS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+function rememberChemicals(list) {
+  try {
+    const seen = new Set(), out = [];
+    [...list, ...loadChemicalMemory()].forEach((c) => { const k = (c.name || '').trim(); if (k && !seen.has(k)) { seen.add(k); out.push({ name: k, rate: c.rate || '', unit: c.unit || 'cc' }); } });
+    localStorage.setItem(CHEMICALS_KEY, JSON.stringify(out.slice(0, 30)));
+  } catch (e) { /* best-effort */ }
+}
+const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const thDate = (ts) => { if (!ts) return '—'; const d = new Date(ts); return `${d.getDate()} ${TH_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`; };
+const thTime = (ts) => { if (!ts) return '—'; const d = new Date(ts); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`; };
+const thDateTime = (ts) => (ts ? `${thDate(ts)} ${thTime(ts)}` : '—');
+const chemLine = (c) => `${c.name}${c.rate ? ` · ${c.rate} ${c.unit || ''}/ถัง` : ''}`;
+function weatherLine(w, note) {
+  const parts = [];
+  if (w) {
+    if (w.windKmh != null) parts.push(`ลม ${Math.round(w.windKmh)} กม./ชม.${w.gustKmh != null && w.gustKmh > (w.windKmh || 0) + 5 ? ` (กระโชก ${Math.round(w.gustKmh)})` : ''}`);
+    if (w.rainNowMm) parts.push('ฝนตก');
+    else if (w.rainSoonProb != null) parts.push(`โอกาสฝน ${Math.round(w.rainSoonProb)}%`);
+    if (w.tempC != null) parts.push(`${Math.round(w.tempC)}°C`);
+    if (w.humidity != null) parts.push(`ความชื้น ${Math.round(w.humidity)}%`);
+  }
+  if (note) parts.push(`หมายเหตุ: ${note}`);
+  return parts.length ? parts.join(' · ') : 'ไม่มีข้อมูล';
+}
+/** Rounds of one field for the report, newest first, each with its sessions. */
+function buildFieldReport(field, missions) {
+  const mine = missions.filter((m) => (m.fieldId != null ? m.fieldId === field.id : m.fieldName === field.name) && m.round);
+  const sessionsOf = (n) => mine.filter((m) => m.round === n).map((m) => ({
+    start: m.startedTs || (m.ts - (m.elapsed || 0) * 1000), end: m.ts, rai: m.raiDec,
+    weather: m.weatherStart || m.weatherApi || null, note: m.weather || '', operator: m.operator || '',
+  })).sort((a, b) => a.start - b.start);
+  const rounds = (field.rounds || []).map((r) => {
+    const ss = sessionsOf(r.n);
+    return { n: r.n, done: true, start: r.startedTs || (ss[0] && ss[0].start) || null, end: r.finishedTs, rai: r.rai, chemicals: r.chemicals || null, sessions: ss };
+  });
+  const openN = field.round || 1, openSs = sessionsOf(openN), meta = field.roundMeta || {};
+  if (meta.startedTs || openSs.length || (meta.chemicals && meta.chemicals.length)) {
+    rounds.push({ n: openN, done: false, start: meta.startedTs || (openSs[0] && openSs[0].start) || null, end: null,
+      rai: field.cov ? (field.cov.sprayedCells * CELL * CELL) / 1600 : 0, chemicals: meta.chemicals || null, sessions: openSs });
+  }
+  return rounds.reverse();
+}
+function fieldReportText(field, rounds) {
+  const L = [`รายงานการฉีดพ่น · ${field.name}`, `พื้นที่แปลง ${(field.areaRai || 0).toFixed(2)} ไร่`, ''];
+  if (!rounds.length) L.push('ยังไม่มีการฉีดพ่น');
+  rounds.forEach((r) => {
+    L.push(`ครั้งที่ ${r.n} — ${r.done ? 'พ่นเสร็จแล้ว' : 'ยังไม่เสร็จ'}`);
+    L.push(`เริ่มพ่น: ${thDateTime(r.start)}`);
+    L.push(`พ่นเสร็จ: ${r.done ? thDateTime(r.end) : '—'}`);
+    L.push(`พื้นที่ที่พ่น: ${(r.rai || 0).toFixed(2)} ไร่`);
+    L.push(`สารที่ใช้: ${r.chemicals && r.chemicals.length ? '' : 'ไม่ได้ระบุ'}`);
+    (r.chemicals || []).forEach((c) => L.push(`  • ${chemLine(c)}`));
+    if (r.sessions.length) {
+      L.push('สภาพอากาศแต่ละรอบ:');
+      r.sessions.forEach((x) => L.push(`  • ${thDate(x.start)} ${thTime(x.start)}–${thTime(x.end)}${x.operator ? ` (${x.operator})` : ''}: ${weatherLine(x.weather, x.note)}`));
+    }
+    L.push('');
+  });
+  return L.join('\n').trim();
+}
+
 /** Extra state stamped into every autosaved session (kept current by the App each render). */
-let __sessionExtras = { fieldId: null, covBase: { sprayed: 0, overlap: 0 }, tankAreas: [], tankOpen: true, recordId: null };
+let __sessionExtras = { fieldId: null, covBase: { sprayed: 0, overlap: 0 }, tankAreas: [], tankOpen: true, recordId: null, startTs: null, weatherStart: null };
 
 /** Build the persisted-session record from live refs/state. Pure function —
  *  no localStorage I/O here — so it's easy to reason about and to reuse for
@@ -761,7 +833,7 @@ function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankC
     breakpoint: sim.breakpoint, wp: sim.wp,
     simPos: sim.pos, simHeading: sim.heading,
     fieldId: __sessionExtras.fieldId, covBase: __sessionExtras.covBase, tankAreas: __sessionExtras.tankAreas, tankOpen: __sessionExtras.tankOpen,
-    recordId: __sessionExtras.recordId,
+    recordId: __sessionExtras.recordId, startTs: __sessionExtras.startTs, weatherStart: __sessionExtras.weatherStart,
     distance: sim.distance, elapsed: sim.elapsed,
     sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, epoch: sim.epoch,
     cells: sim.passes.length,
@@ -1706,6 +1778,12 @@ function App() {
   const [satelliteOn, setSatelliteOn] = useState(true);    // Esri World Imagery underlay — on by default; only actually renders once a real-world geo-reference (GPS fix or a saved field's stored origin) is available
   const [followMe, setFollowMe] = useState(false);          // true: pan auto-centers on the operator; false: free pan
   const [gpsCardOpen, setGpsCardOpen] = useState(false);   // expandable raw-telemetry card
+  const [chemSheet, setChemSheet] = useState(null);        // null | 'start' (first START of a round) | 'edit'
+  const [chemDraft, setChemDraft] = useState([]);          // [{ name, rate, unit }] being edited
+  const [reportFieldId, setReportFieldId] = useState(null); // field whose spray report is open
+  const [reportMsg, setReportMsg] = useState('');
+  const missionStartTsRef = useRef(null);  // when this spraying session started
+  const weatherStartRef = useRef(null);    // weather read when it started
   const [showFinishChoice, setShowFinishChoice] = useState(false); // FINISH asks: whole field done (close the round) or continue later
   const finishKindRef = useRef('complete');   // how the mission now ending was finished; the SIM route-follower's auto-done counts as complete
   const [finishInfo, setFinishInfo] = useState(null); // { round, complete } for the summary screen
@@ -2207,7 +2285,10 @@ function App() {
       updateLibrary((list) => list.map((f) => {
         if (f.id !== id) return f;
         const { cov, stats, ...rest } = f;
-        return { ...rest, round: round + 1, lastSprayedTs: Date.now(), rounds: [...(f.rounds || []), { n: round, finishedTs: Date.now(), rai }] };
+        const { roundMeta, ...keep } = rest;
+        const meta = roundMeta || {};
+        return { ...keep, round: round + 1, lastSprayedTs: Date.now(),
+          rounds: [...(f.rounds || []), { n: round, startedTs: meta.startedTs || null, finishedTs: Date.now(), rai, chemicals: meta.chemicals || [] }] };
       }));
       AgrasLog.add('ROUND', `field ${id} round ${round} closed at ${rai.toFixed(2)} rai; next is round ${round + 1}`);
     } else if (entry) {
@@ -2956,8 +3037,35 @@ function App() {
    *  the built-in sample field. */
   const startSpraying = () => {
     if (!activeFieldIdRef.current) saveCurrentFieldToLibrary(autoFieldName());
+    const e = fieldLibraryRef.current.find((f) => f.id === activeFieldIdRef.current);
+    // first START of a round: ask what is being sprayed (skippable, editable later)
+    if (e && !(e.roundMeta && e.roundMeta.chemicalsAsked)) {
+      const last = loadChemicalMemory();
+      setChemDraft(last.length ? [{ ...last[0] }] : [{ name: '', rate: '', unit: 'cc' }]);
+      setChemSheet('start');
+      return;
+    }
+    reallyStartSpraying();
+  };
+  const reallyStartSpraying = () => {
     beginNewMission();
+    missionStartTsRef.current = Date.now();
+    weatherStartRef.current = sprayWeather ? {
+      windKmh: sprayWeather.windKmh, gustKmh: sprayWeather.gustKmh, rainNowMm: sprayWeather.rainNowMm,
+      rainSoonProb: sprayWeather.rainSoonProb, tempC: sprayWeather.tempC, humidity: sprayWeather.humidity, fetchedAt: sprayWeather.fetchedAt,
+    } : null;
+    const id = activeFieldIdRef.current;
+    if (id) updateLibrary((list) => list.map((f) => (f.id === id && !(f.roundMeta && f.roundMeta.startedTs)
+      ? { ...f, roundMeta: { ...(f.roundMeta || {}), startedTs: Date.now() } } : f)));
     setPhase('running');
+  };
+  /** Save the chemicals sheet onto the active field's open round. */
+  const saveChemicals = (rows) => {
+    const clean = rows.map((c) => ({ name: (c.name || '').trim(), rate: String(c.rate || '').trim(), unit: c.unit || 'cc' })).filter((c) => c.name);
+    const id = activeFieldIdRef.current;
+    if (id) updateLibrary((list) => list.map((f) => (f.id === id ? { ...f, roundMeta: { ...(f.roundMeta || {}), chemicals: clean, chemicalsAsked: true } } : f)));
+    if (clean.length) rememberChemicals(clean);
+    AgrasLog.add('CHEM', clean.length ? clean.map(chemLine).join('; ') : 'none entered');
   };
   const resetFieldCoverage = (id) => {
     updateLibrary((list) => list.map((e) => { if (e.id !== id) return e; const { cov, stats, ...rest } = e; return { ...rest, lastSprayedTs: null }; }));
@@ -3041,6 +3149,8 @@ function App() {
   const backHandlerRef = useRef(null);
   backHandlerRef.current = () => {
     if (showFinishChoice) { setShowFinishChoice(false); return 'finish-choice'; }
+    if (chemSheet) { setChemSheet(null); return 'chemicals'; }
+    if (reportFieldId != null) { setReportFieldId(null); return 'report'; }
     if (phase === 'done') { goHomeFromSummary(); return 'summary'; }
     if (showSaveField) { setShowSaveField(false); return 'rename'; }
     if (confirmDeleteFieldId != null || confirmResetCovId != null || confirmResetAll) {
@@ -3167,6 +3277,7 @@ function App() {
     coverageBaseRef.current = saved.covBase || { sprayed: 0, overlap: 0 };
     if (saved.fieldId != null) { activeFieldIdRef.current = saved.fieldId; setActiveFieldId(saved.fieldId); }
     missionRecordIdRef.current = saved.recordId || null; // a mission already filed once (summary closed back to paused) keeps updating its own record
+    missionStartTsRef.current = saved.startTs || null; weatherStartRef.current = saved.weatherStart || null;
     lowLiquidWarnedRef.current = false;
     restoredRef.current = true;
     // always resume into PAUSED — the operator explicitly taps Resume
@@ -3266,6 +3377,8 @@ function App() {
     const record = {
       id: missionRecordIdRef.current, ts: Date.now(),
       round: roundInfo ? roundInfo.round : null, complete: roundInfo ? roundInfo.complete : null, fieldName: roundInfo ? roundInfo.fieldName : null,
+      fieldId: activeFieldIdRef.current, startedTs: missionStartTsRef.current, weatherStart: weatherStartRef.current,
+      chemicals: (() => { const e = fieldLibraryRef.current.find((x) => x.id === activeFieldIdRef.current); return (e && e.roundMeta && e.roundMeta.chemicals) || []; })(),
       areaSprayed: areaSprayedNow, rai: raiNow.rai, ngan: raiNow.ngan, wa: raiNow.wa, raiDec: raiDecNow,
       distance: s.distance, elapsed: s.elapsed, overlapRate: overlapRateNow,
       overlapRai: overlapRaiNow,
@@ -3282,7 +3395,7 @@ function App() {
       weatherApi: sprayWeather ? {
         windKmh: sprayWeather.windKmh, gustKmh: sprayWeather.gustKmh,
         rainNowMm: sprayWeather.rainNowMm, rainSoonProb: sprayWeather.rainSoonProb,
-        fetchedAt: sprayWeather.fetchedAt,
+        tempC: sprayWeather.tempC, humidity: sprayWeather.humidity, fetchedAt: sprayWeather.fetchedAt,
       } : null,
     };
     setMissions((prev) => {
@@ -3317,7 +3430,7 @@ function App() {
   };
 
   const sim = simRef.current, field = fieldRef.current;
-  __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current, recordId: missionRecordIdRef.current };
+  __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current, recordId: missionRecordIdRef.current, startTs: missionStartTsRef.current, weatherStart: weatherStartRef.current };
   const areaSprayed = sim.sprayedCells * CELL * CELL;
   const coveragePct = Math.min(100, (areaSprayed / field.area) * 100) || 0;
   const overlapRate = sim.sprayedCells > 0 ? (sim.overlapCells / sim.sprayedCells) * 100 : 0;
@@ -3857,6 +3970,123 @@ function App() {
         </div>
       </div>
 
+      {chemSheet && (() => {
+        const e = activeFieldEntry;
+        const memory = loadChemicalMemory().filter((m) => !chemDraft.some((c) => c.name.trim() === m.name));
+        const setRow = (i, k, v) => setChemDraft((d) => d.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
+        const close = () => setChemSheet(null);
+        return (
+          <div className="absolute inset-0 z-40 bg-[#0A0E10]/92 flex items-center justify-center p-4">
+            <div className="w-full max-w-[380px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4 max-h-[92vh] overflow-y-auto">
+              <p className="font-display text-[15px] font-bold tracking-wide">CHEMICALS · ROUND {(e && e.round) || 1}</p>
+              <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">สารที่ใช้ในการฉีดพ่นครั้งนี้ · อัตราต่อถัง</p>
+              <div className="flex flex-col gap-2">
+                {chemDraft.map((c, i) => (
+                  <div key={i} className="flex gap-1.5 items-center">
+                    <input value={c.name} onChange={(ev) => setRow(i, 'name', ev.target.value)} placeholder="ชื่อสาร" aria-label="Chemical name"
+                      className="flex-1 min-w-0 min-h-[42px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[12px] text-[#EAF3F1] placeholder:text-[#5C6C6C]" />
+                    <input value={c.rate} onChange={(ev) => setRow(i, 'rate', ev.target.value)} placeholder="อัตรา" inputMode="decimal" aria-label="Rate per tank"
+                      className="w-[56px] min-h-[42px] px-2 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[12px] font-mono text-[#EAF3F1] placeholder:text-[#5C6C6C]" />
+                    <select value={c.unit} onChange={(ev) => setRow(i, 'unit', ev.target.value)} aria-label="Unit"
+                      className="w-[82px] min-h-[42px] px-1.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[12px] text-[#D3DEDC]">
+                      {CHEM_UNITS.map((u) => <option key={u} value={u}>{u}/ถัง</option>)}
+                    </select>
+                    <button onClick={() => setChemDraft((d) => d.filter((_, j) => j !== i))} aria-label="Remove chemical" className="w-9 min-h-[42px] flex items-center justify-center text-[#7C8C8C]"><X size={16} /></button>
+                  </div>
+                ))}
+                <button onClick={() => setChemDraft((d) => [...d, { name: '', rate: '', unit: 'cc' }])}
+                  className="min-h-[40px] rounded-lg border border-dashed border-[#3A464B] text-[11px] font-mono text-[#9AABAA] flex items-center justify-center gap-1.5">
+                  <Plus size={13} /> ADD CHEMICAL
+                </button>
+              </div>
+              {memory.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C] mb-1.5">เคยใช้</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {memory.slice(0, 10).map((m) => (
+                      <button key={m.name} onClick={() => setChemDraft((d) => [...d.filter((c) => c.name.trim()), { ...m }])}
+                        className="px-2.5 py-1.5 rounded-full border border-[#2EE6C7]/40 text-[11px] text-[#2EE6C7]">{chemLine(m)}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="mt-4 flex flex-col gap-2">
+                {chemSheet === 'start' ? (
+                  <>
+                    <DockBtn icon={Play} label="SAVE & START" tone="green" big onClick={() => { saveChemicals(chemDraft); close(); reallyStartSpraying(); }} />
+                    <DockBtn icon={X} label="SKIP" tone="ghost" onClick={() => { saveChemicals([]); close(); reallyStartSpraying(); }} />
+                  </>
+                ) : (
+                  <>
+                    <DockBtn icon={Save} label="SAVE" tone="teal" big onClick={() => { saveChemicals(chemDraft); close(); }} />
+                    <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={close} />
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {reportFieldId != null && (() => {
+        const f = fieldLibrary.find((x) => x.id === reportFieldId);
+        if (!f) return null;
+        const rounds = buildFieldReport(f, missions);
+        const share = () => {
+          const text = fieldReportText(f, rounds);
+          const SH = nativePlugin('Share');
+          const done = (m) => setReportMsg(m);
+          if (SH) Promise.resolve(SH.share({ title: `รายงานการฉีดพ่น · ${f.name}`, text, dialogTitle: 'ส่งรายงาน' })).then(() => done('')).catch(() => done(''));
+          else if (navigator.share) navigator.share({ title: f.name, text }).catch(() => {});
+          else if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => done('คัดลอกรายงานแล้ว')).catch(() => done('คัดลอกไม่สำเร็จ'));
+          AgrasLog.add('REPORT', `shared report for field ${f.id} (${rounds.length} rounds)`);
+        };
+        return (
+          <div className="absolute inset-0 z-40 bg-[#0A0E10] flex flex-col">
+            <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-[#2A363A]" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
+              <div className="min-w-0">
+                <p className="font-display text-[15px] font-bold tracking-wide">SPRAY REPORT</p>
+                <p className="text-[11px] text-[#9AABAA] truncate">{f.name} · {(f.areaRai || 0).toFixed(2)} ไร่</p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={share} className="min-h-[38px] px-3 rounded-lg bg-[#2EE6C7] text-[#06231D] text-[11px] font-bold font-mono">SHARE</button>
+                <button onClick={() => setReportFieldId(null)} aria-label="Close report" className="text-[#7C8C8C] p-2"><X size={20} /></button>
+              </div>
+            </div>
+            {reportMsg && <p className="px-4 pt-2 text-[11px] font-mono text-[#34C76F]">{reportMsg}</p>}
+            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
+              {rounds.length === 0 && <p className="text-[12px] text-[#7C8C8C] text-center mt-8">ยังไม่มีการฉีดพ่นในแปลงนี้</p>}
+              {rounds.map((r) => (
+                <div key={r.n} className={'rounded-xl border p-3.5 ' + (r.done ? 'border-[#2A363A] bg-[#131A1D]' : 'border-[#2EE6C7]/40 bg-[#12302B]/60')}>
+                  <div className="flex items-center justify-between">
+                    <p className="font-display text-[15px] font-bold">ครั้งที่ {r.n}</p>
+                    <span className={'text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ' + (r.done ? 'text-[#34C76F] border border-[#34C76F]/40' : 'text-[#FFB648] border border-[#FFB648]/40')}>{r.done ? 'พ่นเสร็จแล้ว' : 'ยังไม่เสร็จ'}</span>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-[88px_1fr] gap-y-1 text-[11.5px]">
+                    <dt className="text-[#7C8C8C]">เริ่มพ่น</dt><dd className="text-[#EAF3F1]">{thDateTime(r.start)}</dd>
+                    <dt className="text-[#7C8C8C]">พ่นเสร็จ</dt><dd className="text-[#EAF3F1]">{r.done ? thDateTime(r.end) : '—'}</dd>
+                    <dt className="text-[#7C8C8C]">พื้นที่ที่พ่น</dt><dd className="text-[#EAF3F1]">{(r.rai || 0).toFixed(2)} ไร่</dd>
+                    <dt className="text-[#7C8C8C]">สารที่ใช้</dt>
+                    <dd className="text-[#EAF3F1]">{r.chemicals && r.chemicals.length ? r.chemicals.map((c, i) => <span key={i} className="block">• {chemLine(c)}</span>) : <span className="text-[#5C6C6C]">ไม่ได้ระบุ</span>}</dd>
+                  </dl>
+                  {r.sessions.length > 0 && (
+                    <div className="mt-2.5 pt-2.5 border-t border-[#2A363A]">
+                      <p className="text-[10px] text-[#7C8C8C] mb-1">สภาพอากาศแต่ละรอบที่พ่น</p>
+                      {r.sessions.map((x, i) => (
+                        <p key={i} className="text-[11px] text-[#D3DEDC] leading-relaxed">
+                          <span className="font-medium text-[#EAF3F1]">{thDate(x.start)} {thTime(x.start)}–{thTime(x.end)}</span>{x.operator ? ` · ${x.operator}` : ''}<br />
+                          <span className="text-[#9AABAA]">{weatherLine(x.weather, x.note)}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {showFinishChoice && phase === 'paused' && (() => {
         const e = activeFieldId ? fieldLibrary.find((f) => f.id === activeFieldId) : null;
         const round = (e && e.round) || 1;
@@ -4115,6 +4345,12 @@ function App() {
                           {isActive ? <><Star size={11} className="fill-[#2EE6C7]" /> ACTIVE FIELD</> : 'SET AS ACTIVE FIELD'}
                         </button>
                       )}
+                      {!isRenaming && (
+                        <button onClick={() => { setReportMsg(''); setReportFieldId(f.id); }}
+                          className="min-h-[36px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide flex items-center justify-center gap-1.5 bg-[#0A0E10] text-[#2EE6C7] border border-[#2EE6C7]/40">
+                          <History size={12} /> REPORT
+                        </button>
+                      )}
                       {!isRenaming && f.cov && (
                         <button onClick={() => { if (confirmResetCovId === f.id) resetFieldCoverage(f.id); else { setConfirmResetCovId(f.id); setTimeout(() => setConfirmResetCovId((c) => (c === f.id ? null : c)), 5000); } }}
                           className={'min-h-[34px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide border ' + (confirmResetCovId === f.id ? 'bg-[#FFB648] text-[#2B1900] border-[#FFB648]' : 'border-[#3A464B] text-[#9AABAA]')}>
@@ -4259,6 +4495,19 @@ function App() {
                 </div>
               );
             })()}
+            {activeFieldEntry && (
+              <button onClick={() => { const m = activeFieldEntry.roundMeta || {}; setChemDraft(m.chemicals && m.chemicals.length ? m.chemicals.map((c) => ({ ...c })) : [{ name: '', rate: '', unit: 'cc' }]); setChemSheet('edit'); }}
+                className="mt-3 w-full flex items-center justify-between gap-2 text-left rounded-xl border border-[#2A363A] bg-[#0A0E10] px-3.5 py-2.5 min-h-[48px]">
+                <span className="min-w-0">
+                  <span className="block text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Chemicals · round {activeFieldEntry.round || 1}</span>
+                  <span className="block text-[11px] font-mono text-[#D3DEDC] truncate">
+                    {activeFieldEntry.roundMeta && activeFieldEntry.roundMeta.chemicals && activeFieldEntry.roundMeta.chemicals.length
+                      ? activeFieldEntry.roundMeta.chemicals.map(chemLine).join(' · ') : 'ยังไม่ได้ระบุสาร — แตะเพื่อใส่'}
+                  </span>
+                </span>
+                <Pencil size={14} className="text-[#2EE6C7] shrink-0" />
+              </button>
+            )}
             <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Field</p>
             <div className="flex flex-col gap-2">
               <Dock>

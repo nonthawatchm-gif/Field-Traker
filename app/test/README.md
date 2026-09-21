@@ -52,6 +52,8 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | walking the field during the trip alerts; walking straight to the station doesn't | spraying unrecorded with the screen off |
 | back closes one layer; with nothing open it minimizes | the Android back button |
 | no imagery toggle; field + START on one row; Settings dot follows the checklist | the home-screen redesign |
+| a new field goes to the station step; EDIT BOUNDARY keeps the field and skips it | the owner's plotting flow |
+| chemicals asked once per round, kept into the closed round; report + share text | the spray report |
 
 ## Writing more
 

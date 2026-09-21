@@ -7,6 +7,14 @@
  */
 const { boot, moveTo, walk, tap, tapRe, stat, summary, makeField, openSettings } = require('./harness');
 
+/** START SPRAYING; the first start of each round asks for the chemicals — skip it. */
+async function startSpray(page, wait = 1200) {
+  await tap(page, 'START SPRAYING', { wait: 700 });
+  const skip = page.locator('text="SKIP"').locator('visible=true');
+  if (await skip.count()) { await skip.first().click({ force: true }); }
+  await page.waitForTimeout(wait);
+}
+
 /** FINISH now asks whether the field is done (closes the round) or not
  *  (continue later). Most checks only care about the summary, so default to done. */
 async function finishAs(page, done = true) {
@@ -25,7 +33,7 @@ async function overlap() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 70], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 800 });
   const clean = num(await stat(page, 'OVERLAP'));
@@ -45,7 +53,7 @@ async function tidyJob() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 20, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   let x = 20, up = true;
   for (let i = 0; i < 5; i++) {
     await walk(ctx, page, [x, up ? 10 : 60], [x, up ? 60 : 10], 2, 90);
@@ -68,7 +76,7 @@ async function missed() {
     await page.waitForTimeout(1200);
     await makeField(ctx, page);
     await moveTo(ctx, page, 40, 10, 900);
-    await tap(page, 'START SPRAYING', { wait: 1200 });
+    await startSpray(page, 1200);
     await walk(ctx, page, [40, 10], [40, 70], 2, 100);
     await tap(page, 'SAVE & PAUSE', { wait: 900 });
     await walk(ctx, page, [40, 70], [15, 70], 2, 100);
@@ -84,7 +92,7 @@ async function missed() {
     await page.waitForTimeout(1200);
     await makeField(ctx, page);
     await moveTo(ctx, page, 40, 40, 900);
-    await tap(page, 'START SPRAYING', { wait: 1200 });
+    await startSpray(page, 1200);
     await walk(ctx, page, [40, 40], [40, 60], 2, 100);
     await tap(page, 'TANK EMPTY', { wait: 900 });
     await walk(ctx, page, [40, 60], [-10, -10], 4, 90);        // the walk to the tank crosses the field: must not hatch red
@@ -107,7 +115,7 @@ async function tankCount() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 40, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 40], [40, 60], 2, 100);
   await tap(page, 'TANK EMPTY', { wait: 900 });
   await walk(ctx, page, [40, 60], [-10, -10], 4, 90);
@@ -134,7 +142,7 @@ async function geofence() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 40, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 40], [40, 70], 2, 110);
   await walk(ctx, page, [40, 70], [95, 70], 3, 150);
   await page.waitForTimeout(1200);
@@ -159,7 +167,7 @@ async function crashRecovery() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 60], 2, 100);
   await walk(ctx, page, [40, 60], [55, 60], 2, 100);
   await tap(page, 'TANK EMPTY', { wait: 900 });
@@ -200,7 +208,7 @@ async function windReset() {
   await tap(page, 'DONE', { wait: 500 });
   const before = await checklistState(page);
   check('wind ticks on the pre-flight checklist', before.wind === true, `wind=${before.wind}`);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page);
@@ -224,7 +232,7 @@ async function complianceLog() {
   await tap(page, 'PPE worn', { wait: 400 });
   await tap(page, 'Wind checked', { wait: 500 });
   await tap(page, 'DONE', { wait: 500 });
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page);
@@ -247,13 +255,13 @@ async function overlapSubLine() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 60], 2, 100);          // lay a lane down at x=40
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page, false);                                 // not done: the round stays open with this lane on it
   await tap(page, 'START NEW', { wait: 1500 });
   await moveTo(ctx, page, 40, 20, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 20], [40, 55], 2, 100);          // the next session re-sprays only that lane
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page, false);
@@ -303,7 +311,7 @@ async function missionAutoSave() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 40], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page, false);
@@ -312,7 +320,7 @@ async function missionAutoSave() {
     `${h.length} record(s)${h[0] ? `, round ${h[0].round}, complete ${h[0].complete}` : ''}`);
   await tap(page, 'START NEW', { wait: 1200 });
   await moveTo(ctx, page, 60, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [60, 10], [60, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page, false);
@@ -329,7 +337,7 @@ async function bigFieldResume() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page, [[0, 0], [250, 0], [250, 250], [0, 250]], [-10, -10]);
   await moveTo(ctx, page, 20, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [20, 10], [20, 60], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 1500 });
   const size = await page.evaluate(() => (localStorage.getItem('agras-tracker-active-session') || '').length);
@@ -354,7 +362,7 @@ async function refillFlow() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 40, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 40], [40, 60], 2, 100);
   await tap(page, 'TANK EMPTY', { wait: 900 });
   check('TANK EMPTY puts REFILLED · START SPRAYING on the dock', /REFILLED · START SPRAYING/.test(await txt(page)) && /REFILL — NOT RECORDING/.test(await txt(page)));
@@ -375,7 +383,7 @@ async function tileRefill() {
   await page.waitForTimeout(1200);
   await makeField(ctx, page);
   await moveTo(ctx, page, 40, 40, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 40], [40, 60], 2, 100);
   await tap(page, 'TANK EMPTY', { wait: 2200 });
   await tap(page, 'SAVE & PAUSE', { wait: 900 });              // the tank tile is on screen while paused
@@ -392,7 +400,7 @@ async function rounds() {
   await makeField(ctx, page);
   const field = async () => (await library(page))[0] || {};
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 40], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page, false);
@@ -401,7 +409,7 @@ async function rounds() {
   await tap(page, 'START NEW', { wait: 1500 });
   check('the field card says round 1 continues', /Round 1 · \d+% sprayed/.test(await txt(page)));
   await moveTo(ctx, page, 60, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [60, 10], [60, 40], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page, true);
@@ -416,7 +424,7 @@ async function rounds() {
   check('the field card says round 2 has not started', /Round 2 · not started/.test(await txt(page)));
   const areaBefore = num(await stat(page, 'AREA SPRAYED'));
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await page.waitForTimeout(800);
   const areaAtStart = num(await stat(page, 'AREA SPRAYED'));
   // standing still at START stamps one spray circle (radius = half the swath, ~5 m²); round 1 left ~150 m² here
@@ -433,7 +441,7 @@ async function notRecordingAlert() {
     await page.waitForTimeout(1200);
     await makeField(ctx, page);
     await moveTo(ctx, page, 40, 40, 900);
-    await tap(page, 'START SPRAYING', { wait: 1200 });
+    await startSpray(page, 1200);
     await walk(ctx, page, [40, 40], [40, 60], 2, 100);
     await tap(page, 'TANK EMPTY', { wait: 900 });
     await walk(ctx, page, [40, 60], [70, 60], 2, 100);         // spraying on, app waiting: walk the field away from the station
@@ -446,7 +454,7 @@ async function notRecordingAlert() {
     await page.waitForTimeout(1200);
     await makeField(ctx, page);
     await moveTo(ctx, page, 60, 60, 900);
-    await tap(page, 'START SPRAYING', { wait: 1200 });
+    await startSpray(page, 1200);
     await walk(ctx, page, [60, 60], [60, 70], 2, 100);
     await tap(page, 'TANK EMPTY', { wait: 900 });
     await walk(ctx, page, [60, 70], [-10, -10], 2, 100);       // straight to the station, across the field
@@ -464,7 +472,7 @@ async function backButton() {
   await openSettings(page);
   check('back closes the Settings sheet', (await back(page)) === 'spray-settings' && !/RENAME FIELD/.test(await txt(page)));
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await tap(page, 'FINISH', { wait: 700 });
@@ -508,7 +516,7 @@ async function editBoundary() {
   await makeField(ctx, page);                                   // new field: CLOSE FIELD -> station -> home
   // round 1 done, so there is round history to keep; then some coverage in round 2
   await moveTo(ctx, page, 40, 10, 900);
-  await tap(page, 'START SPRAYING', { wait: 1200 });
+  await startSpray(page, 1200);
   await walk(ctx, page, [40, 10], [40, 30], 2, 100);
   await tap(page, 'SAVE & PAUSE', { wait: 900 });
   await finishAs(page, true);
@@ -535,10 +543,56 @@ async function editBoundary() {
   await browser.close();
 }
 
+/* 18. Spray report: chemicals asked once per round, carried into the round when
+ *     it closes; sessions keep their start time and weather; the report and
+ *     its shared text show it all. */
+async function sprayReport() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 800 });
+  check('the first START of a round asks for the chemicals', (await page.locator('text="SAVE & START"').locator('visible=true').count()) > 0);
+  await page.locator('[aria-label="Chemical name"]').first().fill('ไกลโฟเซต');
+  await page.locator('[aria-label="Rate per tank"]').first().fill('200');
+  await tap(page, 'SAVE & START', { wait: 1200 });
+  await walk(ctx, page, [40, 10], [40, 30], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, false);
+  await tap(page, 'START NEW', { wait: 1500 });
+  await moveTo(ctx, page, 50, 10, 900);
+  await tap(page, 'START SPRAYING', { wait: 1200 });
+  check('continuing the same round does not ask again', (await page.locator('text="SAVE & START"').locator('visible=true').count()) === 0 && /SAVE & PAUSE/.test(await txt(page)));
+  await walk(ctx, page, [50, 10], [50, 30], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, true);
+  const f = (await library(page))[0] || {};
+  const r1 = (f.rounds || [])[0] || {};
+  check('the closed round keeps its chemicals, start and finish', r1.chemicals && r1.chemicals[0] && r1.chemicals[0].name === 'ไกลโฟเซต' && r1.chemicals[0].rate === '200' && r1.startedTs && r1.finishedTs > r1.startedTs,
+    JSON.stringify({ chem: r1.chemicals, s: !!r1.startedTs, f: !!r1.finishedTs }));
+  const h = await history(page);
+  check('each session record has its start time, field and chemicals', h.length === 2 && h.every((m) => m.startedTs && m.fieldId === f.id && m.chemicals && m.chemicals[0].name === 'ไกลโฟเซต'), `${h.length} record(s)`);
+  await tap(page, 'START NEW', { wait: 1500 });
+  await tap(page, 'START SPRAYING', { wait: 800 });
+  const pre = await page.locator('[aria-label="Chemical name"]').first().inputValue().catch(() => '');
+  check('round 2 asks again, pre-filled with what was used last time', (await page.locator('text="SAVE & START"').locator('visible=true').count()) > 0 && pre === 'ไกลโฟเซต', `pre-filled "${pre}"`);
+  await tap(page, 'SKIP', { wait: 1200 });
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, false);
+  await tap(page, 'START NEW', { wait: 1500 });
+  await page.locator('text="Field selector"').first().click({ force: true }); await page.waitForTimeout(800);
+  await tap(page, 'REPORT', { wait: 900 });
+  const rep = await txt(page);
+  check('the report shows round 1 done with its chemical and times', /ครั้งที่ 1/.test(rep) && /พ่นเสร็จแล้ว/.test(rep) && /ไกลโฟเซต · 200 cc\/ถัง/.test(rep) && /เริ่มพ่น/.test(rep) && /น\./.test(rep));
+  check('and round 2 still open with no chemical named', /ครั้งที่ 2/.test(rep) && /ยังไม่เสร็จ/.test(rep) && /ไม่ได้ระบุ/.test(rep));
+  check('the report lists the weather line for each session', (rep.match(/ไม่มีข้อมูล|ลม \d+/g) || []).length >= 3);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
