@@ -765,8 +765,51 @@ function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankC
     missed: rleEncode(sim.missed),
   };
 }
+/* ---- durable copy of the active session (native only) ----
+ * Android's WebView does not write localStorage to disk when setItem returns:
+ * it batches the commit and holds it for a few seconds. Measured on the S23 by
+ * killing the app ~0.5 s after SAVE & PAUSE — three runs out of three came back
+ * with the save *before* the tap. So a crash, a system kill or a battery pull
+ * mid-mission lost that window on top of the time since the last autosave.
+ * A native file write goes straight to the OS and survives the app process
+ * dying, so every session save is mirrored to one here; startup reads both and
+ * takes the newer. Writes are coalesced — only the latest snapshot is ever
+ * pending — and a clear is queued behind them in order, so a finished mission
+ * can't be resurrected by a write that was still in flight. */
+const SESSION_FILE = 'active-session.json';
+let __sessFileNext;          // undefined = nothing pending · string = write this · null = delete
+let __sessFileBusy = false;
+function queueSessionFile(json) {
+  if (!nativePlugin('Filesystem')) return;
+  __sessFileNext = json;
+  if (!__sessFileBusy) pumpSessionFile();
+}
+async function pumpSessionFile() {
+  const fs = nativePlugin('Filesystem');
+  __sessFileBusy = true;
+  try {
+    while (__sessFileNext !== undefined) {
+      const v = __sessFileNext; __sessFileNext = undefined;
+      try {
+        if (v === null) await Promise.resolve(fs.deleteFile({ path: SESSION_FILE, directory: 'DATA' })).catch(() => {});
+        else await Promise.resolve(fs.writeFile({ path: SESSION_FILE, directory: 'DATA', data: v, encoding: 'utf8' }));
+      } catch (e) { try { AgrasLog.add('ERR', 'session file write failed: ' + ((e && e.message) || e)); } catch (e2) { /* ignore */ } }
+    }
+  } finally { __sessFileBusy = false; }
+}
+async function loadSessionFile() {
+  const fs = nativePlugin('Filesystem');
+  if (!fs) return null;
+  try {
+    const r = await Promise.resolve(fs.readFile({ path: SESSION_FILE, directory: 'DATA', encoding: 'utf8' }));
+    const s = JSON.parse(r && r.data);
+    return (s && (s.v === 1 || s.v === 2) && Array.isArray(s.poly)) ? s : null;
+  } catch (e) { return null; } // no file is the normal case
+}
 function saveActiveSession(snapshot) {
-  try { localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(snapshot)); return true; }
+  const json = JSON.stringify(snapshot);
+  queueSessionFile(json);
+  try { localStorage.setItem(ACTIVE_SESSION_KEY, json); return true; }
   catch (e) {
     // still never blocks spraying, but no longer silent: a failed autosave is
     // exactly the thing to find in the test log after a resume goes wrong
@@ -784,6 +827,7 @@ function loadActiveSession() {
 }
 function clearActiveSession() {
   try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch (e) { /* ignore */ }
+  queueSessionFile(null);
 }
 function missionsToCSV(list) {
   const header = ['date', 'rai', 'ngan', 'sq_wha', 'area_sqm', 'distance_m', 'elapsed_s', 'overlap_pct', 'litres_est', 'tanks_used', 'tank_capacity_l', 'swath_m'];
@@ -2016,14 +2060,28 @@ function App() {
    *  fully automatic, the only thing that modal did was add a tap between
    *  the operator and their own work (and DISCARD is still one FINISH away). */
   useEffect(() => {
-    const saved = loadActiveSession();
-    if (!saved) return;
-    try {
-      applySessionSnapshot(saved);
-      resumedAtStartRef.current = true;
-      setRestoredToast(true); setTimeout(() => setRestoredToast(false), 7000);
-      AgrasLog.add('SAVE', 'unfinished mission restored at startup');
-    } catch (e) { AgrasLog.add('ERR', 'restore at startup failed: ' + (e && e.message)); }
+    const restore = (saved, from) => {
+      try {
+        applySessionSnapshot(saved);
+        resumedAtStartRef.current = true;
+        setRestoredToast(true); setTimeout(() => setRestoredToast(false), 7000);
+        AgrasLog.add('SAVE', `unfinished mission restored at startup (${from}, saved ${Math.round((Date.now() - saved.ts) / 1000)}s ago)`);
+      } catch (e) { AgrasLog.add('ERR', 'restore at startup failed: ' + (e && e.message)); }
+    };
+    // localStorage is synchronous, so restore from it straight away...
+    const local = loadActiveSession();
+    if (local) restore(local, 'storage');
+    // ...then check the native file, which is the copy that survives a hard
+    // kill, and take it instead if it is newer. If localStorage had nothing
+    // at all, the "reopen last field" effect has already run by the time
+    // this lands — applySessionSnapshot replaces its field and sim wholesale.
+    let cancelled = false;
+    loadSessionFile().then((file) => {
+      if (cancelled || !file) return;
+      if (local && file.ts <= local.ts) return;
+      restore(file, 'file');
+    });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2068,7 +2126,7 @@ function App() {
    *  window so it never fires during boundary plotting or the ready screen. */
   useEffect(() => {
     if (phase !== 'running' && phase !== 'paused') return;
-    const id = setInterval(saveSessionNow, 15000);
+    const id = setInterval(saveSessionNow, 5000);
     autosaveTimerRef.current = id;
     return () => { clearInterval(id); autosaveTimerRef.current = null; };
   }, [phase]);
