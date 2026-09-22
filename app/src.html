@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0A0E10">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#0A5238">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,9 +12,9 @@
 <meta name="format-detection" content="telephone=no">
 <meta name="description" content="Agras Field Tracker — offline-first backpack sprayer field tracker with GPS geofencing, coverage mapping, and mission history.">
 <title>Agras Field Tracker</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230A0E10'/%3E%3Cpath d='M12 2.5s6.5 7.3 6.5 12a6.5 6.5 0 1 1-13 0c0-4.7 6.5-12 6.5-12Z' fill='%232EE6C7'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230A5238'/%3E%3Cpath d='M12 2.5s6.5 7.3 6.5 12a6.5 6.5 0 1 1-13 0c0-4.7 6.5-12 6.5-12Z' fill='%23FFFFFF'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
 <script>
   // Suppress the well-known, harmless dev-mode notices that the Tailwind
   // Play CDN and in-browser Babel standalone print on load — this is a
@@ -29,8 +29,8 @@
 </script>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  :root { color-scheme: dark; }
-  html, body { background: #0A0E10; height: 100%; margin: 0; padding: 0; overscroll-behavior: none; }
+  :root { color-scheme: light; }
+  html, body { background: #F4F1E7; height: 100%; margin: 0; padding: 0; overscroll-behavior: none; }
   body {
     font-family: 'IBM Plex Sans Thai', ui-sans-serif, system-ui, sans-serif;
     -webkit-tap-highlight-color: transparent;
@@ -43,25 +43,25 @@
     inset: 0;
   }
   #root { position: fixed; inset: 0; height: 100dvh; }
-  .font-display { font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; }
+  .font-display { font-family: 'Bai Jamjuree', 'IBM Plex Sans Thai', ui-sans-serif, system-ui, sans-serif; }
   .font-mono { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace; }
   .tnum { font-variant-numeric: tabular-nums; }
   button, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-  button:focus-visible { outline: 2px solid #2EE6C7; outline-offset: 2px; }
+  button:focus-visible { outline: 2px solid #0C6B48; outline-offset: 2px; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-thumb { background: #2A363A; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb { background: #E2DCC9; border-radius: 3px; }
 
   /* First-paint / library-load states — replaced the instant React mounts */
   #boot {
     position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 14px; background: #0A0E10; color: #7C8C8C;
+    justify-content: center; gap: 14px; background: #F4F1E7; color: #55655F;
     font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.08em;
     text-align: center; padding: 24px; padding-bottom: max(24px, env(safe-area-inset-bottom));
   }
-  #boot .dot { width: 10px; height: 10px; border-radius: 50%; background: #2EE6C7; animation: pulse 1.1s ease-in-out infinite; }
+  #boot .dot { width: 10px; height: 10px; border-radius: 50%; background: #0C6B48; animation: pulse 1.1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 0.25; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
-  #boot.error .dot { background: #FF5252; animation: none; }
-  #boot b { color: #D3DEDC; font-family: 'Archivo', sans-serif; font-size: 14px; letter-spacing: 0.02em; text-transform: none; }
+  #boot.error .dot { background: #A5201A; animation: none; }
+  #boot b { color: #24322C; font-family: 'Bai Jamjuree', sans-serif; font-size: 14px; letter-spacing: 0.02em; text-transform: none; }
   @media (prefers-reduced-motion: reduce) { #boot .dot { animation: none; } }
 </style>
 </head>
@@ -1597,7 +1597,7 @@ function drawSatelliteTiles(ctx, w, h, v, sat) {
 
 function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#0A0E10';
+  ctx.fillStyle = '#E4DFCD';
   ctx.fillRect(0, 0, w, h);
 
   // Screen-fit auto-rotation (computeFitView): rotate the whole drawn scene
@@ -1622,11 +1622,11 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     const gb = opts.frame || field.bbox;
     const step = 5;
     for (let x = Math.floor((gb.minX - 4) / step) * step; x <= gb.maxX + 4; x += step) {
-      ctx.strokeStyle = Math.round(x) % (step * 2) === 0 ? 'rgba(46,230,199,.09)' : 'rgba(46,230,199,.035)';
+      ctx.strokeStyle = Math.round(x) % (step * 2) === 0 ? 'rgba(20,32,28,.12)' : 'rgba(20,32,28,.06)';
       ctx.beginPath(); ctx.moveTo(X_(v, x), 0); ctx.lineTo(X_(v, x), h); ctx.stroke();
     }
     for (let y = Math.floor((gb.minY - 4) / step) * step; y <= gb.maxY + 4; y += step) {
-      ctx.strokeStyle = Math.round(y) % (step * 2) === 0 ? 'rgba(46,230,199,.09)' : 'rgba(46,230,199,.035)';
+      ctx.strokeStyle = Math.round(y) % (step * 2) === 0 ? 'rgba(20,32,28,.12)' : 'rgba(20,32,28,.06)';
       ctx.beginPath(); ctx.moveTo(0, Y_(v, y)); ctx.lineTo(w, Y_(v, y)); ctx.stroke();
     }
   }
@@ -1634,21 +1634,21 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
   if (opts.plotting) {
     const pts = opts.drafting;
     if (pts && pts.length) {
-      ctx.strokeStyle = '#2EE6C7'; ctx.lineWidth = 1.75; ctx.setLineDash([6, 5]);
+      ctx.strokeStyle = '#0A5238'; ctx.lineWidth = 1.75; ctx.setLineDash([6, 5]);
       ctx.beginPath();
       pts.forEach((p, i) => (i === 0 ? ctx.moveTo(X_(v, p.x), Y_(v, p.y)) : ctx.lineTo(X_(v, p.x), Y_(v, p.y))));
       if (pts.length > 2) ctx.lineTo(X_(v, pts[0].x), Y_(v, pts[0].y));
       ctx.stroke(); ctx.setLineDash([]);
       pts.forEach((p, i) => {
-        ctx.fillStyle = i === 0 ? '#FFB648' : '#2EE6C7';
+        ctx.fillStyle = i === 0 ? '#8A4B06' : '#0A5238';
         ctx.beginPath(); ctx.arc(X_(v, p.x), Y_(v, p.y), i === 0 ? 5 : 4, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#0A0E10'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.5; ctx.stroke();
       });
     }
     if (opts.live) {
       const lx = X_(v, opts.live.x), ly = Y_(v, opts.live.y);
-      ctx.fillStyle = 'rgba(46,230,199,.18)'; ctx.beginPath(); ctx.arc(lx, ly, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#2EE6C7'; ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(10,82,56,.20)'; ctx.beginPath(); ctx.arc(lx, ly, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#0A5238'; ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.fill();
     }
     return;
   }
@@ -1668,7 +1668,7 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     field.poly.forEach((p, i) => (i === 0 ? ctx.moveTo(X_(v, p.x), Y_(v, p.y)) : ctx.lineTo(X_(v, p.x), Y_(v, p.y))));
     ctx.closePath();
     ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 5.5 * k; ctx.stroke();
-    ctx.strokeStyle = opts.oob ? '#FF5252' : '#FFFFFF'; ctx.lineWidth = 2.5 * k; ctx.stroke();
+    ctx.strokeStyle = opts.oob ? '#A5201A' : '#FFFFFF'; ctx.lineWidth = 2.5 * k; ctx.stroke();
     ctx.restore();
   }
 
@@ -1701,7 +1701,7 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     const gap = (R.swath || 5) * v.s;               // on-screen lane spacing, px
     const lw = Math.max(1.2 * k, Math.min(3 * k, gap * 0.3));
     ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = lw * 2; line();
-    ctx.strokeStyle = '#29C5F6'; ctx.lineWidth = lw; line();
+    ctx.strokeStyle = '#1E6FD9'; ctx.lineWidth = lw; line();
     // direction chevrons every ~40 m of lane
     ctx.fillStyle = '#FFFFFF';
     if (gap >= 16 * k) R.segs.forEach((sg) => {
@@ -1718,7 +1718,7 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     });
     // START: an arrow pointing down the first lane; END: a dot (the owner's drawing)
     const s0 = R.segs[0], e0 = R.segs[R.segs.length - 1].b;
-    ctx.fillStyle = '#29C5F6'; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * k;
+    ctx.fillStyle = '#1E6FD9'; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * k;
     {
       const sx = X_(v, s0.a.x), sy = Y_(v, s0.a.y), ang = Math.atan2(Y_(v, s0.b.y) - sy, X_(v, s0.b.x) - sx);
       ctx.save(); ctx.translate(sx, sy); ctx.rotate(ang);
@@ -1746,9 +1746,9 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
       }
       const x = X_(v, q.x), y = Y_(v, q.y);
       placed.push({ x, y });
-      ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#0A0E10'; ctx.lineWidth = 2 * k;
+      ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#14201C'; ctx.lineWidth = 2 * k;
       ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#0A0E10'; ctx.font = `bold ${10 * k}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#14201C'; ctx.font = `bold ${10 * k}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.save(); ctx.translate(x, y); ctx.rotate(v.angle || 0);   // undo the map rotation so the number stands upright
       ctx.fillText(String(i + 1), 0, 0.5 * k); ctx.restore();
     });
@@ -1765,7 +1765,7 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.beginPath(); ctx.arc(lx, ly, 11 * k, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 2.5 * k; ctx.strokeStyle = '#FFFFFF';
     ctx.beginPath(); ctx.arc(lx, ly, 11 * k, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = '#FFB648'; ctx.beginPath(); ctx.arc(lx, ly, 5 * k, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#8A4B06'; ctx.beginPath(); ctx.arc(lx, ly, 5 * k, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
   if (opts.you) {
@@ -1773,7 +1773,7 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     const yx = X_(v, opts.you.x), yy = Y_(v, opts.you.y);
     ctx.save();
     ctx.fillStyle = 'rgba(66,153,255,.25)'; ctx.beginPath(); ctx.arc(yx, yy, 13 * k, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#4299FF'; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * k;
+    ctx.fillStyle = '#1E6FD9'; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * k;
     ctx.beginPath(); ctx.arc(yx, yy, 7 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.restore();
   }
@@ -1788,9 +1788,9 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(sx, sy, 5 * k, 2 * k, 0, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.moveTo(sx, sy);
     ctx.arc(sx, cy, r, Math.PI / 2 + b, Math.PI / 2 - b); ctx.closePath();
-    ctx.fillStyle = '#2EE6C7'; ctx.fill();
+    ctx.fillStyle = '#0A5238'; ctx.fill();
     ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2 * k; ctx.lineJoin = 'round'; ctx.stroke();
-    ctx.fillStyle = '#06231D';
+    ctx.fillStyle = '#FFFFFF';
     ctx.beginPath(); ctx.moveTo(sx, cy - 5.5 * k);
     ctx.quadraticCurveTo(sx - 4.6 * k, cy + 1.2 * k, sx, cy + 5.2 * k);
     ctx.quadraticCurveTo(sx + 4.6 * k, cy + 1.2 * k, sx, cy - 5.5 * k); ctx.fill();
@@ -1799,21 +1799,21 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
 
   if (!opts.static) {
     const px = X_(v, sim.pos.x), py = Y_(v, sim.pos.y);
-    const col = opts.oob ? '#FF5252' : '#2EE6C7';
-    ctx.fillStyle = opts.oob ? 'rgba(255,82,82,.18)' : 'rgba(46,230,199,.14)';
+    const col = opts.oob ? '#A5201A' : '#0C6B48';
+    ctx.fillStyle = opts.oob ? 'rgba(255,82,82,.18)' : 'rgba(10,82,56,.18)';
     ctx.beginPath(); ctx.arc(px, py, (opts.oob ? 4 : 3) * v.s, 0, Math.PI * 2); ctx.fill();
     ctx.save(); ctx.translate(px, py); ctx.rotate(sim.heading);
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, 6.5); ctx.lineTo(-3, 0); ctx.lineTo(-6, -6.5);
     ctx.closePath(); ctx.fill();
     ctx.restore();
-    ctx.strokeStyle = '#0A0E10'; ctx.lineWidth = 2;
+    ctx.strokeStyle = '#14201C'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(px, py, 2.6, 0, Math.PI * 2); ctx.stroke();
   }
 
   if (opts.accuracyRadius) {
     const px = X_(v, sim.pos.x), py = Y_(v, sim.pos.y);
-    ctx.strokeStyle = 'rgba(46,230,199,.35)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(10,82,56,.35)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(px, py, opts.accuracyRadius * v.s, 0, Math.PI * 2); ctx.stroke();
   }
 
@@ -1824,17 +1824,17 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
  *  HUD chrome                                                     *
  * ============================================================== */
 const Glass = ({ className = '', style, onClick, children, ...rest }) => (
-  <div style={style} onClick={onClick} {...rest} className={'rounded-xl bg-[#131A1D]/95 border border-[#2A363A] shadow-[0_2px_18px_rgba(0,0,0,.45)] ' + className}>{children}</div>
+  <div style={style} onClick={onClick} {...rest} className={'rounded-xl bg-[#FFFFFF]/95 border border-[#E2DCC9] shadow-[0_2px_18px_rgba(20,32,28,.12)] ' + className}>{children}</div>
 );
 const Tile = ({ icon: Icon, label, value, unit, accent }) => (
   <Glass className="px-3 py-2 min-w-[104px]">
-    <div className="flex items-center gap-1.5 text-[#7C8C8C]">
+    <div className="flex items-center gap-1.5 text-[#55655F]">
       <Icon size={12} strokeWidth={2.25} />
       <span className="text-[9px] tracking-[.14em] uppercase font-mono">{label}</span>
     </div>
     <div className="flex items-baseline gap-1 mt-0.5">
-      <span className={'font-mono tnum text-[20px] leading-none font-semibold ' + (accent || 'text-[#D3DEDC]')}>{value}</span>
-      {unit && <span className="text-[10px] text-[#7C8C8C]">{unit}</span>}
+      <span className={'font-mono tnum text-[20px] leading-none font-semibold ' + (accent || 'text-[#24322C]')}>{value}</span>
+      {unit && <span className="text-[10px] text-[#55655F]">{unit}</span>}
     </div>
   </Glass>
 );
@@ -1843,16 +1843,16 @@ const Tile = ({ icon: Icon, label, value, unit, accent }) => (
  *  refilled" action for a manual top-off outside the formal breakpoint flow. */
 const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = 'TANK EMPTY' }) => (
   <Glass className="pointer-events-auto px-3 py-2 min-w-[104px]">
-    <div className="flex items-center gap-1.5 text-[#7C8C8C]">
-      <Droplet size={12} strokeWidth={2.25} className="text-[#2EE6C7]" />
+    <div className="flex items-center gap-1.5 text-[#55655F]">
+      <Droplet size={12} strokeWidth={2.25} className="text-[#0C6B48]" />
       <span className="text-[9px] tracking-[.14em] uppercase font-mono">Tank #{number}</span>
     </div>
     <div className="flex items-baseline gap-1 mt-0.5">
-      <span className="font-mono tnum text-[20px] leading-none font-semibold text-[#2EE6C7]">{areaRai.toFixed(2)}</span>
-      <span className="text-[10px] text-[#7C8C8C]">rai · {capacity}L</span>
+      <span className="font-mono tnum text-[20px] leading-none font-semibold text-[#0C6B48]">{areaRai.toFixed(2)}</span>
+      <span className="text-[10px] text-[#55655F]">rai · {capacity}L</span>
     </div>
-    <p className="text-[8.5px] text-[#7C8C8C] mt-1 whitespace-nowrap">{avgRai != null ? `avg ${avgRai.toFixed(2)} rai / tank` : 'this tank so far'}</p>
-    <button onClick={onEmpty} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#FFB648]/60 text-[#FFB648] text-[10px] font-mono font-bold tracking-wide active:bg-[#FFB648]/15">{actionLabel}</button>
+    <p className="text-[8.5px] text-[#55655F] mt-1 whitespace-nowrap">{avgRai != null ? `avg ${avgRai.toFixed(2)} rai / tank` : 'this tank so far'}</p>
+    <button onClick={onEmpty} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#8A4B06]/60 text-[#8A4B06] text-[10px] font-mono font-bold tracking-wide active:bg-[#8A4B06]/15">{actionLabel}</button>
   </Glass>
 );
 /** Speed-Based Flow Rate & Pace widget — live km/h against the 2.5–3.5 km/h
@@ -1860,35 +1860,35 @@ const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = 'T
  *  the target rate needs to deliver at the current pace. */
 const PaceTile = ({ kmh, label, color }) => (
   <Glass className="px-3 py-2 min-w-[104px]" style={{ borderColor: color + '55' }}>
-    <div className="flex items-center gap-1.5 text-[#7C8C8C]">
+    <div className="flex items-center gap-1.5 text-[#55655F]">
       <Gauge size={12} strokeWidth={2.25} style={{ color }} />
       <span className="text-[9px] tracking-[.14em] uppercase font-mono">Pace</span>
     </div>
     <div className="flex items-baseline gap-1 mt-0.5">
       <span className="font-mono tnum text-[20px] leading-none font-semibold" style={{ color }}>{kmh.toFixed(1)}</span>
-      <span className="text-[10px] text-[#7C8C8C]">km/h</span>
+      <span className="text-[10px] text-[#55655F]">km/h</span>
     </div>
     <p className="text-[8px] font-mono font-bold tracking-wide mt-1 whitespace-nowrap" style={{ color }}>{label}</p>
   </Glass>
 );
 const Stepper = ({ label, value, unit, dec, step = 1, min = 0, max = 999, onChange }) => (
   <div className="flex items-center justify-between px-1">
-    <span className="text-[10px] tracking-[.12em] uppercase font-mono text-[#7C8C8C]">{label}</span>
+    <span className="text-[10px] tracking-[.12em] uppercase font-mono text-[#55655F]">{label}</span>
     <div className="flex items-center gap-1.5">
       <button onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))}
-        className="w-11 h-11 rounded-lg border border-[#3A464B] text-[#D3DEDC] font-bold text-base leading-none flex items-center justify-center active:bg-[#1A2226]">−</button>
-      <span className="font-mono tnum text-sm font-bold text-[#D3DEDC] w-[64px] text-center">{dec != null ? Number(value).toFixed(dec) : value}{unit}</span>
+        className="w-11 h-11 rounded-lg border border-[#C6C0AC] text-[#24322C] font-bold text-base leading-none flex items-center justify-center active:bg-[#E8E3D2]">−</button>
+      <span className="font-mono tnum text-sm font-bold text-[#24322C] w-[64px] text-center">{dec != null ? Number(value).toFixed(dec) : value}{unit}</span>
       <button onClick={() => onChange(Math.min(max, +(value + step).toFixed(2)))}
-        className="w-11 h-11 rounded-lg border border-[#3A464B] text-[#D3DEDC] font-bold text-base leading-none flex items-center justify-center active:bg-[#1A2226]">+</button>
+        className="w-11 h-11 rounded-lg border border-[#C6C0AC] text-[#24322C] font-bold text-base leading-none flex items-center justify-center active:bg-[#E8E3D2]">+</button>
     </div>
   </div>
 );
 const Toggle2 = ({ value, onChange, options }) => (
-  <div className="flex rounded-lg bg-[#0A0E10] border border-[#2A363A] p-0.5">
+  <div className="flex rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] p-0.5">
     {options.map((o) => (
       <button key={o.v} onClick={() => onChange(o.v)}
         className={'flex-1 text-[10px] font-mono font-bold tracking-wide py-1 rounded-md transition-colors ' +
-          (value === o.v ? 'bg-[#2EE6C7] text-[#06231D]' : 'text-[#7C8C8C]')}>
+          (value === o.v ? 'bg-[#0C6B48] text-[#FFFFFF]' : 'text-[#55655F]')}>
         {o.label}
       </button>
     ))}
@@ -1896,30 +1896,30 @@ const Toggle2 = ({ value, onChange, options }) => (
 );
 const Switch = ({ on, onChange, label }) => (
   <button onClick={() => onChange(!on)} className="flex items-center gap-2">
-    <span className={'relative w-8 h-[18px] rounded-full transition-colors ' + (on ? 'bg-[#2EE6C7]' : 'bg-[#2A363A]')}>
-      <span className={'absolute top-[2px] w-[14px] h-[14px] rounded-full bg-[#0A0E10] transition-all ' + (on ? 'left-[16px]' : 'left-[2px]')} />
+    <span className={'relative w-8 h-[18px] rounded-full transition-colors ' + (on ? 'bg-[#0C6B48]' : 'bg-[#E2DCC9]')}>
+      <span className={'absolute top-[2px] w-[14px] h-[14px] rounded-full bg-[#F4F1E7] transition-all ' + (on ? 'left-[16px]' : 'left-[2px]')} />
     </span>
-    <span className="text-[10px] tracking-[.1em] uppercase text-[#D3DEDC] font-mono">{label}</span>
+    <span className="text-[10px] tracking-[.1em] uppercase text-[#24322C] font-mono">{label}</span>
   </button>
 );
 const Dock = ({ children }) => (
-  <div className="flex items-stretch gap-2 px-2.5 py-2.5 rounded-2xl bg-[#131A1D]/96 border border-[#2A363A] shadow-[0_6px_28px_rgba(0,0,0,.55)]">{children}</div>
+  <div className="flex items-stretch gap-2 px-2.5 py-2.5 rounded-2xl bg-[#FFFFFF]/96 border border-[#E2DCC9] shadow-[0_6px_28px_rgba(20,32,28,.12)]">{children}</div>
 );
 const DockBtn = ({ icon: Icon, label, tone = 'teal', big, onClick, disabled }) => {
   const tones = {
-    teal: 'bg-[#2EE6C7] text-[#06231D] shadow-[0_3px_0_#17A88F]',
-    green: 'bg-[#34C76F] text-[#052112] shadow-[0_3px_0_#1E8A4A]',
-    amber: 'bg-[#FFB648] text-[#2B1900] shadow-[0_3px_0_#B87F1F]',
-    red: 'bg-[#FF5252] text-[#2B0808] shadow-[0_3px_0_#B22E2E]',
-    ghost: 'bg-transparent text-[#D3DEDC] border border-[#3A464B]',
-    dim: 'bg-[#1B2427] text-[#5C6C6C] border border-[#2A363A]'
+    teal: 'bg-[#0C6B48] text-[#FFFFFF] shadow-[0_5px_0_#084A31]',
+    green: 'bg-[#0A5238] text-[#FFFFFF] shadow-[0_5px_0_#063A27]',
+    amber: 'bg-[#8A4B06] text-[#FFFFFF] shadow-[0_5px_0_#5C3204]',
+    red: 'bg-[#A5201A] text-[#FFFFFF] shadow-[0_5px_0_#7C1712]',
+    ghost: 'bg-[#FFFFFF] text-[#14201C] border-2 border-[#C6C0AC]',
+    dim: 'bg-[#E8E3D2] text-[#4A564F] border border-[#E2DCC9]'
   };
   return (
     <button onClick={onClick} disabled={disabled}
       className={'flex-1 rounded-xl flex flex-col items-center justify-center gap-1 transition-transform active:translate-y-[1px] disabled:opacity-50 ' +
-        (big ? 'min-h-[64px]' : 'min-h-[58px]') + ' ' + tones[tone]}>
-      <Icon size={big ? 21 : 17} strokeWidth={2.3} className={disabled && (tone === 'dim') ? 'animate-pulse' : ''} />
-      <span className="font-semibold text-[10.5px] tracking-[.03em] text-center leading-none">{label}</span>
+        (big ? 'min-h-[80px]' : 'min-h-[68px]') + ' ' + tones[tone]}>
+      <Icon size={big ? 26 : 21} strokeWidth={2.3} className={disabled && (tone === 'dim') ? 'animate-pulse' : ''} />
+      <span className="font-semibold text-[13px] tracking-[.01em] text-center leading-tight px-1">{label}</span>
     </button>
   );
 };
@@ -1931,13 +1931,13 @@ const SlidersIcon = (p) => <Svg {...p}><line x1="4" y1="21" x2="4" y2="14"/><lin
  *  sketch), drawn pointing up and rotated by the caller so it points north. */
 const NorthArrow = ({ size = 18, style }) => (
   <svg width={size + 6} height={size + 6} viewBox="0 0 24 24" style={style} aria-hidden="true">
-    <path d="M12 2.2 L19.6 21.2 L12 16.6 L4.4 21.2 Z" fill="#FF3B3B" stroke="#0A0E10" strokeWidth="0.8" strokeLinejoin="round" />
+    <path d="M12 2.2 L19.6 21.2 L12 16.6 L4.4 21.2 Z" fill="#C62F26" stroke="#F4F1E7" strokeWidth="0.8" strokeLinejoin="round" />
   </svg>
 );
 const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
   <button onClick={onClick} disabled={disabled} title={title} aria-label={title}
-    className={'w-11 h-11 rounded-full flex items-center justify-center border shadow-[0_2px_14px_rgba(0,0,0,.5)] transition-colors disabled:opacity-40 ' +
-      (active ? 'bg-[#2EE6C7] border-[#2EE6C7] text-[#06231D]' : 'bg-[#131A1D]/95 border-[#2A363A] text-[#D3DEDC]')}>
+    className={'w-11 h-11 rounded-full flex items-center justify-center border shadow-[0_2px_14px_rgba(20,32,28,.12)] transition-colors disabled:opacity-40 ' +
+      (active ? 'bg-[#0C6B48] border-[#0C6B48] text-[#FFFFFF]' : 'bg-[#FFFFFF]/95 border-[#E2DCC9] text-[#24322C]')}>
     <Icon size={18} strokeWidth={2.2} />
   </button>
 );
@@ -2118,19 +2118,19 @@ function App() {
     if (document.getElementById('agras-tracker-fonts')) return;
     const link = document.createElement('link');
     link.id = 'agras-tracker-fonts'; link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap';
+    link.href = 'https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap';
     document.head.appendChild(link);
     const style = document.createElement('style');
     style.id = 'agras-tracker-type';
     style.textContent = `
-      .font-display{font-family:'Archivo',ui-sans-serif,system-ui,sans-serif!important;}
+      .font-display{font-family:'Bai Jamjuree','IBM Plex Sans Thai',ui-sans-serif,system-ui,sans-serif!important;}
       .font-mono{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,monospace!important;}
       .font-sans{font-family:'IBM Plex Sans Thai',ui-sans-serif,system-ui,sans-serif!important;}
       .tnum{font-variant-numeric:tabular-nums;}
       @keyframes oob-pulse{0%,100%{box-shadow:inset 0 0 0 0 rgba(255,60,60,0)}50%{box-shadow:inset 0 0 46px 12px rgba(255,60,60,.6)}}
       .oob-border{animation:oob-pulse 1.1s ease-in-out infinite;}
       @keyframes green-flash{0%{opacity:.55}100%{opacity:0}}
-      .green-flash{animation:green-flash 2.1s ease-out forwards;background:radial-gradient(circle,rgba(52,199,111,.5),transparent 70%);}
+      .green-flash{animation:green-flash 2.1s ease-out forwards;background:radial-gradient(circle,rgba(10,82,56,.45),transparent 70%);}
       @media (prefers-reduced-motion: reduce){
         .oob-border{animation:none;box-shadow:inset 0 0 0 4px rgba(255,60,60,.7)!important;}
         .green-flash{animation:none;opacity:0;}
@@ -2976,7 +2976,7 @@ function App() {
       if (cv) {
         let navLine = null;
         const om = opModeRef.current;
-        if (ph === 'running' && om === 'toStation') navLine = { from: sim.pos, to: stationRef.current, color: 'rgba(46,230,199,.85)' };
+        if (ph === 'running' && om === 'toStation') navLine = { from: sim.pos, to: stationRef.current, color: 'rgba(10,82,56,.9)' };
         const lastStop = ph === 'ready' ? lastStopOfActiveField() : null;
         const rp = routePlanRef.current;
         const route = rp && (ph === 'ready' || ph === 'running' || ph === 'paused') ? { ...rp.variants[rp.idx], faint: ph !== 'ready', swath: swathRef.current } : null;
@@ -3011,7 +3011,7 @@ function App() {
         if (ph === 'station') {
           const pt = stationDraftRef.current || stationRef.current;
           const v = viewRef.current, ctx = cv.getContext('2d');
-          ctx.save(); ctx.strokeStyle = 'rgba(46,230,199,.6)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+          ctx.save(); ctx.strokeStyle = 'rgba(10,82,56,.6)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
           const kk = Math.min(2, window.devicePixelRatio || 1);
           ctx.lineWidth = 1.5 * kk;
           ctx.beginPath(); ctx.arc(X_(v, pt.x), Y_(v, pt.y), (13 + 3 * Math.sin(t / 220)) * kk, 0, Math.PI * 2); ctx.stroke();
@@ -3783,7 +3783,7 @@ function App() {
   const liveSpeedKmh = liveSpeedMs * 3.6;
   const paceZone = liveSpeedKmh < 0.3 ? 'stopped' : liveSpeedKmh < 2.5 ? 'slow' : liveSpeedKmh > 3.5 ? 'fast' : 'ideal';
   const paceLabel = { stopped: 'STOPPED', slow: 'TOO SLOW · OVER SPRAYING', fast: 'TOO FAST · UNDER SPRAYING', ideal: 'IDEAL PACE' }[paceZone];
-  const paceColor = { stopped: '#7C8C8C', slow: '#4EA8FF', fast: '#FF5252', ideal: '#34C76F' }[paceZone];
+  const paceColor = { stopped: '#55655F', slow: '#0B6BA8', fast: '#A5201A', ideal: '#0A5238' }[paceZone];
   // flow rate = ground area covered per minute (swath x speed) x solution
   // per square metre (rateLRai / 1600 rai-in-sqm) — the actual L/min a pump
   // set to the target application rate needs to deliver at THIS pace.
@@ -3812,8 +3812,8 @@ function App() {
   // Spec §4C: direction back to the boundary for the Auto-Pause banner arrow.
   const oobArrowDeg = oob ? bearingTo(sim.pos, nearestEdgePoint(sim.pos, field.poly).proj) : 0;
   const gpsQuality = gpsInfo ? (gpsInfo.accuracy <= 5 ? 'STRONG' : gpsInfo.accuracy <= 15 ? 'FAIR' : 'WEAK') : null;
-  const gpsColor = gpsQuality === 'STRONG' ? '#34C76F' : gpsQuality === 'FAIR' ? '#FFB648' : '#FF5252';
-  const gpsColorClass = gpsQuality === 'STRONG' ? 'text-[#34C76F]' : gpsQuality === 'FAIR' ? 'text-[#FFB648]' : 'text-[#FF5252]';
+  const gpsColor = gpsQuality === 'STRONG' ? '#0A5238' : gpsQuality === 'FAIR' ? '#8A4B06' : '#A5201A';
+  const gpsColorClass = gpsQuality === 'STRONG' ? 'text-[#0A5238]' : gpsQuality === 'FAIR' ? 'text-[#8A4B06]' : 'text-[#A5201A]';
 
 
   // ---- Tank & Liquid Volume Tracker -----------------------------------
@@ -3862,7 +3862,7 @@ function App() {
 
   return (
     <div
-      className="fixed inset-0 bg-[#0A0E10] text-[#D3DEDC] font-sans select-none overflow-hidden"
+      className="fixed inset-0 bg-[#F4F1E7] text-[#24322C] font-sans select-none overflow-hidden"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         paddingBottom: 'env(safe-area-inset-bottom)',
@@ -3899,14 +3899,14 @@ function App() {
           const top = fr.h > 0 ? (fr.top + fr.h) / dpr - 26 : 140;
           return (
             <div className="absolute left-3 pointer-events-none flex flex-col gap-0.5" style={{ top }}>
-              <span className="font-mono text-[9px] text-white/90" style={{ textShadow: '0 0 3px #000' }}>{L >= 1000 ? (L / 1000) + ' km' : L + ' m'}</span>
+              <span className="font-mono text-[9px] font-semibold text-[#14201C]" style={{ textShadow: '0 0 3px rgba(255,255,255,.95)' }}>{L >= 1000 ? (L / 1000) + ' km' : L + ' m'}</span>
               <div style={{ width: w, height: 5, borderLeft: '2px solid #fff', borderRight: '2px solid #fff', borderBottom: '2px solid #fff', filter: 'drop-shadow(0 0 2px #000)' }} />
             </div>
           );
         })()}
         {phase === 'boundary' && satelliteOn && (
           <div className="absolute inset-x-0 flex items-center justify-center pointer-events-none" style={{ top: 0, height: '100%', transform: `translateY(${freeDyRef.current / Math.min(2, window.devicePixelRatio || 1)}px)` }}>
-            <Crosshair size={36} strokeWidth={1.5} className="text-[#2EE6C7]" style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,.85))' }} />
+            <Crosshair size={36} strokeWidth={1.5} className="text-[#0C6B48]" style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,.85))' }} />
           </div>
         )}
       </div>
@@ -3926,9 +3926,9 @@ function App() {
         <div className="flex flex-col gap-2 p-3 shrink-0" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
 
           {restoredToast && (phase === 'paused' || phase === 'running') && (
-            <div className="pointer-events-auto rounded-xl border border-[#FFB648]/50 bg-[#1C1710]/95 px-3.5 py-2.5 flex items-center gap-2.5">
-              <History size={16} className="text-[#FFB648] shrink-0" />
-              <p className="text-[11px] leading-snug text-[#E8DCC8] min-w-0">Unfinished mission restored. Tap Resume below to keep spraying, or Finish to end it.</p>
+            <div className="pointer-events-auto rounded-xl border border-[#8A4B06]/50 bg-[#FFF6E8]/95 px-3.5 py-2.5 flex items-center gap-2.5">
+              <History size={16} className="text-[#8A4B06] shrink-0" />
+              <p className="text-[11px] leading-snug text-[#2A1A00] min-w-0">Unfinished mission restored. Tap Resume below to keep spraying, or Finish to end it.</p>
             </div>
           )}
 
@@ -3941,7 +3941,7 @@ function App() {
                   reserved for the tank/critical-alert palette elsewhere),
                   plus an arrow pointing back toward the nearest boundary
                   point so the operator knows which way to walk. */}
-              <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#FFB648] text-[#3A2400] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(255,182,72,.5)]">
+              <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#8A4B06] text-[#FFFFFF] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(180,101,10,.35)]">
                 <Navigation size={22} strokeWidth={2.4} className="shrink-0" style={{ transform: `rotate(${oobArrowDeg}deg)` }} />
                 <div className="leading-tight min-w-0">
                   <p className="font-display font-extrabold text-sm tracking-wide">OUT OF BOUNDS — PAUSED</p>
@@ -3956,10 +3956,10 @@ function App() {
               GPS numbers never wrap onto (or push into) the other side. */}
           <div className="flex items-start justify-between gap-2">
             <Glass data-hud className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 basis-0 min-h-[48px]" onClick={secretDevTap}>
-              <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#FF5252]' : running ? 'text-[#2EE6C7]' : 'text-[#7C8C8C]')} />
+              <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#A5201A]' : running ? 'text-[#0C6B48]' : 'text-[#55655F]')} />
               <div className="leading-tight min-w-0">
-                <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#FF5252]' : '')}>{statusLabel}</p>
-                <p className="text-[9px] text-[#7C8C8C] font-mono truncate">
+                <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#A5201A]' : '')}>{statusLabel}</p>
+                <p className="text-[9px] text-[#55655F] font-mono truncate">
                   {phase === 'boundary' ? `${draft.length} corner${draft.length === 1 ? '' : 's'}`
                     : (activeFieldId || phase === 'running' || phase === 'paused' || phase === 'done')
                     ? (() => { const r = toRai(field.area); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()
@@ -3970,7 +3970,7 @@ function App() {
 
             <Glass data-hud className="pointer-events-auto px-2.5 py-2 flex flex-col justify-center gap-1.5 flex-1 basis-0 min-w-0 min-h-[48px] overflow-hidden">
               {devMode && (
-                <button onClick={() => setDevPanelOpen((v) => !v)} className="flex items-center justify-between w-full text-[9px] font-mono tracking-[.14em] text-[#5C6C6C]">
+                <button onClick={() => setDevPanelOpen((v) => !v)} className="flex items-center justify-between w-full text-[9px] font-mono tracking-[.14em] text-[#4A564F]">
                   <span>DEV{srcMode === 'sim' ? ' · SIM' : ''}</span>
                   <ChevronDown size={11} className={'transition-transform ' + (devPanelOpen ? 'rotate-180' : '')} />
                 </button>
@@ -3983,13 +3983,13 @@ function App() {
                     <div className="flex gap-1">
                       {[1, 20, 60].map((s) => (
                         <button key={s} onClick={() => setMult(s)}
-                          className={'font-mono text-[10px] min-w-[26px] min-h-[30px] px-0.5 rounded ' + (mult === s ? 'bg-[#2EE6C7] text-[#06231D] font-bold' : 'text-[#7C8C8C]')}>{s}×</button>
+                          className={'font-mono text-[10px] min-w-[26px] min-h-[30px] px-0.5 rounded ' + (mult === s ? 'bg-[#0C6B48] text-[#FFFFFF] font-bold' : 'text-[#55655F]')}>{s}×</button>
                       ))}
                     </div>
                   </div>
                   {phase === 'running' && (
                     <button onClick={simulateExcursion} disabled={excursionActive || opMode !== 'spray'}
-                      className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#FFB648] border border-[#2A363A] rounded py-1 disabled:opacity-40">
+                      className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#8A4B06] border border-[#E2DCC9] rounded py-1 disabled:opacity-40">
                       <AlertTriangle size={11} className="shrink-0" /> <span className="truncate">{excursionActive ? 'DEMO RUNNING…' : 'TEST OUT-OF-BOUNDS'}</span>
                     </button>
                   )}
@@ -3997,12 +3997,12 @@ function App() {
               )}
               {srcMode === 'gps' && (
                 <button onClick={() => setGpsCardOpen((v) => !v)} className="flex items-center justify-between gap-1.5 min-w-0 w-full">
-                  <span className="text-[9px] font-mono text-[#7C8C8C] truncate">
+                  <span className="text-[9px] font-mono text-[#55655F] truncate">
                     {gpsStatus === 'active' && gpsInfo ? `±${gpsInfo.accuracy.toFixed(1)}m` : gpsStatus === 'requesting' ? 'locating…' : gpsStatus}
                   </span>
                   <span className="flex items-center gap-1 shrink-0">
                     {gpsQuality && <span className="text-[8.5px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ color: gpsColor, border: `1px solid ${gpsColor}55` }}>{gpsQuality}</span>}
-                    <ChevronDown size={11} className={'text-[#7C8C8C] transition-transform ' + (gpsCardOpen ? 'rotate-180' : '')} />
+                    <ChevronDown size={11} className={'text-[#55655F] transition-transform ' + (gpsCardOpen ? 'rotate-180' : '')} />
                   </span>
                 </button>
               )}
@@ -4012,7 +4012,7 @@ function App() {
                   quick one-tap action only while a mission is actually live,
                   where reaching for a menu mid-spray would be annoying. */}
               {(!devMode || devPanelOpen) && (phase === 'running' || phase === 'paused') && (
-                <button onClick={startStationSetup} className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#2EE6C7] border border-[#2A363A] rounded py-1">
+                <button onClick={startStationSetup} className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#0C6B48] border border-[#E2DCC9] rounded py-1">
                   <Droplet size={11} /> SET STATION
                 </button>
               )}
@@ -4027,30 +4027,30 @@ function App() {
             <Glass className="pointer-events-auto px-3.5 py-3">
               <div className="grid grid-cols-3 gap-x-2 gap-y-2.5">
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#7C8C8C]">LAT</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">LAT</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsInfo ? gpsInfo.lat.toFixed(6) : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#7C8C8C]">LNG</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">LNG</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsInfo ? gpsInfo.lng.toFixed(6) : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#7C8C8C]">ACCURACY</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">ACCURACY</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate" style={{ color: gpsColor }}>{gpsInfo ? `±${gpsInfo.accuracy.toFixed(1)}m` : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#7C8C8C]">SPEED</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">SPEED</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsExtraRef.current.speed != null ? `${(gpsExtraRef.current.speed * 3.6).toFixed(1)} km/h` : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#7C8C8C]">HEADING</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">HEADING</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate flex items-center gap-1">
-                    <Compass size={11} className="text-[#2EE6C7] shrink-0" style={{ transform: gpsExtraRef.current.heading != null ? `rotate(${gpsExtraRef.current.heading}deg)` : undefined }} />
+                    <Compass size={11} className="text-[#0C6B48] shrink-0" style={{ transform: gpsExtraRef.current.heading != null ? `rotate(${gpsExtraRef.current.heading}deg)` : undefined }} />
                     {gpsExtraRef.current.heading != null ? `${gpsExtraRef.current.heading.toFixed(0)}°` : '—'}
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#7C8C8C]">ALTITUDE</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">ALTITUDE</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsExtraRef.current.altitude != null ? `${gpsExtraRef.current.altitude.toFixed(0)} m` : '—'}</p>
                 </div>
               </div>
@@ -4063,38 +4063,38 @@ function App() {
               physically impossible for this to overlap the tiles below: its
               own height simply pushes them down instead of covering them. */}
           {topHint === 'gps' && (
-            <Glass className="pointer-events-auto px-3.5 py-3 border-[#FFB648]/40">
-              <p className="font-display text-sm font-bold tracking-wide text-[#FFB648]">
+            <Glass className="pointer-events-auto px-3.5 py-3 border-[#8A4B06]/40">
+              <p className="font-display text-sm font-bold tracking-wide text-[#8A4B06]">
                 {{ requesting: 'REQUESTING GPS ACCESS…', denied: 'LOCATION PERMISSION DENIED', unavailable: 'GPS UNAVAILABLE', insecure: 'HTTPS REQUIRED FOR GPS', idle: 'STARTING GPS…' }[gpsStatus]}
               </p>
-              <p className="text-xs text-[#9AABAA] mt-1 leading-snug">
+              <p className="text-xs text-[#55655F] mt-1 leading-snug">
                 {gpsStatus === 'requesting' && 'Allow location access when your browser prompts you.'}
                 {gpsStatus === 'denied' && 'This page’s location permission is set to Block. Open the site settings (the icon next to the address bar) and set Location to Allow — the browser remembers that choice for this page, so you won’t be asked again.'}
                 {gpsStatus === 'unavailable' && 'This device or browser can’t report a location right now.'}
                 {gpsStatus === 'insecure' && 'Open this page over https:// (or localhost) — browsers block GPS on insecure origins.'}
               </p>
               <div className="mt-2 flex items-center gap-4">
-                {gpsStatus === 'denied' && <button onClick={() => setGpsRetryTick((n) => n + 1)} className="min-h-[30px] text-xs font-mono text-[#FFB648] underline">Try Again</button>}
+                {gpsStatus === 'denied' && <button onClick={() => setGpsRetryTick((n) => n + 1)} className="min-h-[30px] text-xs font-mono text-[#8A4B06] underline">Try Again</button>}
               </div>
             </Glass>
           )}
           {topHint === 'boundary' && (
             <Glass data-hud className="pointer-events-auto px-3.5 py-3">
-              <p className="font-display text-sm font-bold tracking-wide text-[#2EE6C7]">MAP THE PERIMETER</p>
-              <p className="text-xs text-[#9AABAA] mt-1 leading-snug">
+              <p className="font-display text-sm font-bold tracking-wide text-[#0C6B48]">MAP THE PERIMETER</p>
+              <p className="text-xs text-[#55655F] mt-1 leading-snug">
                 {satelliteOn
                   ? 'Drag the map so the crosshair sits on each corner, then tap Add at Crosshair.'
                   : srcMode === 'gps'
                   ? 'Walk the real edges and tap Mark Corner at each one, or tap the map.'
                   : 'Tap the field edges in order, ' + Math.max(0, 3 - draft.length) + ' more to close.'}
               </p>
-              <p className="font-mono text-[10px] text-[#7C8C8C] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{draft.length >= 3 ? ' · all corners in? tap CLOSE FIELD' : srcMode === 'gps' && !fieldRef.current.gpsAnchored ? ' · map a real boundary to continue' : ''}</p>
+              <p className="font-mono text-[10px] text-[#55655F] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{draft.length >= 3 ? ' · all corners in? tap CLOSE FIELD' : srcMode === 'gps' && !fieldRef.current.gpsAnchored ? ' · map a real boundary to continue' : ''}</p>
             </Glass>
           )}
           {topHint === 'station' && (
-            <Glass data-hud className="pointer-events-auto px-3.5 py-3 border-[#2EE6C7]/40">
-              <p className="font-display text-sm font-bold tracking-wide text-[#2EE6C7]">SET REFILL STATION</p>
-              <p className="text-xs text-[#9AABAA] mt-1 leading-snug">Tap where the mix tank sits{srcMode === 'gps' ? ', or use your current position.' : '.'}</p>
+            <Glass data-hud className="pointer-events-auto px-3.5 py-3 border-[#0C6B48]/40">
+              <p className="font-display text-sm font-bold tracking-wide text-[#0C6B48]">SET REFILL STATION</p>
+              <p className="text-xs text-[#55655F] mt-1 leading-snug">Tap where the mix tank sits{srcMode === 'gps' ? ', or use your current position.' : '.'}</p>
             </Glass>
           )}
         </div>
@@ -4120,8 +4120,8 @@ function App() {
             {(phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2 items-end" style={running && !showStats ? { display: 'none' } : undefined}>
                 <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} actionLabel={opMode === 'spray' ? 'TANK EMPTY' : 'REFILLED · SPRAY'} />
-                <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#34C76F]" />
-                <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#FFB648]' : undefined} />
+                <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#0A5238]" />
+                <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#8A4B06]' : undefined} />
                 {srcMode === 'gps' && gpsInfo && <Tile icon={Satellite} label="GPS" value={gpsInfo.lat.toFixed(4)} unit={gpsInfo.lng.toFixed(4)} accent={gpsColorClass} />}
               </div>
             )}
@@ -4146,7 +4146,7 @@ function App() {
                 {phase === 'ready' && (
                   <div className="flex flex-col items-center gap-0.5">
                     <MapCtrlBtn icon={RouteIcon} active={!!routePlan} onClick={toggleRoute} title="Suggest route" />
-                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#EAF3F1] [text-shadow:0_1px_3px_#000]">ROUTE</span>
+                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] [text-shadow:0_1px_3px_#000]">ROUTE</span>
                   </div>
                 )}
                 {/* compass: only when the map has been rotated; tap = north up */}
@@ -4173,20 +4173,20 @@ function App() {
         {phase === 'running' && guidanceCopy && (
           <div className="shrink-0 px-3 pb-2 flex justify-center">
             <div className="pointer-events-auto w-full max-w-[380px]">
-              <Glass className={'overflow-hidden ' + (guidanceCopy.tone === 'cyan' ? 'border-[#2EE6C7]/40' : 'border-[#FFB648]/40')}>
+              <Glass className={'overflow-hidden ' + (guidanceCopy.tone === 'cyan' ? 'border-[#0C6B48]/40' : 'border-[#8A4B06]/40')}>
                 <div className="px-4 pt-3 pb-2.5 flex items-center gap-3">
-                  <div className={'shrink-0 w-10 h-10 rounded-full flex items-center justify-center ' + (guidanceCopy.tone === 'cyan' ? 'bg-[#2EE6C7]/15' : 'bg-[#FFB648]/15')}>
-                    <Navigation size={20} className={guidanceCopy.tone === 'cyan' ? 'text-[#2EE6C7]' : 'text-[#FFB648]'}
+                  <div className={'shrink-0 w-10 h-10 rounded-full flex items-center justify-center ' + (guidanceCopy.tone === 'cyan' ? 'bg-[#0C6B48]/15' : 'bg-[#8A4B06]/15')}>
+                    <Navigation size={20} className={guidanceCopy.tone === 'cyan' ? 'text-[#0C6B48]' : 'text-[#8A4B06]'}
                       style={{ transform: `rotate(${bearingTo(sim.pos, stationRef.current)}deg)` }} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={'font-display text-sm font-bold tracking-wide truncate ' + (guidanceCopy.tone === 'cyan' ? 'text-[#2EE6C7]' : 'text-[#FFB648]')}>{guidanceCopy.title}</p>
-                    {guidanceCopy.sub && <p className="text-xs text-[#9AABAA] mt-0.5 leading-snug">{guidanceCopy.sub}</p>}
+                    <p className={'font-display text-sm font-bold tracking-wide truncate ' + (guidanceCopy.tone === 'cyan' ? 'text-[#0C6B48]' : 'text-[#8A4B06]')}>{guidanceCopy.title}</p>
+                    {guidanceCopy.sub && <p className="text-xs text-[#55655F] mt-0.5 leading-snug">{guidanceCopy.sub}</p>}
                   </div>
                 </div>
-                <div className="px-3.5 py-2 bg-[#131A1D] border-t border-[#2A363A] min-w-0">
-                  <p className="text-[8.5px] tracking-[.12em] font-mono text-[#7C8C8C]">TO STATION</p>
-                  <p className="font-mono tnum text-base font-bold text-[#2EE6C7] mt-0.5 truncate">{dStation.toFixed(1)} m</p>
+                <div className="px-3.5 py-2 bg-[#FFFFFF] border-t border-[#E2DCC9] min-w-0">
+                  <p className="text-[8.5px] tracking-[.12em] font-mono text-[#55655F]">TO STATION</p>
+                  <p className="font-mono tnum text-base font-bold text-[#0C6B48] mt-0.5 truncate">{dStation.toFixed(1)} m</p>
                 </div>
               </Glass>
             </div>
@@ -4200,20 +4200,20 @@ function App() {
           <div className="shrink-0 px-3 pb-2 flex items-end justify-between gap-2">
             <div className="pointer-events-auto min-w-0">
               <Glass className="px-3.5 py-2.5 max-w-[220px]">
-                <p className="text-[9px] tracking-[.14em] uppercase font-mono text-[#7C8C8C] truncate">Area sprayed</p>
+                <p className="text-[9px] tracking-[.14em] uppercase font-mono text-[#55655F] truncate">Area sprayed</p>
                 <div className="flex items-baseline gap-1.5 mt-0.5 min-w-0">
-                  <span className="font-mono tnum text-xl font-bold text-[#D3DEDC] leading-none shrink-0">{areaSprayed.toFixed(0)}</span>
-                  <span className="text-[11px] text-[#7C8C8C] truncate">m² of {field.area.toFixed(0)}</span>
+                  <span className="font-mono tnum text-xl font-bold text-[#24322C] leading-none shrink-0">{areaSprayed.toFixed(0)}</span>
+                  <span className="text-[11px] text-[#55655F] truncate">m² of {field.area.toFixed(0)}</span>
                 </div>
-                <p className="font-mono tnum text-[11px] text-[#34C76F] mt-1 truncate">{rai.rai}-{rai.ngan}-{rai.wa} rai <span className="text-[#7C8C8C]">· tank #{tankNumber}</span></p>
+                <p className="font-mono tnum text-[11px] text-[#0A5238] mt-1 truncate">{rai.rai}-{rai.ngan}-{rai.wa} rai <span className="text-[#55655F]">· tank #{tankNumber}</span></p>
               </Glass>
             </div>
             <div className="pointer-events-auto shrink-0">
               <Glass className="px-3 py-2.5 flex flex-col gap-1.5">
-                {[['#3A464B', 'Unsprayed'], ['#34C76F', 'Sprayed'], ['#FFB648', 'Overlapped']].map(([c, l]) => (
+                {[['#C6C0AC', 'Unsprayed'], ['#0A5238', 'Sprayed'], ['#8A4B06', 'Overlapped']].map(([c, l]) => (
                   <div key={l} className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-[2px] shrink-0" style={{ background: c }} />
-                    <span className="text-[9.5px] text-[#9AABAA] whitespace-nowrap">{l}</span>
+                    <span className="text-[9.5px] text-[#55655F] whitespace-nowrap">{l}</span>
                   </div>
                 ))}
               </Glass>
@@ -4248,27 +4248,27 @@ function App() {
                 const r = routePlan.variants[routePlan.idx], other = routePlan.variants[1 - routePlan.idx];
                 const tanks = r.tanks.length + 1;
                 return (
-                  <div className="rounded-xl bg-[#131A1D] border border-[#29C5F6]/50 px-3.5 py-2.5 shadow-[0_2px_14px_rgba(0,0,0,.5)]">
+                  <div className="rounded-xl bg-[#FFFFFF] border border-[#0B6BA8]/50 px-3.5 py-2.5 shadow-[0_2px_14px_rgba(20,32,28,.12)]">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#29C5F6] font-bold">
+                        <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#0B6BA8] font-bold">
                           Suggested route · {r.along ? 'along the long side' : 'across the field'}{routePlan.idx === routePlan.best ? ' · best' : ''}
                         </p>
-                        <p className="text-[12px] font-mono text-[#EAF3F1] font-bold mt-0.5">
+                        <p className="text-[12px] font-mono text-[#14201C] font-bold mt-0.5">
                           {r.lanes} lanes · {Math.round(r.sprayLen)} m · about {tanks} tank{tanks === 1 ? '' : 's'}
                         </p>
-                        <p className="text-[10px] font-mono text-[#9AABAA] mt-0.5">
+                        <p className="text-[10px] font-mono text-[#55655F] mt-0.5">
                           Walk to refill ≈ {Math.round(r.empty)} m{r.tanks.length ? ` · ① ② … = tank runs out` : ''}
                         </p>
                         {routePlan.idx === routePlan.best && routePlan.farSaves >= 30 && (
-                          <p className="text-[10px] font-mono text-[#7C8C8C] mt-0.5">Starting at the far end would save ≈ {routePlan.farSaves} m</p>
+                          <p className="text-[10px] font-mono text-[#55655F] mt-0.5">Starting at the far end would save ≈ {routePlan.farSaves} m</p>
                         )}
                       </div>
-                      <button onClick={() => setRoutePlan(null)} aria-label="Close route" className="text-[#7C8C8C] p-1 shrink-0"><X size={16} /></button>
+                      <button onClick={() => setRoutePlan(null)} aria-label="Close route" className="text-[#55655F] p-1 shrink-0"><X size={16} /></button>
                     </div>
                     {other && (
                       <button onClick={() => setRoutePlan((p) => ({ ...p, idx: 1 - p.idx }))}
-                        className="mt-2 w-full min-h-[38px] rounded-lg border border-[#29C5F6]/50 text-[11px] font-mono font-bold text-[#29C5F6] flex items-center justify-center gap-1.5">
+                        className="mt-2 w-full min-h-[38px] rounded-lg border border-[#0B6BA8]/50 text-[11px] font-mono font-bold text-[#0B6BA8] flex items-center justify-center gap-1.5">
                         <RotateCcw size={13} /> {other.along ? 'LANES ALONG THE LONG SIDE' : 'LANES ACROSS THE FIELD'} · {Math.round(other.empty)} m walk
                       </button>
                     )}
@@ -4292,23 +4292,23 @@ function App() {
                 return (
                   <div className="flex justify-end items-center gap-2 flex-wrap">
                     {stop && (
-                      <div className="mr-auto flex items-center gap-1.5 rounded-full bg-[#131A1D] border border-white/40 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(0,0,0,.5)] text-[11px] font-mono font-bold text-[#EAF3F1]">
-                        <span className="w-3 h-3 rounded-full border-2 border-white flex items-center justify-center shrink-0"><span className="w-1 h-1 rounded-full bg-[#FFB648]" /></span>
+                      <div className="mr-auto flex items-center gap-1.5 rounded-full bg-[#FFFFFF] border border-[#14201C]/30 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(20,32,28,.12)] text-[11px] font-mono font-bold text-[#14201C]">
+                        <span className="w-3 h-3 rounded-full border-2 border-[#14201C] flex items-center justify-center shrink-0"><span className="w-1 h-1 rounded-full bg-[#8A4B06]" /></span>
                         {stopDist == null ? 'Last stop' : stopDist < 8 ? 'You are at the last stop' : `Last stop · ${Math.round(stopDist)} m`}
                       </div>
                     )}
                     {reason && (
                       <button onClick={() => setShowSpraySettings(true)}
-                        className="flex items-center gap-1.5 rounded-full bg-[#131A1D] border border-[#FFB648]/50 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(0,0,0,.5)] text-[11px] font-mono font-bold text-[#FFB648]">
+                        className="flex items-center gap-1.5 rounded-full bg-[#FFFFFF] border border-[#8A4B06]/50 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(20,32,28,.12)] text-[11px] font-mono font-bold text-[#8A4B06]">
                         <AlertTriangle size={13} className="shrink-0" />{reason}
                       </button>
                     )}
                     <button onClick={() => setShowSpraySettings(true)} aria-label="Settings" className="flex flex-col items-center gap-0.5">
-                      <span className="relative w-14 h-14 rounded-full bg-[#131A1D] border border-[#2A363A] shadow-[0_2px_14px_rgba(0,0,0,.5)] flex items-center justify-center text-[#2EE6C7]">
+                      <span className="relative w-14 h-14 rounded-full bg-[#FFFFFF] border border-[#E2DCC9] shadow-[0_2px_14px_rgba(20,32,28,.12)] flex items-center justify-center text-[#0C6B48]">
                         <SlidersIcon size={24} />
-                        {reason && <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[#FFB648] border-2 border-[#131A1D]" />}
+                        {reason && <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[#8A4B06] border-2 border-[#FFFFFF]" />}
                       </span>
-                      <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#EAF3F1] [text-shadow:0_1px_3px_#000]">SETTINGS</span>
+                      <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#14201C] [text-shadow:0_1px_3px_#000]">SETTINGS</span>
                     </button>
                   </div>
                 );
@@ -4317,20 +4317,20 @@ function App() {
                   about to spray and the button that sprays it, side by side. */}
               <div className="flex gap-2 items-stretch">
                 <button onClick={() => setShowFieldLibrary(true)}
-                  className="flex-1 min-w-0 text-left rounded-xl border border-[#2EE6C7]/40 bg-gradient-to-br from-[#12302B] to-[#0F2320] px-3.5 py-3 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-[#2EE6C7]/15 border border-[#2EE6C7]/30 flex items-center justify-center shrink-0">
-                    <MapPinned size={18} className="text-[#2EE6C7]" />
+                  className="flex-1 min-w-0 text-left rounded-xl border border-[#0C6B48]/40 bg-gradient-to-br from-[#E3F1E9] to-[#EAF4EF] px-3.5 py-3 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-[#0C6B48]/15 border border-[#0C6B48]/30 flex items-center justify-center shrink-0">
+                    <MapPinned size={18} className="text-[#0C6B48]" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#2EE6C7]/80 font-bold">Field selector</p>
+                    <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#0C6B48]/80 font-bold">Field selector</p>
                     {activeFieldEntry ? (
                       <>
-                        <p className="font-display text-[15px] font-bold text-[#EAF3F1] truncate">{activeFieldEntry.name}</p>
-                        <p className="text-[10px] font-mono text-[#9AABAA] truncate">
+                        <p className="font-display text-[15px] font-bold text-[#14201C] truncate">{activeFieldEntry.name}</p>
+                        <p className="text-[10px] font-mono text-[#55655F] truncate">
                           {(() => { const r = toRai(activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}
                           {' · '}{activeFieldEntry.lastSprayedTs ? `sprayed ${fmtDate(activeFieldEntry.lastSprayedTs)}` : `created ${fmtDate(activeFieldEntry.ts)}`}
                         </p>
-                        <p className="text-[10px] font-mono text-[#34C76F] truncate">
+                        <p className="text-[10px] font-mono text-[#0A5238] truncate">
                           Round {activeFieldEntry.round || 1}{activeFieldEntry.cov && activeFieldEntry.cov.sprayedCells > 0
                             ? ` · ${Math.min(100, (activeFieldEntry.cov.sprayedCells * CELL * CELL) / (activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600) * 100).toFixed(0)}% sprayed`
                             : ' · not started'}
@@ -4338,19 +4338,19 @@ function App() {
                       </>
                     ) : (
                       <>
-                        <p className="font-display text-[15px] font-bold text-[#EAF3F1] truncate">
+                        <p className="font-display text-[15px] font-bold text-[#14201C] truncate">
                           {fieldLibrary.length > 0 ? 'Tap to choose a saved field' : 'No saved fields yet'}
                         </p>
-                        <p className="text-[10px] font-mono text-[#9AABAA] truncate">
+                        <p className="text-[10px] font-mono text-[#55655F] truncate">
                           {fieldLibrary.length > 0 ? `${fieldLibrary.length} field${fieldLibrary.length === 1 ? '' : 's'} in library` : 'Plot a field, then tap SAVE below'}
                         </p>
                       </>
                     )}
                   </div>
-                  <ChevronDown size={16} className="text-[#2EE6C7]/70 -rotate-90 shrink-0" />
+                  <ChevronDown size={16} className="text-[#0C6B48]/70 -rotate-90 shrink-0" />
                 </button>
                 <button onClick={startSpraying}
-                  className="shrink-0 w-[104px] rounded-xl bg-[#34C76F] text-[#052112] shadow-[0_3px_0_#1E8A4A] flex flex-col items-center justify-center gap-1.5 px-2 active:translate-y-px">
+                  className="shrink-0 w-[104px] rounded-xl bg-[#0A5238] text-[#FFFFFF] shadow-[0_5px_0_#063A27] flex flex-col items-center justify-center gap-1.5 px-2 active:translate-y-px">
                   <Play size={22} strokeWidth={2.6} className="fill-current" />
                   <span className="font-display font-extrabold text-[11px] tracking-wide leading-tight text-center">START SPRAYING</span>
                 </button>
@@ -4380,36 +4380,36 @@ function App() {
         const setRow = (i, k, v) => setChemDraft((d) => d.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
         const close = () => setChemSheet(null);
         return (
-          <div className="absolute inset-0 z-40 bg-[#0A0E10]/92 flex items-center justify-center p-4">
-            <div className="w-full max-w-[380px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4 max-h-[92vh] overflow-y-auto">
+          <div className="absolute inset-0 z-40 bg-[#F4F1E7]/92 flex items-center justify-center p-4">
+            <div className="w-full max-w-[380px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4 max-h-[92vh] overflow-y-auto">
               <p className="font-display text-[15px] font-bold tracking-wide">CHEMICALS · ROUND {(e && e.round) || 1}</p>
-              <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">สารที่ใช้ในการฉีดพ่นครั้งนี้ · อัตราต่อถัง</p>
+              <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">สารที่ใช้ในการฉีดพ่นครั้งนี้ · อัตราต่อถัง</p>
               <div className="flex flex-col gap-2">
                 {chemDraft.map((c, i) => (
                   <div key={i} className="flex gap-1.5 items-center">
                     <input value={c.name} onChange={(ev) => setRow(i, 'name', ev.target.value)} placeholder="ชื่อสาร" aria-label="Chemical name"
-                      className="flex-1 min-w-0 min-h-[42px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[12px] text-[#EAF3F1] placeholder:text-[#5C6C6C]" />
+                      className="flex-1 min-w-0 min-h-[42px] px-2.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[12px] text-[#14201C] placeholder:text-[#4A564F]" />
                     <input value={c.rate} onChange={(ev) => setRow(i, 'rate', ev.target.value)} placeholder="อัตรา" inputMode="decimal" aria-label="Rate per tank"
-                      className="w-[56px] min-h-[42px] px-2 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[12px] font-mono text-[#EAF3F1] placeholder:text-[#5C6C6C]" />
+                      className="w-[56px] min-h-[42px] px-2 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[12px] font-mono text-[#14201C] placeholder:text-[#4A564F]" />
                     <select value={c.unit} onChange={(ev) => setRow(i, 'unit', ev.target.value)} aria-label="Unit"
-                      className="w-[82px] min-h-[42px] px-1.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[12px] text-[#D3DEDC]">
+                      className="w-[82px] min-h-[42px] px-1.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[12px] text-[#24322C]">
                       {CHEM_UNITS.map((u) => <option key={u} value={u}>{u}/ถัง</option>)}
                     </select>
-                    <button onClick={() => setChemDraft((d) => d.filter((_, j) => j !== i))} aria-label="Remove chemical" className="w-9 min-h-[42px] flex items-center justify-center text-[#7C8C8C]"><X size={16} /></button>
+                    <button onClick={() => setChemDraft((d) => d.filter((_, j) => j !== i))} aria-label="Remove chemical" className="w-9 min-h-[42px] flex items-center justify-center text-[#55655F]"><X size={16} /></button>
                   </div>
                 ))}
                 <button onClick={() => setChemDraft((d) => [...d, { name: '', rate: '', unit: 'cc' }])}
-                  className="min-h-[40px] rounded-lg border border-dashed border-[#3A464B] text-[11px] font-mono text-[#9AABAA] flex items-center justify-center gap-1.5">
+                  className="min-h-[40px] rounded-lg border border-dashed border-[#C6C0AC] text-[11px] font-mono text-[#55655F] flex items-center justify-center gap-1.5">
                   <Plus size={13} /> ADD CHEMICAL
                 </button>
               </div>
               {memory.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C] mb-1.5">เคยใช้</p>
+                  <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F] mb-1.5">เคยใช้</p>
                   <div className="flex flex-wrap gap-1.5">
                     {memory.slice(0, 10).map((m) => (
                       <button key={m.name} onClick={() => setChemDraft((d) => [...d.filter((c) => c.name.trim()), { ...m }])}
-                        className="px-2.5 py-1.5 rounded-full border border-[#2EE6C7]/40 text-[11px] text-[#2EE6C7]">{chemLine(m)}</button>
+                        className="px-2.5 py-1.5 rounded-full border border-[#0C6B48]/40 text-[11px] text-[#0C6B48]">{chemLine(m)}</button>
                     ))}
                   </div>
                 </div>
@@ -4446,40 +4446,40 @@ function App() {
           AgrasLog.add('REPORT', `shared report for field ${f.id} (${rounds.length} rounds)`);
         };
         return (
-          <div className="absolute inset-0 z-40 bg-[#0A0E10] flex flex-col">
-            <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-[#2A363A]" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
+          <div className="absolute inset-0 z-40 bg-[#F4F1E7] flex flex-col">
+            <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-[#E2DCC9]" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
               <div className="min-w-0">
                 <p className="font-display text-[15px] font-bold tracking-wide">SPRAY REPORT</p>
-                <p className="text-[11px] text-[#9AABAA] truncate">{f.name} · {(f.areaRai || 0).toFixed(2)} ไร่</p>
+                <p className="text-[11px] text-[#55655F] truncate">{f.name} · {(f.areaRai || 0).toFixed(2)} ไร่</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button onClick={share} className="min-h-[38px] px-3 rounded-lg bg-[#2EE6C7] text-[#06231D] text-[11px] font-bold font-mono">SHARE</button>
-                <button onClick={() => setReportFieldId(null)} aria-label="Close report" className="text-[#7C8C8C] p-2"><X size={20} /></button>
+                <button onClick={share} className="min-h-[38px] px-3 rounded-lg bg-[#0C6B48] text-[#FFFFFF] text-[11px] font-bold font-mono">SHARE</button>
+                <button onClick={() => setReportFieldId(null)} aria-label="Close report" className="text-[#55655F] p-2"><X size={20} /></button>
               </div>
             </div>
-            {reportMsg && <p className="px-4 pt-2 text-[11px] font-mono text-[#34C76F]">{reportMsg}</p>}
+            {reportMsg && <p className="px-4 pt-2 text-[11px] font-mono text-[#0A5238]">{reportMsg}</p>}
             <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-              {rounds.length === 0 && <p className="text-[12px] text-[#7C8C8C] text-center mt-8">ยังไม่มีการฉีดพ่นในแปลงนี้</p>}
+              {rounds.length === 0 && <p className="text-[12px] text-[#55655F] text-center mt-8">ยังไม่มีการฉีดพ่นในแปลงนี้</p>}
               {rounds.map((r) => (
-                <div key={r.n} className={'rounded-xl border p-3.5 ' + (r.done ? 'border-[#2A363A] bg-[#131A1D]' : 'border-[#2EE6C7]/40 bg-[#12302B]/60')}>
+                <div key={r.n} className={'rounded-xl border p-3.5 ' + (r.done ? 'border-[#E2DCC9] bg-[#FFFFFF]' : 'border-[#0C6B48]/40 bg-[#E3F1E9]/60')}>
                   <div className="flex items-center justify-between">
                     <p className="font-display text-[15px] font-bold">ครั้งที่ {r.n}</p>
-                    <span className={'text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ' + (r.done ? 'text-[#34C76F] border border-[#34C76F]/40' : 'text-[#FFB648] border border-[#FFB648]/40')}>{r.done ? 'พ่นเสร็จแล้ว' : 'ยังไม่เสร็จ'}</span>
+                    <span className={'text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ' + (r.done ? 'text-[#0A5238] border border-[#0A5238]/40' : 'text-[#8A4B06] border border-[#8A4B06]/40')}>{r.done ? 'พ่นเสร็จแล้ว' : 'ยังไม่เสร็จ'}</span>
                   </div>
                   <dl className="mt-2 grid grid-cols-[88px_1fr] gap-y-1 text-[11.5px]">
-                    <dt className="text-[#7C8C8C]">เริ่มพ่น</dt><dd className="text-[#EAF3F1]">{thDateTime(r.start)}</dd>
-                    <dt className="text-[#7C8C8C]">พ่นเสร็จ</dt><dd className="text-[#EAF3F1]">{r.done ? thDateTime(r.end) : '—'}</dd>
-                    <dt className="text-[#7C8C8C]">พื้นที่ที่พ่น</dt><dd className="text-[#EAF3F1]">{(r.rai || 0).toFixed(2)} ไร่</dd>
-                    <dt className="text-[#7C8C8C]">สารที่ใช้</dt>
-                    <dd className="text-[#EAF3F1]">{r.chemicals && r.chemicals.length ? r.chemicals.map((c, i) => <span key={i} className="block">• {chemLine(c)}</span>) : <span className="text-[#5C6C6C]">ไม่ได้ระบุ</span>}</dd>
+                    <dt className="text-[#55655F]">เริ่มพ่น</dt><dd className="text-[#14201C]">{thDateTime(r.start)}</dd>
+                    <dt className="text-[#55655F]">พ่นเสร็จ</dt><dd className="text-[#14201C]">{r.done ? thDateTime(r.end) : '—'}</dd>
+                    <dt className="text-[#55655F]">พื้นที่ที่พ่น</dt><dd className="text-[#14201C]">{(r.rai || 0).toFixed(2)} ไร่</dd>
+                    <dt className="text-[#55655F]">สารที่ใช้</dt>
+                    <dd className="text-[#14201C]">{r.chemicals && r.chemicals.length ? r.chemicals.map((c, i) => <span key={i} className="block">• {chemLine(c)}</span>) : <span className="text-[#4A564F]">ไม่ได้ระบุ</span>}</dd>
                   </dl>
                   {r.sessions.length > 0 && (
-                    <div className="mt-2.5 pt-2.5 border-t border-[#2A363A]">
-                      <p className="text-[10px] text-[#7C8C8C] mb-1">สภาพอากาศแต่ละรอบที่พ่น</p>
+                    <div className="mt-2.5 pt-2.5 border-t border-[#E2DCC9]">
+                      <p className="text-[10px] text-[#55655F] mb-1">สภาพอากาศแต่ละรอบที่พ่น</p>
                       {r.sessions.map((x, i) => (
-                        <p key={i} className="text-[11px] text-[#D3DEDC] leading-relaxed">
-                          <span className="font-medium text-[#EAF3F1]">{thDate(x.start)} {thTime(x.start)}–{thTime(x.end)}</span>{x.operator ? ` · ${x.operator}` : ''}<br />
-                          <span className="text-[#9AABAA]">{weatherLine(x.weather, x.note)}</span>
+                        <p key={i} className="text-[11px] text-[#24322C] leading-relaxed">
+                          <span className="font-medium text-[#14201C]">{thDate(x.start)} {thTime(x.start)}–{thTime(x.end)}</span>{x.operator ? ` · ${x.operator}` : ''}<br />
+                          <span className="text-[#55655F]">{weatherLine(x.weather, x.note)}</span>
                         </p>
                       ))}
                     </div>
@@ -4496,15 +4496,15 @@ function App() {
         const round = (e && e.round) || 1;
         const choose = (kind) => { finishKindRef.current = kind; setShowFinishChoice(false); finishMission(); };
         return (
-          <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
-            <div className="w-full max-w-[360px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
+          <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
+            <div className="w-full max-w-[360px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4">
               <p className="font-display text-[15px] font-bold tracking-wide">FINISH · ROUND {round}</p>
-              <p className="text-[10.5px] text-[#7C8C8C] mt-0.5">{e ? e.name : 'This field'} · {coveragePct.toFixed(0)}% sprayed this round</p>
+              <p className="text-[10.5px] text-[#55655F] mt-0.5">{e ? e.name : 'This field'} · {coveragePct.toFixed(0)}% sprayed this round</p>
               <div className="mt-4 flex flex-col gap-2.5">
                 <DockBtn icon={CheckCircle2} label={`FIELD DONE · CLOSE ROUND ${round}`} tone="green" big onClick={() => choose('complete')} />
-                <p className="text-[10px] text-[#7C8C8C] -mt-1 px-1">Next time this field starts round {round + 1} on an empty map.</p>
+                <p className="text-[10px] text-[#55655F] -mt-1 px-1">Next time this field starts round {round + 1} on an empty map.</p>
                 <DockBtn icon={Save} label="NOT DONE · CONTINUE LATER" tone="teal" big onClick={() => choose('partial')} />
-                <p className="text-[10px] text-[#7C8C8C] -mt-1 px-1">Round {round} stays open; its sprayed area is kept for next time.</p>
+                <p className="text-[10px] text-[#55655F] -mt-1 px-1">Round {round} stays open; its sprayed area is kept for next time.</p>
                 <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={() => setShowFinishChoice(false)} />
               </div>
             </div>
@@ -4513,25 +4513,25 @@ function App() {
       })()}
 
       {phase === 'done' && (
-        <div className="absolute inset-0 z-20 bg-[#0A0E10]/80 flex items-center justify-center p-4">
-          <div className="w-full max-w-[380px] rounded-2xl bg-[#131A1D] border border-[#2A363A] overflow-hidden max-h-[92vh] overflow-y-auto">
+        <div className="absolute inset-0 z-20 bg-[#F4F1E7]/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-[380px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] overflow-hidden max-h-[92vh] overflow-y-auto">
             <div className="flex items-start justify-between px-4 pt-4 pb-2">
               <div>
                 <p className="font-display text-[16px] font-bold tracking-wide">MISSION SUMMARY</p>
-                <p className="text-[10.5px] text-[#7C8C8C]">
+                <p className="text-[10.5px] text-[#55655F]">
                   {finishInfo ? (finishInfo.complete ? `Round ${finishInfo.round} · field done` : `Round ${finishInfo.round} · continue later`) : 'Spray mission complete'}
                 </p>
               </div>
               {/* Close = back to the home screen, same as START NEW. The mission is
                   already filed, so there is nothing to lose by closing. */}
-              <button onClick={goHomeFromSummary} aria-label="Close" className="text-[#7C8C8C] p-2 -mr-1 -mt-1"><X size={20} /></button>
+              <button onClick={goHomeFromSummary} aria-label="Close" className="text-[#55655F] p-2 -mr-1 -mt-1"><X size={20} /></button>
             </div>
             <div className="px-4 pb-2">
-              <div className="h-[160px] rounded-xl overflow-hidden bg-[#0A0E10] border border-[#2A363A]">
+              <div className="h-[160px] rounded-xl overflow-hidden bg-[#F4F1E7] border border-[#E2DCC9]">
                 <MiniMap field={field} sim={sim} gridCanvas={gridCanvasRef.current} station={stationRef.current} />
               </div>
             </div>
-            <dl className="grid grid-cols-2 gap-px bg-[#2A363A] mt-2">
+            <dl className="grid grid-cols-2 gap-px bg-[#E2DCC9] mt-2">
               {[
                 ['SPRAY TIME', fmtTime(sim.elapsed), `pace ${speedMs.toFixed(2)} m/s`],
                 ['DISTANCE', `${sim.distance.toFixed(0)} m`, `swath ${swath.toFixed(1)} m`],
@@ -4541,15 +4541,15 @@ function App() {
                 ['MISSED SPOTS', `${missedRai.toFixed(2)} rai`, missedCellsCount > 0 ? 'flagged red on the map' : 'none flagged'],
                 ['TANKS USED', `${tanksUsed}`, `${tankCapacity}L tank${avgTankRai != null ? ` · avg ${avgTankRai.toFixed(2)} rai/tank` : ''}`]
               ].map(([label, val, sub]) => (
-                <div key={label} className="bg-[#131A1D] p-3">
-                  <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">{label}</dt>
+                <div key={label} className="bg-[#FFFFFF] p-3">
+                  <dt className="text-[9px] tracking-[.12em] font-mono text-[#55655F]">{label}</dt>
                   <dd className="font-mono tnum text-[16px] font-bold mt-1 leading-snug">{val}</dd>
-                  <p className="text-[9.5px] text-[#7C8C8C] mt-1">{sub}</p>
+                  <p className="text-[9.5px] text-[#55655F] mt-1">{sub}</p>
                 </div>
               ))}
             </dl>
             <div className="p-3 flex flex-col gap-2.5">
-              <p className="flex items-center justify-center gap-1.5 text-[10.5px] font-mono text-[#34C76F]">
+              <p className="flex items-center justify-center gap-1.5 text-[10.5px] font-mono text-[#0A5238]">
                 <Check size={13} /> Saved to mission history
               </p>
               <DockBtn icon={RotateCcw} label="START NEW" tone="teal" onClick={goHomeFromSummary} />
@@ -4563,27 +4563,27 @@ function App() {
         const totalRai = missions.reduce((a, m) => a + m.raiDec, 0);
         const totalDist = missions.reduce((a, m) => a + m.distance, 0);
         return (
-          <div className="absolute inset-0 z-20 bg-[#0A0E10] flex flex-col">
-            <div className="shrink-0 flex items-center justify-between px-4 py-3.5 border-b border-[#2A363A]"
+          <div className="absolute inset-0 z-20 bg-[#F4F1E7] flex flex-col">
+            <div className="shrink-0 flex items-center justify-between px-4 py-3.5 border-b border-[#E2DCC9]"
                  style={{ paddingTop: 'max(14px, env(safe-area-inset-top))' }}>
               <div className="flex items-center gap-2.5 min-w-0">
                 {selected ? (
-                  <button onClick={() => setSelectedMissionId(null)} className="text-[#2EE6C7] p-1 -ml-1"><ChevronLeft size={20} /></button>
-                ) : <History size={17} className="text-[#2EE6C7]" />}
+                  <button onClick={() => setSelectedMissionId(null)} className="text-[#0C6B48] p-1 -ml-1"><ChevronLeft size={20} /></button>
+                ) : <History size={17} className="text-[#0C6B48]" />}
                 <div className="min-w-0">
                   <p className="font-display text-[15px] font-bold tracking-wide truncate">{selected ? fmtDate(selected.ts) : 'MISSION HISTORY'}</p>
-                  {!selected && <p className="text-[9.5px] text-[#7C8C8C] font-mono">Mission history · {missions.length} logged · {totalRai.toFixed(2)} rai all-time</p>}
+                  {!selected && <p className="text-[9.5px] text-[#55655F] font-mono">Mission history · {missions.length} logged · {totalRai.toFixed(2)} rai all-time</p>}
                 </div>
               </div>
-              <button onClick={() => { setShowHistory(false); setSelectedMissionId(null); setConfirmClear(false); }} className="text-[#7C8C8C] p-1 shrink-0"><X size={20} /></button>
+              <button onClick={() => { setShowHistory(false); setSelectedMissionId(null); setConfirmClear(false); }} className="text-[#55655F] p-1 shrink-0"><X size={20} /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3">
               {!selected && missions.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-center gap-2 pb-16">
-                  <History size={28} className="text-[#3A464B]" />
-                  <p className="text-[12.5px] text-[#7C8C8C]">No missions saved yet.</p>
-                  <p className="text-[10.5px] text-[#5C6C6C] max-w-[220px]">Finish a spraying run and tap Save Session to log it here.</p>
+                  <History size={28} className="text-[#C6C0AC]" />
+                  <p className="text-[12.5px] text-[#55655F]">No missions saved yet.</p>
+                  <p className="text-[10.5px] text-[#4A564F] max-w-[220px]">Finish a spraying run and tap Save Session to log it here.</p>
                 </div>
               )}
 
@@ -4591,19 +4591,19 @@ function App() {
                 <div className="flex flex-col gap-2.5">
                   {missions.map((m) => (
                     <button key={m.id} onClick={() => setSelectedMissionId(m.id)}
-                      className="flex gap-3 items-stretch bg-[#131A1D] border border-[#2A363A] rounded-xl overflow-hidden text-left">
-                      <div className="w-[104px] shrink-0 bg-[#0A0E10]">
-                        {m.thumb ? <img src={m.thumb} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><MapPinned size={16} className="text-[#3A464B]" /></div>}
+                      className="flex gap-3 items-stretch bg-[#FFFFFF] border border-[#E2DCC9] rounded-xl overflow-hidden text-left">
+                      <div className="w-[104px] shrink-0 bg-[#F4F1E7]">
+                        {m.thumb ? <img src={m.thumb} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><MapPinned size={16} className="text-[#C6C0AC]" /></div>}
                       </div>
                       <div className="flex-1 min-w-0 py-2.5 pr-3 flex flex-col justify-between">
                         <div>
-                          <p className="font-mono text-[10px] text-[#7C8C8C] truncate">{fmtDate(m.ts)}{m.round ? ` · ${m.fieldName ? m.fieldName + ' · ' : ''}round ${m.round}${m.complete ? ' ✓' : ' · open'}` : ''}</p>
-                          <p className="font-mono tnum text-[15px] font-bold text-[#34C76F] mt-0.5">{m.rai}-{m.ngan}-{m.wa} rai</p>
+                          <p className="font-mono text-[10px] text-[#55655F] truncate">{fmtDate(m.ts)}{m.round ? ` · ${m.fieldName ? m.fieldName + ' · ' : ''}round ${m.round}${m.complete ? ' ✓' : ' · open'}` : ''}</p>
+                          <p className="font-mono tnum text-[15px] font-bold text-[#0A5238] mt-0.5">{m.rai}-{m.ngan}-{m.wa} rai</p>
                         </div>
-                        <div className="flex items-center gap-3 text-[9.5px] font-mono text-[#9AABAA] mt-1">
+                        <div className="flex items-center gap-3 text-[9.5px] font-mono text-[#55655F] mt-1">
                           <span>{m.distance.toFixed(0)} m</span>
                           <span>{fmtTime(m.elapsed)}</span>
-                          <span className={m.overlapRate > 15 ? 'text-[#FFB648]' : ''}>{m.overlapRate.toFixed(0)}% overlap</span>
+                          <span className={m.overlapRate > 15 ? 'text-[#8A4B06]' : ''}>{m.overlapRate.toFixed(0)}% overlap</span>
                         </div>
                       </div>
                     </button>
@@ -4613,10 +4613,10 @@ function App() {
 
               {selected && (
                 <div className="flex flex-col gap-3">
-                  <div className="h-[190px] rounded-xl overflow-hidden bg-[#0A0E10] border border-[#2A363A]">
-                    {selected.thumb ? <img src={selected.thumb} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-[#3A464B] text-[11px]">No coverage image saved</div>}
+                  <div className="h-[190px] rounded-xl overflow-hidden bg-[#F4F1E7] border border-[#E2DCC9]">
+                    {selected.thumb ? <img src={selected.thumb} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-[#C6C0AC] text-[11px]">No coverage image saved</div>}
                   </div>
-                  <dl className="grid grid-cols-2 gap-px bg-[#2A363A] rounded-xl overflow-hidden">
+                  <dl className="grid grid-cols-2 gap-px bg-[#E2DCC9] rounded-xl overflow-hidden">
                     {[
                       ['SPRAY TIME', fmtTime(selected.elapsed), `field ${selected.fieldRai.toFixed(2)} rai`],
                       ['DISTANCE', `${selected.distance.toFixed(0)} m`, `swath ${selected.swath.toFixed(1)} m`],
@@ -4624,10 +4624,10 @@ function App() {
                       ['OVERLAPPED', `${(selected.overlapRai ?? 0).toFixed(2)} rai`, `${(selected.overlapRate ?? 0).toFixed(0)}% of sprayed area`],
                       ['MISSED SPOTS', `${(selected.missedRai ?? 0).toFixed(2)} rai`, selected.tanks != null ? `${selected.tanks} tank${selected.tanks === 1 ? '' : 's'} used` : `${selected.litres.toFixed(1)} L used total`]
                     ].map(([label, val, sub]) => (
-                      <div key={label} className="bg-[#131A1D] p-3">
-                        <dt className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C]">{label}</dt>
+                      <div key={label} className="bg-[#FFFFFF] p-3">
+                        <dt className="text-[9px] tracking-[.12em] font-mono text-[#55655F]">{label}</dt>
                         <dd className="font-mono tnum text-[16px] font-bold mt-1 leading-snug">{val}</dd>
-                        <p className="text-[9.5px] text-[#7C8C8C] mt-1">{sub}</p>
+                        <p className="text-[9.5px] text-[#55655F] mt-1">{sub}</p>
                       </div>
                     ))}
                   </dl>
@@ -4636,20 +4636,20 @@ function App() {
                       no checklist object, so the section is skipped rather
                       than showing false "unchecked" state. */}
                   {selected.checklist && (
-                    <div className="rounded-xl border border-[#2A363A] bg-[#131A1D] p-3">
-                      <p className="text-[9px] tracking-[.12em] font-mono text-[#7C8C8C] mb-2">COMPLIANCE LOG</p>
+                    <div className="rounded-xl border border-[#E2DCC9] bg-[#FFFFFF] p-3">
+                      <p className="text-[9px] tracking-[.12em] font-mono text-[#55655F] mb-2">COMPLIANCE LOG</p>
                       <div className="flex flex-wrap gap-1.5 mb-2">
                         {[['ppe', 'PPE'], ['mixedRate', 'Mix rate'], ['nozzle', 'Nozzle'], ['wind', 'Wind']].map(([k, label]) => (
-                          <span key={k} className={'text-[10px] font-mono px-2 py-1 rounded-full border ' + (selected.checklist[k] ? 'border-[#2EE6C7]/50 text-[#2EE6C7]' : 'border-[#2A363A] text-[#5C6C6C]')}>
+                          <span key={k} className={'text-[10px] font-mono px-2 py-1 rounded-full border ' + (selected.checklist[k] ? 'border-[#0C6B48]/50 text-[#0C6B48]' : 'border-[#E2DCC9] text-[#4A564F]')}>
                             {selected.checklist[k] ? '✓ ' : '— '}{label}
                           </span>
                         ))}
                       </div>
-                      <p className="text-[10.5px] font-mono text-[#9AABAA]">
+                      <p className="text-[10.5px] font-mono text-[#55655F]">
                         Operator: {selected.operator ? selected.operator : '—'} · Weather: {selected.weather ? selected.weather : '—'}
                       </p>
                       {selected.weatherApi && (
-                        <p className="text-[10.5px] font-mono text-[#5C6C6C] mt-1">
+                        <p className="text-[10.5px] font-mono text-[#4A564F] mt-1">
                           Live reading: {selected.weatherApi.windKmh != null ? `${Math.round(selected.weatherApi.windKmh)} km/h wind` : 'wind —'}
                           {selected.weatherApi.rainSoonProb != null ? `, ${Math.round(selected.weatherApi.rainSoonProb)}% rain (3h)` : ''}
                           {' '}(Open-Meteo)
@@ -4662,8 +4662,8 @@ function App() {
             </div>
 
             {!selected && missions.length > 0 && (
-              <div className="shrink-0 p-3 border-t border-[#2A363A] flex flex-col gap-2" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
-                <p className="text-center text-[9.5px] font-mono text-[#5C6C6C]">{totalDist.toFixed(0)} m walked all-time</p>
+              <div className="shrink-0 p-3 border-t border-[#E2DCC9] flex flex-col gap-2" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+                <p className="text-center text-[9.5px] font-mono text-[#4A564F]">{totalDist.toFixed(0)} m walked all-time</p>
                 <div className="grid grid-cols-2 gap-2.5">
                   <DockBtn icon={Download} label="EXPORT CSV" tone="ghost" onClick={exportHistoryCSV} />
                   <DockBtn icon={Trash2} label={confirmClear ? 'TAP TO CONFIRM' : 'CLEAR HISTORY'} tone={confirmClear ? 'red' : 'dim'} onClick={clearHistory} />
@@ -4677,17 +4677,17 @@ function App() {
       {/* Field Selector Modal — the Field Library, a full-screen list of
           named saved boundaries+stations, distinct from Mission History. */}
       {showFieldLibrary && (
-        <div className="absolute inset-0 z-20 bg-[#0A0E10] flex flex-col">
-          <div className="shrink-0 flex items-center justify-between px-4 py-3.5 border-b border-[#2A363A]"
+        <div className="absolute inset-0 z-20 bg-[#F4F1E7] flex flex-col">
+          <div className="shrink-0 flex items-center justify-between px-4 py-3.5 border-b border-[#E2DCC9]"
                style={{ paddingTop: 'max(14px, env(safe-area-inset-top))' }}>
             <div className="flex items-center gap-2.5 min-w-0">
-              <MapPinned size={17} className="text-[#2EE6C7] shrink-0" />
+              <MapPinned size={17} className="text-[#0C6B48] shrink-0" />
               <div className="min-w-0">
                 <p className="font-display text-[15px] font-bold tracking-wide truncate">FIELD LIBRARY</p>
-                <p className="text-[9.5px] text-[#7C8C8C] font-mono">Saved field library · {fieldLibrary.length} saved</p>
+                <p className="text-[9.5px] text-[#55655F] font-mono">Saved field library · {fieldLibrary.length} saved</p>
               </div>
             </div>
-            <button onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); }} className="text-[#7C8C8C] p-1 shrink-0"><X size={20} /></button>
+            <button onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); }} className="text-[#55655F] p-1 shrink-0"><X size={20} /></button>
           </div>
           <div className="shrink-0 px-4 pt-3 flex">
             <DockBtn icon={Plus} label="ADD FIELD" tone="teal" onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); startPlotting(null); }} />
@@ -4695,9 +4695,9 @@ function App() {
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {fieldLibrary.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
-                <MapPinned size={28} className="text-[#3A464B]" />
-                <p className="text-sm text-[#9AABAA]">No fields saved yet</p>
-                <p className="text-xs text-[#5C6C6C]">Plot or load a field, then tap SAVE from the ready screen to keep it here.</p>
+                <MapPinned size={28} className="text-[#C6C0AC]" />
+                <p className="text-sm text-[#55655F]">No fields saved yet</p>
+                <p className="text-xs text-[#4A564F]">Plot or load a field, then tap SAVE from the ready screen to keep it here.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -4706,58 +4706,58 @@ function App() {
                   const isActive = f.id === activeFieldId;
                   const isRenaming = renamingFieldId === f.id;
                   return (
-                    <div key={f.id} className={'rounded-xl bg-[#131A1D] border p-3 flex flex-col gap-2 ' + (isActive ? 'border-[#2EE6C7]' : 'border-[#2A363A]')}>
+                    <div key={f.id} className={'rounded-xl bg-[#FFFFFF] border p-3 flex flex-col gap-2 ' + (isActive ? 'border-[#0C6B48]' : 'border-[#E2DCC9]')}>
                       <div className="flex items-center gap-2.5">
                         {isRenaming ? (
                           <div className="flex-1 min-w-0 flex items-center gap-1.5">
                             <input autoFocus value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)}
                               onKeyDown={(e) => { if (e.key === 'Enter') renameFieldInLibrary(f.id, renameDraft); if (e.key === 'Escape') setRenamingFieldId(null); }}
-                              className="flex-1 min-w-0 min-h-[38px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2EE6C7] text-[#D3DEDC] text-sm font-sans outline-none" />
-                            <button onClick={() => renameFieldInLibrary(f.id, renameDraft)} className="shrink-0 min-h-[38px] px-2.5 rounded-lg bg-[#2EE6C7] text-[#06231D] flex items-center justify-center"><Check size={15} /></button>
+                              className="flex-1 min-w-0 min-h-[38px] px-2.5 rounded-lg bg-[#F4F1E7] border border-[#0C6B48] text-[#24322C] text-sm font-sans outline-none" />
+                            <button onClick={() => renameFieldInLibrary(f.id, renameDraft)} className="shrink-0 min-h-[38px] px-2.5 rounded-lg bg-[#0C6B48] text-[#FFFFFF] flex items-center justify-center"><Check size={15} /></button>
                           </div>
                         ) : (
                           <button onClick={() => { loadFieldFromLibrary(f); setShowFieldLibrary(false); }} className="flex-1 min-w-0 text-left">
                             <span className="flex items-center gap-1.5">
-                              {isActive && <Star size={11} className="text-[#2EE6C7] fill-[#2EE6C7] shrink-0" />}
+                              {isActive && <Star size={11} className="text-[#0C6B48] fill-[#0C6B48] shrink-0" />}
                               <p className="font-display text-sm font-bold truncate">{f.name}</p>
                             </span>
-                            <p className="text-[10px] font-mono text-[#7C8C8C] mt-0.5 truncate">
+                            <p className="text-[10px] font-mono text-[#55655F] mt-0.5 truncate">
                               {r.rai}-{r.ngan}-{r.wa} rai · {f.lastSprayedTs ? `sprayed ${fmtDate(f.lastSprayedTs)}` : `created ${fmtDate(f.ts)}`}{f.gpsAnchored ? ' · GPS-anchored' : ''}
                             </p>
                             {f.cov ? (
-                              <p className="text-[10px] font-mono text-[#34C76F] mt-0.5 truncate">
+                              <p className="text-[10px] font-mono text-[#0A5238] mt-0.5 truncate">
                                 round {f.round || 1} · sprayed {Math.min(100, (f.cov.sprayedCells * CELL * CELL) / (f.areaSqm != null ? f.areaSqm : f.areaRai * 1600) * 100).toFixed(0)}% · {(f.cov.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai{f.stats ? ` · ${f.stats.missions} mission${f.stats.missions === 1 ? '' : 's'}` : ''}
                               </p>
-                            ) : <p className="text-[10px] font-mono text-[#5C6C6C] mt-0.5">round {f.round || 1} · not started{(f.rounds && f.rounds.length) ? ` · ${f.rounds.length} round${f.rounds.length === 1 ? '' : 's'} done` : ''}</p>}
+                            ) : <p className="text-[10px] font-mono text-[#4A564F] mt-0.5">round {f.round || 1} · not started{(f.rounds && f.rounds.length) ? ` · ${f.rounds.length} round${f.rounds.length === 1 ? '' : 's'} done` : ''}</p>}
                           </button>
                         )}
                         {!isRenaming && (
                           <button onClick={() => { setRenamingFieldId(f.id); setRenameDraft(f.name); }}
-                            className="shrink-0 min-h-[38px] px-2.5 rounded-lg flex items-center justify-center text-[#7C8C8C]">
+                            className="shrink-0 min-h-[38px] px-2.5 rounded-lg flex items-center justify-center text-[#55655F]">
                             <Pencil size={14} />
                           </button>
                         )}
                         <button onClick={() => (confirmDeleteFieldId === f.id ? deleteFieldFromLibrary(f.id) : setConfirmDeleteFieldId(f.id))}
-                          className={'shrink-0 min-h-[38px] px-2.5 rounded-lg flex items-center justify-center ' + (confirmDeleteFieldId === f.id ? 'bg-[#FF5252] text-[#2B0808]' : 'text-[#7C8C8C]')}>
+                          className={'shrink-0 min-h-[38px] px-2.5 rounded-lg flex items-center justify-center ' + (confirmDeleteFieldId === f.id ? 'bg-[#A5201A] text-[#FFFFFF]' : 'text-[#55655F]')}>
                           {confirmDeleteFieldId === f.id ? <span className="text-[9px] font-mono font-bold px-0.5">CONFIRM</span> : <Trash2 size={15} />}
                         </button>
                       </div>
                       {!isRenaming && (
                         <button onClick={() => { loadFieldFromLibrary(f); setShowFieldLibrary(false); }}
                           disabled={isActive}
-                          className={'min-h-[36px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide flex items-center justify-center gap-1.5 ' + (isActive ? 'bg-[#2EE6C7]/15 text-[#2EE6C7] border border-[#2EE6C7]/30' : 'bg-[#0A0E10] text-[#D3DEDC] border border-[#3A464B]')}>
-                          {isActive ? <><Star size={11} className="fill-[#2EE6C7]" /> ACTIVE FIELD</> : 'SET AS ACTIVE FIELD'}
+                          className={'min-h-[36px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide flex items-center justify-center gap-1.5 ' + (isActive ? 'bg-[#0C6B48]/15 text-[#0C6B48] border border-[#0C6B48]/30' : 'bg-[#F4F1E7] text-[#24322C] border border-[#C6C0AC]')}>
+                          {isActive ? <><Star size={11} className="fill-[#0C6B48]" /> ACTIVE FIELD</> : 'SET AS ACTIVE FIELD'}
                         </button>
                       )}
                       {!isRenaming && (
                         <button onClick={() => { setReportMsg(''); setReportFieldId(f.id); }}
-                          className="min-h-[36px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide flex items-center justify-center gap-1.5 bg-[#0A0E10] text-[#2EE6C7] border border-[#2EE6C7]/40">
+                          className="min-h-[36px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide flex items-center justify-center gap-1.5 bg-[#F4F1E7] text-[#0C6B48] border border-[#0C6B48]/40">
                           <History size={12} /> REPORT
                         </button>
                       )}
                       {!isRenaming && f.cov && (
                         <button onClick={() => { if (confirmResetCovId === f.id) resetFieldCoverage(f.id); else { setConfirmResetCovId(f.id); setTimeout(() => setConfirmResetCovId((c) => (c === f.id ? null : c)), 5000); } }}
-                          className={'min-h-[34px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide border ' + (confirmResetCovId === f.id ? 'bg-[#FFB648] text-[#2B1900] border-[#FFB648]' : 'border-[#3A464B] text-[#9AABAA]')}>
+                          className={'min-h-[34px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide border ' + (confirmResetCovId === f.id ? 'bg-[#8A4B06] text-[#FFFFFF] border-[#8A4B06]' : 'border-[#C6C0AC] text-[#55655F]')}>
                           {confirmResetCovId === f.id ? 'TAP AGAIN — CLEAR SPRAYED AREA' : 'RESET SPRAYED AREA'}
                         </button>
                       )}
@@ -4769,7 +4769,7 @@ function App() {
           </div>
           <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
             <button onClick={() => { if (confirmResetAll) resetAllSavedData(); else { setConfirmResetAll(true); setTimeout(() => setConfirmResetAll(false), 6000); } }}
-              className={'w-full min-h-[46px] rounded-xl text-[10.5px] font-mono font-bold tracking-wide border ' + (confirmResetAll ? 'bg-[#FF5252] text-[#2B0808] border-[#FF5252]' : 'border-[#FF5252]/50 text-[#FF5252]')}>
+              className={'w-full min-h-[46px] rounded-xl text-[10.5px] font-mono font-bold tracking-wide border ' + (confirmResetAll ? 'bg-[#A5201A] text-[#FFFFFF] border-[#A5201A]' : 'border-[#A5201A]/50 text-[#A5201A]')}>
               {confirmResetAll ? 'TAP AGAIN — ERASE ALL FIELDS, SPRAYED AREAS & HISTORY' : 'RESET ALL SAVED DATA'}
             </button>
           </div>
@@ -4778,16 +4778,16 @@ function App() {
 
       {/* Save-current-field prompt — names the field before it lands in the library above. */}
       {showSaveField && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
-          <div className="w-full max-w-[340px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
+        <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
+          <div className="w-full max-w-[340px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4">
             <p className="font-display text-[15px] font-bold tracking-wide">{namingNewField ? 'NAME THIS FIELD' : 'RENAME FIELD'}</p>
-            <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">
+            <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">
               {namingNewField ? 'Field saved · ' : ''}{(() => { const r = toRai(fieldRef.current.area); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}{namingNewField ? ' · SKIP keeps the date name' : ''}
             </p>
             <input autoFocus={!namingNewField} value={saveFieldName} onChange={(e) => setSaveFieldName(e.target.value)} aria-label="Field name"
               onFocus={(e) => { if (namingNewField) e.target.select(); }}
               placeholder="e.g. Soybean Field 1"
-              className="w-full min-h-[46px] px-3 rounded-lg bg-[#0A0E10] border border-[#3A464B] text-[#D3DEDC] text-sm font-sans placeholder:text-[#5C6C6C] outline-none focus:border-[#2EE6C7]" />
+              className="w-full min-h-[46px] px-3 rounded-lg bg-[#F4F1E7] border border-[#C6C0AC] text-[#24322C] text-sm font-sans placeholder:text-[#4A564F] outline-none focus:border-[#0C6B48]" />
             <div className="grid grid-cols-2 gap-2.5 mt-4">
               <DockBtn icon={X} label={namingNewField ? 'SKIP' : 'CANCEL'} tone="ghost" onClick={() => { setShowSaveField(false); setNamingNewField(false); }} />
               <DockBtn icon={Save} label="SAVE" tone="teal" disabled={!saveFieldName.trim()}
@@ -4802,13 +4802,13 @@ function App() {
           swath picker), now tucked behind one tap since most visits need
           zero changes here (see loadLastSettings/saveLastSettings). */}
       {showSpraySettings && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
-          <div className="w-full max-w-[360px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4 max-h-[92vh] overflow-y-auto">
+        <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
+          <div className="w-full max-w-[360px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <p className="font-display text-[15px] font-bold tracking-wide">SETTINGS</p>
-              <button onClick={() => setShowSpraySettings(false)} className="text-[#7C8C8C] p-1"><X size={18} /></button>
+              <button onClick={() => setShowSpraySettings(false)} className="text-[#55655F] p-1"><X size={18} /></button>
             </div>
-            <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Tank size and nozzle width · remembered for next time</p>
+            <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">Tank size and nozzle width · remembered for next time</p>
             <Glass className="px-2 py-2 flex flex-col gap-1">
               <Stepper label="Tank" value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
               <Stepper label="Width" value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
@@ -4837,13 +4837,13 @@ function App() {
                 });
               };
               return (
-                <div className="mt-3 rounded-xl border border-[#2A363A] bg-[#0A0E10]">
+                <div className="mt-3 rounded-xl border border-[#E2DCC9] bg-[#F4F1E7]">
                   <button disabled
                     className="w-full flex items-center justify-between gap-2 px-3.5 py-3 min-h-[44px]">
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C] shrink-0">Pre-flight checklist</span>
-                      <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#7C8C8C]' : 'text-[#34C76F]')}>{uncheckedCount > 0 ? `${uncheckedCount} item${uncheckedCount === 1 ? '' : 's'} unchecked` : 'All checked'}</span>
-                      {wxRisk && <AlertTriangle size={12} className="text-[#E6B22E] shrink-0" />}
+                      <span className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F] shrink-0">Pre-flight checklist</span>
+                      <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#55655F]' : 'text-[#0A5238]')}>{uncheckedCount > 0 ? `${uncheckedCount} item${uncheckedCount === 1 ? '' : 's'} unchecked` : 'All checked'}</span>
+                      {wxRisk && <AlertTriangle size={12} className="text-[#9A560A] shrink-0" />}
                     </span>
                   </button>
                   {(
@@ -4851,7 +4851,7 @@ function App() {
                       <div className="grid grid-cols-2 gap-1.5">
                         {items.map(([k, label]) => (
                           <button key={k} onClick={() => toggleChecklistItem(k)}
-                            className={'flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-lg border text-[11px] font-mono text-left ' + (checklist[k] ? 'border-[#2EE6C7]/50 bg-[#2EE6C7]/10 text-[#2EE6C7]' : 'border-[#2A363A] text-[#7C8C8C]')}>
+                            className={'flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-lg border text-[11px] font-mono text-left ' + (checklist[k] ? 'border-[#0C6B48]/50 bg-[#0C6B48]/10 text-[#0C6B48]' : 'border-[#E2DCC9] text-[#55655F]')}>
                             {checklist[k] ? <Check size={13} className="shrink-0" /> : <span className="w-[13px] h-[13px] rounded-[3px] border border-current shrink-0" />}
                             <span className="truncate">{label}</span>
                           </button>
@@ -4864,33 +4864,33 @@ function App() {
                           no anchor fall back to the manual toggle + text input exactly as
                           before. */}
                       {sprayWeatherStatus === 'loading' && (
-                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#7C8C8C] px-0.5">
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#55655F] px-0.5">
                           <Wind size={12} className="shrink-0 animate-pulse" /> Checking live wind/rain…
                         </div>
                       )}
                       {sprayWeatherStatus === 'error' && (
-                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#5C6C6C] px-0.5">
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#4A564F] px-0.5">
                           <CloudRain size={12} className="shrink-0" /> Live wind/rain unavailable — check manually
                         </div>
                       )}
                       {sprayWeatherStatus === 'ok' && wx && (
                         <button onClick={applyWeatherReading}
                           className={'mt-1.5 w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left '
-                            + (wxRisk ? 'border-[#E6B22E]/50 bg-[#E6B22E]/10' : 'border-[#2A363A] bg-[#0A0E10]')}>
-                          <Wind size={14} className={'shrink-0 ' + (wx.windWarning ? 'text-[#E6B22E]' : 'text-[#9AABAA]')} />
-                          <span className={'text-[11px] font-mono shrink-0 ' + (wx.windWarning ? 'text-[#E6B22E]' : 'text-[#D3DEDC]')}>
+                            + (wxRisk ? 'border-[#9A560A]/50 bg-[#9A560A]/10' : 'border-[#E2DCC9] bg-[#F4F1E7]')}>
+                          <Wind size={14} className={'shrink-0 ' + (wx.windWarning ? 'text-[#9A560A]' : 'text-[#55655F]')} />
+                          <span className={'text-[11px] font-mono shrink-0 ' + (wx.windWarning ? 'text-[#9A560A]' : 'text-[#24322C]')}>
                             {wx.windKmh != null ? `${Math.round(wx.windKmh)} km/h` : '—'}
                             {wx.gustKmh != null && wx.gustKmh > (wx.windKmh || 0) + 5 ? ` (gust ${Math.round(wx.gustKmh)})` : ''}
                           </span>
-                          <CloudRain size={14} className={'shrink-0 ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#E6B22E]' : 'text-[#9AABAA]')} />
-                          <span className={'text-[11px] font-mono flex-1 min-w-0 truncate ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#E6B22E]' : 'text-[#D3DEDC]')}>
+                          <CloudRain size={14} className={'shrink-0 ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#9A560A]' : 'text-[#55655F]')} />
+                          <span className={'text-[11px] font-mono flex-1 min-w-0 truncate ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#9A560A]' : 'text-[#24322C]')}>
                             {wx.rainNowWarning ? 'Raining now' : (wx.rainSoonProb != null ? `${Math.round(wx.rainSoonProb)}% next 3h` : '—')}
                           </span>
-                          <span className="text-[9px] font-mono text-[#5C6C6C] shrink-0">TAP TO USE</span>
+                          <span className="text-[9px] font-mono text-[#4A564F] shrink-0">TAP TO USE</span>
                         </button>
                       )}
                       {sprayWeatherStatus === 'ok' && wxRisk && (
-                        <p className="mt-1 px-0.5 text-[10.5px] leading-snug text-[#E6B22E]">
+                        <p className="mt-1 px-0.5 text-[10.5px] leading-snug text-[#9A560A]">
                           {wx.rainNowWarning ? 'Raining now: the spray will wash off.'
                             : wx.rainSoonWarning ? 'Rain likely within 3 hours: the spray may wash off.'
                             : 'Strong wind: the spray will drift.'}
@@ -4900,10 +4900,10 @@ function App() {
                       <div className="grid grid-cols-2 gap-1.5 mt-1.5">
                         <input value={checklist.operator} onChange={(e) => setChecklistField('operator', e.target.value)}
                           placeholder="Operator name" maxLength={40}
-                          className="min-h-[36px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[11px] font-mono text-[#D3DEDC] placeholder:text-[#5C6C6C]" />
+                          className="min-h-[36px] px-2.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[11px] font-mono text-[#24322C] placeholder:text-[#4A564F]" />
                         <input value={checklist.weather} onChange={(e) => setChecklistField('weather', e.target.value)}
                           placeholder="Weather (e.g. calm, 28°C)" maxLength={40}
-                          className="min-h-[36px] px-2.5 rounded-lg bg-[#0A0E10] border border-[#2A363A] text-[11px] font-mono text-[#D3DEDC] placeholder:text-[#5C6C6C]" />
+                          className="min-h-[36px] px-2.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[11px] font-mono text-[#24322C] placeholder:text-[#4A564F]" />
                       </div>
                     </div>
                   )}
@@ -4912,18 +4912,18 @@ function App() {
             })()}
             {activeFieldEntry && (
               <button onClick={() => { const m = activeFieldEntry.roundMeta || {}; setChemDraft(m.chemicals && m.chemicals.length ? m.chemicals.map((c) => ({ ...c })) : [{ name: '', rate: '', unit: 'cc' }]); setChemSheet('edit'); }}
-                className="mt-3 w-full flex items-center justify-between gap-2 text-left rounded-xl border border-[#2A363A] bg-[#0A0E10] px-3.5 py-2.5 min-h-[48px]">
+                className="mt-3 w-full flex items-center justify-between gap-2 text-left rounded-xl border border-[#E2DCC9] bg-[#F4F1E7] px-3.5 py-2.5 min-h-[48px]">
                 <span className="min-w-0">
-                  <span className="block text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Chemicals · round {activeFieldEntry.round || 1}</span>
-                  <span className="block text-[11px] font-mono text-[#D3DEDC] truncate">
+                  <span className="block text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">Chemicals · round {activeFieldEntry.round || 1}</span>
+                  <span className="block text-[11px] font-mono text-[#24322C] truncate">
                     {activeFieldEntry.roundMeta && activeFieldEntry.roundMeta.chemicals && activeFieldEntry.roundMeta.chemicals.length
                       ? activeFieldEntry.roundMeta.chemicals.map(chemLine).join(' · ') : 'ยังไม่ได้ระบุสาร — แตะเพื่อใส่'}
                   </span>
                 </span>
-                <Pencil size={14} className="text-[#2EE6C7] shrink-0" />
+                <Pencil size={14} className="text-[#0C6B48] shrink-0" />
               </button>
             )}
-            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Field</p>
+            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">Field</p>
             <div className="flex flex-col gap-2">
               <Dock>
                 <DockBtn icon={MapPinned} label={activeFieldEntry ? 'EDIT BOUNDARY' : 'PLOT FIELD'} tone="ghost" onClick={() => { setShowSpraySettings(false); startPlotting(activeFieldEntry ? activeFieldEntry.id : null); }} />
@@ -4934,34 +4934,34 @@ function App() {
                   onClick={() => { setShowSpraySettings(false); setSaveFieldName(activeFieldEntry ? activeFieldEntry.name : ''); setShowSaveField(true); }} />
               </Dock>
             </div>
-            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#5C6C6C]">Tools</p>
+            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">Tools</p>
             <div className="flex flex-col gap-2">
               <button onClick={() => { setShowSpraySettings(false); setShowOfflineMap(true); refreshCacheInfo(); }}
-                className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#9AABAA] bg-[#0A0E10] border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
+                className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate">
-                  {cacheInfo && cacheInfo.tiles > 0 ? <Wifi size={13} className="text-[#34C76F] shrink-0" /> : <CloudOff size={13} className="text-[#7C8C8C] shrink-0" />}
+                  {cacheInfo && cacheInfo.tiles > 0 ? <Wifi size={13} className="text-[#0A5238] shrink-0" /> : <CloudOff size={13} className="text-[#55655F] shrink-0" />}
                   <span className="truncate">{cacheInfo && cacheInfo.tiles > 0 ? `Offline map ready · ${fmtBytes(cacheInfo.bytes)}` : 'Offline map — not downloaded'}</span>
                 </span>
               </button>
               <button onClick={() => { setShowSpraySettings(false); setShowHistory(true); }}
-                className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#9AABAA] bg-[#0A0E10] border border-[#2A363A] rounded-lg px-3.5 min-h-[44px]">
-                <span className="flex items-center gap-2 min-w-0 truncate"><History size={13} className="text-[#2EE6C7] shrink-0" />
+                className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg px-3.5 min-h-[44px]">
+                <span className="flex items-center gap-2 min-w-0 truncate"><History size={13} className="text-[#0C6B48] shrink-0" />
                   <span className="truncate">{missions.length > 0 ? `${missions.length} mission${missions.length === 1 ? '' : 's'} logged` : 'No missions logged yet'}</span>
                 </span>
-                {missions.length > 0 && <span className="text-[#34C76F] shrink-0">{missions.reduce((a, m) => a + m.raiDec, 0).toFixed(2)} rai total →</span>}
+                {missions.length > 0 && <span className="text-[#0A5238] shrink-0">{missions.reduce((a, m) => a + m.raiDec, 0).toFixed(2)} rai total →</span>}
               </button>
-              <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#9AABAA] bg-[#0A0E10] border border-[#2A363A] rounded-lg pl-3.5 pr-1.5 min-h-[44px]">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg pl-3.5 pr-1.5 min-h-[44px]">
                 <span className="truncate">{logMsg || `Test log · ${AgrasLog.lines().length} lines`}</span>
                 <span className="flex gap-1 shrink-0">
                   <button onClick={() => { setLogMsg('Preparing…'); shareTestLog().then(setLogMsg).catch((e) => setLogMsg('Share failed: ' + ((e && e.message) || e))); }}
-                    className="min-h-[36px] px-2.5 rounded-md bg-[#2EE6C7] text-[#06231D] font-bold">SHARE</button>
+                    className="min-h-[36px] px-2.5 rounded-md bg-[#0C6B48] text-[#FFFFFF] font-bold">SHARE</button>
                   <button onClick={() => { AgrasLog.clear(); setLogMsg('Log cleared'); }}
-                    className="min-h-[36px] px-2 rounded-md border border-[#3A464B] text-[#9AABAA]">CLEAR</button>
+                    className="min-h-[36px] px-2 rounded-md border border-[#C6C0AC] text-[#55655F]">CLEAR</button>
                 </span>
               </div>
             </div>
             {/* DONE stays pinned to the bottom of the sheet while it scrolls */}
-            <div className="sticky -bottom-4 -mx-4 -mb-4 mt-4 px-4 pt-3 pb-4 bg-[#131A1D] border-t border-[#2A363A] flex justify-center">
+            <div className="sticky -bottom-4 -mx-4 -mb-4 mt-4 px-4 pt-3 pb-4 bg-[#FFFFFF] border-t border-[#E2DCC9] flex justify-center">
               <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
             </div>
           </div>
@@ -4984,39 +4984,39 @@ function App() {
           moment the live map notices; on-screen zoom past that ceiling is
           pure digital stretch of the deepest real tile, same as online. */}
       {showOfflineMap && (
-        <div className="absolute inset-0 z-30 bg-[#0A0E10]/90 flex items-center justify-center p-4">
-          <div className="w-full max-w-[360px] rounded-2xl bg-[#131A1D] border border-[#2A363A] p-4">
+        <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
+          <div className="w-full max-w-[360px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4">
             <div className="flex items-center justify-between">
               <p className="font-display text-[15px] font-bold tracking-wide">OFFLINE MAP</p>
-              <button onClick={() => setShowOfflineMap(false)} className="text-[#7C8C8C] p-1 -mr-1"><X size={18} /></button>
+              <button onClick={() => setShowOfflineMap(false)} className="text-[#55655F] p-1 -mr-1"><X size={18} /></button>
             </div>
-            <p className="text-[10.5px] text-[#7C8C8C] mt-0.5 mb-3">Download satellite maps for offline use · for the active field, before you lose signal</p>
+            <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">Download satellite maps for offline use · for the active field, before you lose signal</p>
 
             {!('caches' in window) ? (
-              <p className="text-xs text-[#FFB648] leading-relaxed">This browser doesn't support offline map storage — satellite imagery will need a live connection every time.</p>
+              <p className="text-xs text-[#8A4B06] leading-relaxed">This browser doesn't support offline map storage — satellite imagery will need a live connection every time.</p>
             ) : !unprojectRef.current ? (
-              <p className="text-xs text-[#7C8C8C] leading-relaxed">Get a GPS fix at least once (switch to GPS mode) so the field's real-world location is known, then come back here to download.</p>
+              <p className="text-xs text-[#55655F] leading-relaxed">Get a GPS fix at least once (switch to GPS mode) so the field's real-world location is known, then come back here to download.</p>
             ) : (
               <>
-                <div className="rounded-xl bg-[#0A0E10] border border-[#2A363A] p-3 flex items-center gap-3">
-                  {cacheInfo && cacheInfo.tiles > 0 ? <Wifi size={20} className="text-[#34C76F] shrink-0" /> : <CloudOff size={20} className="text-[#7C8C8C] shrink-0" />}
+                <div className="rounded-xl bg-[#F4F1E7] border border-[#E2DCC9] p-3 flex items-center gap-3">
+                  {cacheInfo && cacheInfo.tiles > 0 ? <Wifi size={20} className="text-[#0A5238] shrink-0" /> : <CloudOff size={20} className="text-[#55655F] shrink-0" />}
                   <div className="min-w-0">
                     <p className="text-sm font-bold truncate">{cacheInfo && cacheInfo.tiles > 0 ? 'Offline Map Ready' : 'No offline tiles cached yet'}</p>
-                    <p className="text-[10px] font-mono text-[#7C8C8C] mt-0.5">{cacheInfo ? `${cacheInfo.tiles} tiles · ${fmtBytes(cacheInfo.bytes)}` : '—'}</p>
+                    <p className="text-[10px] font-mono text-[#55655F] mt-0.5">{cacheInfo ? `${cacheInfo.tiles} tiles · ${fmtBytes(cacheInfo.bytes)}` : '—'}</p>
                   </div>
                 </div>
 
                 {downloadState ? (
                   downloadState.error ? (
-                    <p className="text-xs text-[#FF5252] mt-3">{downloadState.error}</p>
+                    <p className="text-xs text-[#A5201A] mt-3">{downloadState.error}</p>
                   ) : (
                     <div className="mt-3">
-                      <div className="flex items-center justify-between text-[10px] font-mono text-[#9AABAA]">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-[#55655F]">
                         <span>Downloading tiles…</span>
                         <span>{downloadState.done} / {downloadState.total}</span>
                       </div>
-                      <div className="mt-1.5 h-1.5 w-full rounded-full bg-[#0A0E10] overflow-hidden">
-                        <div className="h-full rounded-full bg-[#2EE6C7] transition-[width] duration-200"
+                      <div className="mt-1.5 h-1.5 w-full rounded-full bg-[#F4F1E7] overflow-hidden">
+                        <div className="h-full rounded-full bg-[#0C6B48] transition-[width] duration-200"
                           style={{ width: (downloadState.total ? (downloadState.done / downloadState.total) * 100 : 0) + '%' }} />
                       </div>
                       <DockBtn icon={X} label="CANCEL DOWNLOAD" tone="ghost" onClick={cancelDownload} />
@@ -5060,11 +5060,11 @@ class ErrorBoundary extends React.Component {
   render() {
     if (!this.state.err) return this.props.children;
     return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center bg-[#0A0E10] text-[#D3DEDC]">
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center bg-[#F4F1E7] text-[#24322C]">
         <p className="font-display text-lg font-bold">Something went wrong</p>
-        <p className="font-mono text-[11px] text-[#7C8C8C] max-w-[300px] break-words">{String(this.state.err && this.state.err.message || this.state.err)}</p>
-        <p className="text-xs text-[#9AABAA] max-w-[300px]">Your mission progress was autosaved — reopening will offer to resume it.</p>
-        <button onClick={() => location.reload()} className="min-h-[48px] px-6 rounded-xl bg-[#2EE6C7] text-[#06231D] font-semibold">Reload</button>
+        <p className="font-mono text-[11px] text-[#55655F] max-w-[300px] break-words">{String(this.state.err && this.state.err.message || this.state.err)}</p>
+        <p className="text-xs text-[#55655F] max-w-[300px]">Your mission progress was autosaved — reopening will offer to resume it.</p>
+        <button onClick={() => location.reload()} className="min-h-[48px] px-6 rounded-xl bg-[#0C6B48] text-[#FFFFFF] font-semibold">Reload</button>
       </div>
     );
   }
