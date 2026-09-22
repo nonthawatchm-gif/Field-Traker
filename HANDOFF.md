@@ -519,6 +519,23 @@ display problems and a SIM that painted junk; all three are fixed here.
     - Jumped straight to the summary at the end.
   - Test `simWalk` covers this.
 
+### Real per-tank area, full-length lanes, station icon (after build-67)
+
+- **`areaPerTank()` uses real spraying only.**
+  - New mission records carry `src` (`'gps'` / `'sim'`).
+  - Older records count as SIM when `(ts - startedTs)` is under half of
+    `elapsed`, i.e. the clock ran at 20×/60×.
+  - Background: แปลงถั่ว 1 had 1.8 rai/tank from a 2-minute SIM run. The real
+    figure, from แปลงถั่ว 2 on foot, is 0.71.
+- **A lane runs wherever its band touches the field.** `routeLanes` samples the
+  band's centre and both sides (±0.45 swath) and merges the spans. On a
+  narrowing end the lane overshoots a little; before, it stopped short and left
+  a long diagonal walk to the next lane.
+- **Refill station icon** is a white house with a dark water drop (the owner's
+  drawing). It stays upright on a turned map.
+- **Home framing** now includes the station when it is within 250 m of the
+  field, so it no longer hides under the dock.
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against
