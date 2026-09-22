@@ -444,8 +444,17 @@ async function notRecordingAlert() {
     await startSpray(page, 1200);
     await walk(ctx, page, [40, 40], [40, 60], 2, 100);
     await tap(page, 'TANK EMPTY', { wait: 900 });
-    await walk(ctx, page, [40, 60], [70, 60], 2, 100);         // spraying on, app waiting: walk the field away from the station
-    await walk(ctx, page, [70, 60], [70, 20], 2, 100);
+    // The alert waits for 40 m of walking, and the app does not see every fix
+    // we feed it: under load watchPosition coalesces them, and a run that fed
+    // 35 fixes has been seen to deliver 20. Measured at 2 m steps, the app
+    // accumulated between 38 and 68 m of the 70 m walked, so 70 m left the
+    // check one fix short of its own threshold. This walks 120 m of the far
+    // corner, all of it away from the station, which still clears 40 m at the
+    // worst delivery rate observed. Slower steps drop fewer fixes but cannot
+    // rule the loss out, so the margin is what this relies on.
+    await walk(ctx, page, [40, 60], [70, 60], 2, 150);         // spraying on, app waiting: walk the field away from the station
+    await walk(ctx, page, [70, 60], [70, 20], 2, 150);
+    await walk(ctx, page, [70, 20], [70, 70], 2, 150);
     check('walking the field while the app waits for a refill raises an alert', /not recording/.test(await appLog(page)));
     await browser.close();
   }
