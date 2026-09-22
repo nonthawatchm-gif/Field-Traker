@@ -775,10 +775,37 @@ async function routeSuggest() {
   await browser.close();
 }
 
+/* 23. SIM walks the suggested route like an operator: starts at the station,
+ *     runs out after the area per tank, walks to the station and back without
+ *     painting, covers the field, and stops at the FINISH choice at the end. */
+async function simWalk() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page, [[0, 0], [50, 0], [50, 120], [0, 120]], [-8, -6]);
+  await page.evaluate(() => localStorage.setItem('agras_dev', '1'));
+  await page.reload(); await page.waitForTimeout(3000);
+  const click = async (t) => { const el = page.locator(`text="${t}"`).locator('visible=true').first(); if (await el.count()) { await el.click({ force: true }); await page.waitForTimeout(400); } };
+  await click('DEV'); await click('SIM'); await click('60×');
+  await startSpray(page, 500);
+  const t0 = Date.now(); let t = '';
+  while (Date.now() - t0 < 180000) { await page.waitForTimeout(2500); t = await txt(page); if (/FINISH · ROUND/.test(t)) break; }
+  const log = await page.evaluate(() => AgrasLog.lines().join('\n'));
+  const tanks = (log.match(/SIM tank out/g) || []).length;
+  check('SIM runs out of liquid per tank and walks to the station', tanks === 3, `${tanks} refill trips for 3.75 rai at 1 rai/tank`);
+  check('SIM stops at the FINISH choice when the route is done', /FINISH · ROUND/.test(t) && !/MISSION SUMMARY/.test(t));
+  const pct = +((t.match(/(\d+)% sprayed this round/) || [])[1] || 0);
+  check('SIM covers the field', pct >= 95, `${pct}%`);
+  await tapRe(page, /NOT DONE · CONTINUE LATER/, { wait: 1800 });
+  const s = await summary(page);
+  const ov = parseFloat((s.match(/OVERLAPPED \| ([\d.]+) rai/) || [])[1] || '9');
+  check('SIM paints no stripes on the way to and from the station', ov < 0.05 && /MISSED SPOTS \| 0\.00 rai/.test(s), s.match(/OVERLAPPED \| [^|]+ \| [^|]+/)?.[0]);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

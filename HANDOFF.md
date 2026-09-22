@@ -20,11 +20,11 @@ farmer walk-through fixes (`72fd2d2`) — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 92 checks, ~20 min, expect 92/92
+node test/run.js                     # 96 checks, ~20 min, expect 96/96
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 92/92 on a clean checkout, something in the fixes below
+If `test/run.js` is not 96/96 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -491,6 +491,33 @@ closest to north-up. Before, a long strip lay sideways on a portrait phone. The
 view also re-frames when the route panel opens.
 
 Test `routeSuggest` covers these.
+
+### After the daylight re-theme (build-66)
+
+The re-theme came from another Claude session (commits 6485a7e..81fb434 on
+main, also on `claude/nifty-bohr-e466lx`). A phone walk-through found two
+display problems and a SIM that painted junk; all three are fixed here.
+
+- **Button captions.** ROUTE / SETTINGS under the round buttons were dark text
+  on the satellite map. They now sit in a light pill.
+- **Operator arrow.** While spraying it was a 10 px dark arrow that
+  disappeared. It is now screen-scaled (×DPR) with a white outline and dark
+  halo.
+- **SIM walks the suggested route like an operator** (`prepareSimWalk`,
+  `simWaypointsFromPlan`).
+  - It follows the ROUTE plan on screen, else the planner's pick, and starts
+    at the refill station.
+  - Lanes already 80% sprayed are skipped.
+  - A tank runs out after `areaPerTank()`. The walker then walks to the
+    station, mixes for `SIM_MIX_MS` sim-time, walks back to where it stopped,
+    and REFILLED fires by itself when AUTO-WALK is on.
+  - At the end of the route it pauses and opens the FINISH choice.
+  - What it used to do wrong:
+    - REFILLED at the station, then walked back *spraying*, which painted
+      diagonal stripes.
+    - Used the old `buildRoute` lanes, not the ROUTE plan.
+    - Jumped straight to the summary at the end.
+  - Test `simWalk` covers this.
 
 ## Verified on the phone, and what wasn't
 

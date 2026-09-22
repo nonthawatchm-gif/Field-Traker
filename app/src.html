@@ -661,6 +661,8 @@ function planSprayRoute(poly, swath, station, tankArea, gap) {
 }
 
 const WALK_SPEED = 1.15;
+const SIM_MS_PER_M = 1000 / WALK_SPEED;   // SIM walking pace off the lanes (to the station and back), sim-ms per metre
+const SIM_MIX_MS = 45000;                 // SIM: time at the station mixing a new tank
 const DEFAULT_TANK_CAPACITY_L = 20;
 const DEFAULT_RATE_L_PER_RAI = 20;
 const HISTORY_KEY = 'agras-tracker-missions';
@@ -1060,6 +1062,23 @@ function missionsToCSV(list) {
   return [header, ...rows].map((r) => r.join(',')).join('\n');
 }
 
+/** SIM: turn a planned route (planSprayRoute variant) into waypoints for the
+ *  route follower, starting at the station. Lanes already sprayed (80% of
+ *  their length painted) are walked past, not sprayed again. */
+function simWaypointsFromPlan(r, start, isSprayed) {
+  const wps = [{ ...start, spray: false, passId: -1 }];
+  let passId = 0;
+  r.segs.forEach((sg) => {
+    const L = dist(sg.a, sg.b), n = Math.max(2, Math.floor(L / 2));
+    let done = 0;
+    if (isSprayed) for (let i = 0; i <= n; i++) { const t = i / n; if (isSprayed({ x: sg.a.x + (sg.b.x - sg.a.x) * t, y: sg.a.y + (sg.b.y - sg.a.y) * t })) done++; }
+    if (isSprayed && done / (n + 1) >= 0.8) return;
+    passId++;
+    wps.push({ x: sg.a.x, y: sg.a.y, spray: false, passId: -1 });
+    wps.push({ x: sg.b.x, y: sg.b.y, spray: true, passId });
+  });
+  return wps;
+}
 function makeSim(field, swath) {
   const route = buildRoute(field.poly, swath);
   return {
@@ -1802,13 +1821,16 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     const col = opts.oob ? '#A5201A' : '#0C6B48';
     ctx.fillStyle = opts.oob ? 'rgba(255,82,82,.18)' : 'rgba(10,82,56,.18)';
     ctx.beginPath(); ctx.arc(px, py, (opts.oob ? 4 : 3) * v.s, 0, Math.PI * 2); ctx.fill();
+    // a navigation arrow sized for the screen: dark halo, white outline, so
+    // it stands out on any imagery (the old 10 px arrow disappeared)
+    const km = Math.min(2, window.devicePixelRatio || 1);
     ctx.save(); ctx.translate(px, py); ctx.rotate(sim.heading);
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, 6.5); ctx.lineTo(-3, 0); ctx.lineTo(-6, -6.5);
-    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(15 * km, 0); ctx.lineTo(-9 * km, 10 * km); ctx.lineTo(-4 * km, 0); ctx.lineTo(-9 * km, -10 * km); ctx.closePath();
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 6 * km; ctx.stroke();
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3 * km; ctx.stroke();
+    ctx.fillStyle = col; ctx.fill();
     ctx.restore();
-    ctx.strokeStyle = '#14201C'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(px, py, 2.6, 0, Math.PI * 2); ctx.stroke();
   }
 
   if (opts.accuracyRadius) {
@@ -2757,7 +2779,7 @@ function App() {
     // each frame below (not baked in here) so a mid-walk speed change (or a
     // walk that starts already at 20x/60x) takes effect immediately, exactly
     // like the main route-follower's advance() already does.
-    manualPathRef.current = { legs: [{ to: { ...target }, dur: Math.max(700, d * 450) }], idx: 0, prog: 0, from: { ...sim.pos }, onDone: onDone || (() => {}) };
+    manualPathRef.current = { legs: [{ to: { ...target }, dur: Math.max(700, d * SIM_MS_PER_M) }], idx: 0, prog: 0, from: { ...sim.pos }, onDone: onDone || (() => {}) };
   };
 
   /* main loop */
@@ -2875,7 +2897,12 @@ function App() {
         }
       } else if (ph === 'running' && sm === 'sim' && autoWalkRef.current && opModeRef.current === 'spray' && !sim.done) {
         advance(sim, field, dt * multRef.current, swathRef.current, paintCell, !oobRef.current);
-        if (sim.done) setPhase('done');
+        // the tank runs out after the measured area per tank, as in the field
+        const inTank = (sim.sprayedCells + sim.overlapCells) * CELL * CELL - tankBaselineAreaRef.current;
+        if (simTankAreaRef.current > 0 && inTank >= simTankAreaRef.current && !sim.done) { modeSwitchAtRef.current = 0; tankEmptyRef.current(); }
+        // end of the route: stop and ask, like an operator would (it used to
+        // jump straight to the summary and skip the done / not-done choice)
+        if (sim.done) { sim.done = false; sim.wp = sim.route.length; setPhase('paused'); setShowFinishChoice(true); AgrasLog.add('SIM', 'route finished'); }
       } else if (sm === 'gps' && missionActive) {
         const live = gpsLiveRef.current;
         if (live.seq !== appliedSeqRef.current && live.lat != null) {
@@ -3378,7 +3405,32 @@ function App() {
     const id = activeFieldIdRef.current;
     if (id) updateLibrary((list) => list.map((f) => (f.id === id && !(f.roundMeta && f.roundMeta.startedTs)
       ? { ...f, roundMeta: { ...(f.roundMeta || {}), startedTs: Date.now() } } : f)));
+    if (srcMode === 'sim') prepareSimWalk();
     setPhase('running');
+  };
+  /** SIM: walk the suggested route (the one on screen, else the planner's
+   *  pick) from the refill station, skipping what is already sprayed; each
+   *  tank runs out after the measured area per tank, and the walker goes to
+   *  the station, mixes, walks back and carries on (see the main loop). */
+  const simTankAreaRef = useRef(0);
+  const simRefillRef = useRef(null);     // { stage: 'toStation'|'mixing'|'back', resumeAt: {x,y}, wp }
+  const prepareSimWalk = () => {
+    const sim = simRef.current, f = fieldRef.current;
+    const tankArea = areaPerTank();
+    const rp = routePlanRef.current;
+    const plan = rp ? rp.variants[rp.idx] : (() => { const p = planSprayRoute(f.poly, swathRef.current, stationRef.current, tankArea, edgeGapRef.current); return p && p.variants[p.idx]; })();
+    if (!plan) return;
+    const isSprayed = sim.sprayedCells > 0 ? (p) => {
+      const i = Math.floor((p.x - f.gbbox.minX) / CELL), j = Math.floor((p.y - f.gbbox.minY) / CELL);
+      return i >= 0 && j >= 0 && i < f.GW && j < f.GH && sim.passes[j * f.GW + i] > 0;
+    } : null;
+    const start = stationRef.current || plan.segs[0].a;
+    sim.route = simWaypointsFromPlan(plan, start, isSprayed);
+    sim.wp = 1; sim.pos = { x: start.x, y: start.y }; sim.done = sim.route.length < 2;
+    sim.track.push({ ...sim.pos });
+    simTankAreaRef.current = tankArea;
+    simRefillRef.current = null;
+    AgrasLog.add('SIM', `walking the ${plan.along ? 'along' : 'across'} route: ${sim.route.length} waypoints, ${Math.round(tankArea)} m² per tank`);
   };
   /** Save the chemicals sheet onto the active field's open round. */
   const saveChemicals = (rows) => {
@@ -3635,7 +3687,16 @@ function App() {
     closeTank();
     opModeRef.current = 'toStation'; setOpMode('toStation');
     unrecordedRef.current = { walked: 0, startDist: 0, lastAlert: unrecordedRef.current.lastAlert };
-    if (srcMode === 'sim') driveTo(stationRef.current);
+    if (srcMode === 'sim') {
+      const sim = simRef.current, back = { ...sim.pos }, st = stationRef.current;
+      simRefillRef.current = { resumeAt: back };
+      manualPathRef.current = { legs: [
+        { to: { ...st }, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },   // walk to the tank
+        { to: { ...st }, dur: SIM_MIX_MS },                                      // mix a new tank
+        { to: back, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },         // walk back to the lane
+      ], idx: 0, prog: 0, from: { ...back }, onDone: () => { if (autoWalkRef.current) { modeSwitchAtRef.current = 0; resumeRef.current(); } } };
+      AgrasLog.add('SIM', `tank out at ${back.x.toFixed(1)},${back.y.toFixed(1)}: walking to the station`);
+    }
     saveSessionNow(); // key-event autosave — operator may set the phone down here to walk to the tank
   };
 
@@ -3657,6 +3718,8 @@ function App() {
     setTick((n) => n + 1);
   };
 
+  const resumeRef = useRef(null); resumeRef.current = resumeSprayingNow;
+  const tankEmptyRef = useRef(null); tankEmptyRef.current = tankEmpty;
   /** Tank tile button: TANK EMPTY while spraying, REFILLED during the trip. */
   const onTankTileRefill = () => {
     if (opMode === 'spray') tankEmpty();
@@ -4146,7 +4209,7 @@ function App() {
                 {phase === 'ready' && (
                   <div className="flex flex-col items-center gap-0.5">
                     <MapCtrlBtn icon={RouteIcon} active={!!routePlan} onClick={toggleRoute} title="Suggest route" />
-                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] [text-shadow:0_1px_3px_#000]">ROUTE</span>
+                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">ROUTE</span>
                   </div>
                 )}
                 {/* compass: only when the map has been rotated; tap = north up */}
@@ -4312,7 +4375,7 @@ function App() {
                         <SlidersIcon size={24} />
                         {reason && <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[#8A4B06] border-2 border-[#FFFFFF]" />}
                       </span>
-                      <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#14201C] [text-shadow:0_1px_3px_#000]">SETTINGS</span>
+                      <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">SETTINGS</span>
                     </button>
                   </div>
                 );
