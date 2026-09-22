@@ -24,16 +24,22 @@ cp.execSync('npx tailwindcss -c tw.config.js -i tw.in.css -o ' + W + '/tw.css --
 
 // 4. Fonts
 const fonts = [];
+// Two @font-face rules with the same family and weight and no unicode-range
+// make the last one win outright, so the Latin subset would silently shadow
+// the Thai one. The Thai face is scoped to Thai codepoints and declared after
+// the unrestricted Latin face, which leaves each subset covering its own text.
+const THAI_RANGE = 'U+0E01-0E5B,U+200C-200D,U+25CC';
 const add = (pkg, fam, weights, subsets) => weights.forEach(w => subsets.forEach(s => {
   const f = `${pkg}-${s}-${w}-normal.woff2`;
   const src = `node_modules/@fontsource/${pkg}/files/${f}`;
   if (!fs.existsSync(src)) return;
   fs.copyFileSync(src, `${W}/fonts/${f}`);
-  fonts.push(`@font-face{font-family:'${fam}';font-weight:${w};font-display:swap;src:url(fonts/${f}) format('woff2')}`);
+  const range = s === 'thai' ? `;unicode-range:${THAI_RANGE}` : '';
+  fonts.push(`@font-face{font-family:'${fam}';font-weight:${w};font-display:swap;src:url(fonts/${f}) format('woff2')${range}}`);
 }));
-add('archivo', 'Archivo', [600, 700, 800], ['latin']);
-add('ibm-plex-mono', 'IBM Plex Mono', [400, 500, 600], ['latin']);
-add('ibm-plex-sans-thai', 'IBM Plex Sans Thai', [400, 500, 600], ['thai', 'latin']);
+add('bai-jamjuree', 'Bai Jamjuree', [600, 700], ['latin', 'thai']);
+add('ibm-plex-mono', 'IBM Plex Mono', [400, 500, 600, 700], ['latin']);
+add('ibm-plex-sans-thai', 'IBM Plex Sans Thai', [400, 500, 600, 700], ['latin', 'thai']);
 fs.writeFileSync(W + '/fonts.css', fonts.join('\n'));
 
 // 5. Rewrite HTML
