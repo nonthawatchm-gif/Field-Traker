@@ -1994,7 +1994,7 @@ const NorthArrow = ({ size = 18, style }) => (
 );
 const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
   <button onClick={onClick} disabled={disabled} title={title} aria-label={title}
-    className={'w-11 h-11 rounded-full flex items-center justify-center border shadow-[0_2px_14px_rgba(20,32,28,.12)] transition-colors disabled:opacity-40 ' +
+    className={'w-[38px] h-[38px] rounded-full flex items-center justify-center border shadow-[0_2px_14px_rgba(20,32,28,.12)] transition-colors disabled:opacity-40 ' +
       (active ? 'bg-[#0C6B48] border-[#0C6B48] text-[#FFFFFF]' : 'bg-[#FFFFFF]/95 border-[#E2DCC9] text-[#24322C]')}>
     <Icon size={18} strokeWidth={2.2} />
   </button>
@@ -4415,9 +4415,9 @@ function App() {
                       </button>
                     )}
                     <button onClick={() => setShowSpraySettings(true)} aria-label="Settings" className="flex flex-col items-center gap-0.5">
-                      <span className="relative w-14 h-14 rounded-full bg-[#FFFFFF] border border-[#E2DCC9] shadow-[0_2px_14px_rgba(20,32,28,.12)] flex items-center justify-center text-[#0C6B48]">
+                      <span className="relative w-[38px] h-[38px] rounded-full bg-[#FFFFFF] border border-[#E2DCC9] shadow-[0_2px_14px_rgba(20,32,28,.12)] flex items-center justify-center text-[#0C6B48]">
                         <SlidersIcon size={24} />
-                        {reason && <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[#8A4B06] border-2 border-[#FFFFFF]" />}
+                        {reason && <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#8A4B06] border-2 border-[#FFFFFF]" />}
                       </span>
                       <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">SETTINGS</span>
                     </button>
