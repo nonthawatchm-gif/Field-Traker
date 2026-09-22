@@ -144,6 +144,7 @@ const Pencil       = (p) => <Svg {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 2
 const Star         = (p) => <Svg {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Svg>;
 const Check        = (p) => <Svg {...p}><polyline points="20 6 9 17 4 12"/></Svg>;
 const Plus         = (p) => <Svg {...p}><path d="M12 5v14M5 12h14"/></Svg>;
+const RouteIcon = (p) => <Svg {...p}><path d="M5 20V6a2 2 0 0 1 4 0v12a2 2 0 0 0 4 0V6a2 2 0 0 1 4 0v14"/><circle cx="5" cy="20" r="1.5"/><path d="M15 17l2 3 2-3"/></Svg>;
 const OverviewIcon = (p) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></Svg>;
 const Lock         = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
 const CloudOff     = (p) => <Svg {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5 2 2"/><path d="m2 2 20 20"/><path d="M4.51 9.51A5 5 0 0 0 6 19h12"/></Svg>;
@@ -390,11 +391,20 @@ const Y_ = (v, y) => v.oy + y * v.s;
  *  without letting them change the field's orientation. */
 function computeFitView(pxW, pxH, poly, pad, extra) {
   if (!poly || poly.length < 3) return { ...computeView(pxW, pxH, polyBBox(poly && poly.length ? poly : [{ x: -10, y: -10 }, { x: 10, y: 10 }]), pad), angle: 0 };
-  const angle = fieldOrientationAngle(poly);
-  const rotated = [...poly, ...(extra || [])].map((p) => rotatePt(p, -angle));
-  const bbox = polyBBox(rotated);
-  const v = computeView(pxW, pxH, bbox, pad);
-  return { ...v, angle };
+  // long side across or up the screen, whichever shows the field bigger
+  // (a long strip on a portrait phone reads best standing up)
+  // Of the four quarter turns, take the one that shows it biggest and, between
+  // equals, the one closest to north-up.
+  const base = fieldOrientationAngle(poly);
+  let best = null;
+  for (let q = 0; q < 4; q++) {
+    const angle = normAngle(base + q * Math.PI / 2);
+    const rotated = [...poly, ...(extra || [])].map((p) => rotatePt(p, -angle));
+    const v = computeView(pxW, pxH, polyBBox(rotated), pad);
+    const better = !best || v.s > best.s * 1.02 || (v.s > best.s * 0.98 && Math.abs(angle) < Math.abs(best.angle));
+    if (better) best = { ...v, angle };
+  }
+  return best;
 }
 
 /** GridCell.insideRatio (Spec §1/§3C) — fraction of each cell's area that
@@ -521,6 +531,133 @@ function buildRoute(poly, swath) {
   if (route.length === 0) route.push({ x: bbox.minX, y: bbox.minY, spray: false, passId: -1 });
   // rotate the field-aligned route back into world space
   return route.map((pt) => ({ ...rotatePt(pt, angle), spray: pt.spray, passId: pt.passId }));
+}
+
+/* ---- Suggested spray route (the owner's ROUTE button) ---------------------
+ * Back-and-forth lanes one swath apart, planned for a person carrying a tank:
+ *   - two directions are tried: along the field's long side and across it;
+ *   - for each, every start side and first-lane direction is simulated with
+ *     the measured area one tank covers, adding the walk to the refill station
+ *     and back each time a tank runs out, plus station -> start and end ->
+ *     station;
+ *   - the variant with the least empty walking wins, and the tank-out points
+ *     are kept so the map can number them.
+ * Lanes are clipped to the polygon, so any shape works; a non-convex field
+ * gives a lane several spans, walked in order. */
+function routeLanes(poly, angle, swath, gap, fromMax) {
+  const local = poly.map((p) => rotatePt(p, -angle));
+  const bb = polyBBox(local);
+  // Bands one swath wide, laid from the side the route starts on: the first
+  // band's centre `gap` in from that edge (Settings -> Edge gap, default half a
+  // swath = the band flush with the edge), then one swath apart. The last band
+  // keeps the same spacing even if it runs past the far edge — the operator
+  // knows to stop there (the owner's call); no squeezed, overlapping last lane.
+  const g = Math.max(0, gap == null ? swath / 2 : gap);
+  const target = bb.h - Math.max(0, g - swath / 2);      // how far across the bands must reach
+  const ys = [];
+  for (let k = 0; k < 500; k++) {
+    const off = g + k * swath;                           // distance of this lane from the start edge
+    ys.push(fromMax ? bb.maxY - off : bb.minY + off);
+    if (off + swath / 2 >= target - 0.3) break;
+  }
+  const lanes = [];
+  ys.forEach((y) => {
+    const yc = Math.min(bb.maxY - 0.05, Math.max(bb.minY + 0.05, y));   // a lane past the edge follows the edge
+    const xs = [];
+    for (let i = 0; i < local.length; i++) {
+      const p1 = local[i], p2 = local[(i + 1) % local.length];
+      if ((p1.y <= yc && p2.y > yc) || (p2.y <= yc && p1.y > yc)) {
+        const dx = p2.x - p1.x, dy = p2.y - p1.y;
+        xs.push({ x: p1.x + (yc - p1.y) / dy * dx, sin: Math.abs(dy) / Math.hypot(dx, dy) });
+      }
+    }
+    xs.sort((a, b) => a.x - b.x);
+    const spans = [];
+    for (let j = 0; j + 1 < xs.length; j += 2) {
+      const L = xs[j + 1].x - xs[j].x;
+      if (L <= 1) continue;
+      // turn `gap` before the end edge, measured square to that edge (a
+      // slanted edge needs a longer stop along the lane for the same gap)
+      const a = xs[j].x + Math.min(g / Math.max(0.25, xs[j].sin), L / 3);
+      const b = xs[j + 1].x - Math.min(g / Math.max(0.25, xs[j + 1].sin), L / 3);
+      if (b - a >= 3) spans.push([a, b]);
+    }
+    if (spans.length) lanes.push({ y, spans });
+  });
+  // drop slivers where a lane only clips a slanted corner (the next lane's
+  // swath covers it); they made long diagonal walks across the field
+  const lens = lanes.flatMap((ln) => ln.spans.map(([a, b]) => b - a)).sort((a, b) => a - b);
+  const med = lens.length ? lens[Math.floor(lens.length / 2)] : 0;
+  return lanes.map((ln) => ({ ...ln, spans: ln.spans.filter(([a, b]) => b - a >= med * 0.25) })).filter((ln) => ln.spans.length);
+}
+function simulateRoute(lanes, angle, swath, station, tankArea, reverse, firstDir) {
+  const order = reverse ? lanes.slice().reverse() : lanes;
+  const segs = [];   // field-local, in walking order
+  let dir = firstDir;
+  order.forEach((ln) => {
+    const spans = dir > 0 ? ln.spans : ln.spans.slice().reverse();
+    spans.forEach(([a, b]) => {
+      const [x0, x1] = dir > 0 ? [a, b] : [b, a];
+      segs.push({ a: rotatePt({ x: x0, y: ln.y }, angle), b: rotatePt({ x: x1, y: ln.y }, angle) });
+    });
+    dir = -dir;
+  });
+  if (!segs.length) return null;
+  const st = station || segs[0].a;
+  let empty = dist(st, segs[0].a), turns = 0, sprayLen = 0, rem = tankArea;
+  const tanks = [];
+  segs.forEach((sg, i) => {
+    if (i > 0) turns += dist(segs[i - 1].b, sg.a);
+    let a = sg.a;
+    const L = dist(sg.a, sg.b), ux = (sg.b.x - sg.a.x) / (L || 1), uy = (sg.b.y - sg.a.y) / (L || 1);
+    let left = L;
+    sprayLen += L;
+    while (tankArea > 0 && left * swath > rem + 1e-6) {
+      const t = rem / swath;
+      a = { x: a.x + ux * t, y: a.y + uy * t };
+      tanks.push({ x: a.x, y: a.y, seg: i });   // seg: which lane it is on, so its marker can slide along it
+      empty += 2 * dist(a, st);
+      left -= t; rem = tankArea;
+    }
+    rem -= left * swath;
+  });
+  empty += dist(segs[segs.length - 1].b, st);
+  return { segs, tanks, empty, turns, sprayLen, lanes: order.length, angle, score: empty + (segs.length - 1) * ROUTE_TURN_COST_M };
+}
+/** Each lane change costs time and leaves overlap at the headland: count it as
+ *  this many metres of walking, so a long strip gets long lanes, not dozens of
+ *  short ones, when the refill walking comes out about the same. */
+const ROUTE_TURN_COST_M = 10;
+/** The route starts at the lane end nearest the refill station (the owner's
+ *  call: that is how people spray, and a job stopped half way leaves the far
+ *  end, not the near end, still to do). Among those starts the one with the
+ *  least empty walking wins; `farSaves` says what starting at the far end
+ *  would have saved, for the panel. */
+function planSprayRoute(poly, swath, station, tankArea, gap) {
+  if (!poly || poly.length < 3 || !(swath > 0)) return null;
+  const long = fieldOrientationAngle(poly);
+  let globalBest = null;
+  const variants = [long, long + Math.PI / 2].map((angle, idx) => {
+    const cands = [];
+    for (const fromMax of [false, true]) {
+      const lanes = routeLanes(poly, angle, swath, gap, fromMax);
+      for (const firstDir of [1, -1]) {
+        const r = simulateRoute(lanes, angle, swath, station, tankArea, false, firstDir);
+        if (!r) continue;
+        r.startDist = station ? dist(r.segs[0].a, station) : 0;
+        cands.push(r);
+        if (!globalBest || r.score < globalBest.score) globalBest = r;
+      }
+    }
+    if (!cands.length) return null;
+    const nearest = Math.min(...cands.map((c) => c.startDist));
+    const best = cands.filter((c) => c.startDist <= nearest + 3).sort((a, b) => a.score - b.score)[0];
+    return { ...best, along: idx === 0 };
+  }).filter(Boolean);
+  if (!variants.length) return null;
+  const pick = variants.length > 1 && variants[1].score < variants[0].score ? 1 : 0;
+  const farSaves = globalBest ? Math.round(variants[pick].empty - globalBest.empty) : 0;
+  return { variants, idx: pick, best: pick, farSaves };
 }
 
 const WALK_SPEED = 1.15;
@@ -1551,6 +1688,73 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.restore();
   }
 
+  // Suggested route: one blue line in walking order, arrows along the lanes,
+  // a start dot, an end arrow, and numbered circles where each tank runs out.
+  if (opts.route) {
+    const R = opts.route, k = Math.min(2, window.devicePixelRatio || 1);
+    const pts = [];
+    R.segs.forEach((sg) => { pts.push(sg.a, sg.b); });
+    ctx.save();
+    ctx.globalAlpha = R.faint ? 0.45 : 1;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const line = () => { ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(X_(v, p.x), Y_(v, p.y)) : ctx.moveTo(X_(v, p.x), Y_(v, p.y)))); ctx.stroke(); };
+    const gap = (R.swath || 5) * v.s;               // on-screen lane spacing, px
+    const lw = Math.max(1.2 * k, Math.min(3 * k, gap * 0.3));
+    ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = lw * 2; line();
+    ctx.strokeStyle = '#29C5F6'; ctx.lineWidth = lw; line();
+    // direction chevrons every ~40 m of lane
+    ctx.fillStyle = '#FFFFFF';
+    if (gap >= 16 * k) R.segs.forEach((sg) => {
+      const L = dist(sg.a, sg.b); if (L < 12) return;
+      const n = Math.max(1, Math.floor(L / 40));
+      for (let i = 1; i <= n; i++) {
+        const t = i / (n + 1), px = sg.a.x + (sg.b.x - sg.a.x) * t, py = sg.a.y + (sg.b.y - sg.a.y) * t;
+        const sx = X_(v, px), sy = Y_(v, py), ex = X_(v, sg.b.x), ey = Y_(v, sg.b.y);
+        const ang = Math.atan2(ey - sy, ex - sx);
+        ctx.save(); ctx.translate(sx, sy); ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(4.5 * k, 0); ctx.lineTo(-3 * k, 3.5 * k); ctx.lineTo(-3 * k, -3.5 * k); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    });
+    // START: an arrow pointing down the first lane; END: a dot (the owner's drawing)
+    const s0 = R.segs[0], e0 = R.segs[R.segs.length - 1].b;
+    ctx.fillStyle = '#29C5F6'; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * k;
+    {
+      const sx = X_(v, s0.a.x), sy = Y_(v, s0.a.y), ang = Math.atan2(Y_(v, s0.b.y) - sy, X_(v, s0.b.x) - sx);
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(ang);
+      ctx.beginPath(); ctx.moveTo(11 * k, 0); ctx.lineTo(-5 * k, 8 * k); ctx.lineTo(-5 * k, -8 * k); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(X_(v, e0.x), Y_(v, e0.y), 8 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // numbered tank markers: one that would overlap an earlier one slides
+    // along its own lane (forward or back) to the nearest free spot
+    const rr = 9 * k, placed = [];
+    R.tanks.forEach((p, i) => {
+      const sg = R.segs[p.seg];
+      const free = (q) => placed.every((o) => Math.hypot(o.x - X_(v, q.x), o.y - Y_(v, q.y)) >= rr * 2.2);
+      let q = p;
+      if (sg && !free(q)) {
+        const L = dist(sg.a, sg.b) || 1, ux = (sg.b.x - sg.a.x) / L, uy = (sg.b.y - sg.a.y) / L;
+        const t0 = dist(sg.a, p), stepM = (rr * 1.1) / v.s;         // half a marker, in metres
+        for (let n = 1; n <= 40; n++) {
+          const t = t0 + (n % 2 ? 1 : -1) * Math.ceil(n / 2) * stepM;
+          if (t < 0 || t > L) continue;
+          const c = { x: sg.a.x + ux * t, y: sg.a.y + uy * t };
+          if (free(c)) { q = c; break; }
+        }
+      }
+      const x = X_(v, q.x), y = Y_(v, q.y);
+      placed.push({ x, y });
+      ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = '#0A0E10'; ctx.lineWidth = 2 * k;
+      ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#0A0E10'; ctx.font = `bold ${10 * k}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.save(); ctx.translate(x, y); ctx.rotate(v.angle || 0);   // undo the map rotation so the number stands upright
+      ctx.fillText(String(i + 1), 0, 0.5 * k); ctx.restore();
+    });
+    ctx.restore();
+  }
+
   // Home screen: where spraying stopped last time (a target ring) and the
   // operator (a blue dot), so it is obvious where to walk to carry on.
   if (opts.lastStop) {
@@ -1786,6 +1990,9 @@ function App() {
   const [gpsInfo, setGpsInfo] = useState(null);       // { lat, lng, accuracy }
   const [gpsRetryTick, setGpsRetryTick] = useState(0); // bumped to re-run GPS acquisition without a full mode toggle
   const [swath, setSwath] = useState(() => { const s = loadLastSettings(); return s && s.swath ? s.swath : 2.5; });
+  // suggested route: how far lane ends and the outer lanes stay from the field edge
+  const [edgeGap, setEdgeGap] = useState(() => { const s = loadLastSettings(); return s && s.edgeGap != null ? s.edgeGap : ((s && s.swath) || 2.5) / 2; });
+  const edgeGapRef = useRef(edgeGap); edgeGapRef.current = edgeGap;
   const [mult, setMult] = useState(20);
   const [autoWalk, setAutoWalk] = useState(true);
   const [draft, setDraft] = useState([]);
@@ -1800,7 +2007,9 @@ function App() {
   const [showFieldLibrary, setShowFieldLibrary] = useState(false);
   const [showSaveField, setShowSaveField] = useState(false);
   const [namingNewField, setNamingNewField] = useState(false);
-  const [frameTick, setFrameTick] = useState(0);      // bump to re-frame the home screen // the rename sheet opened by itself for a just-plotted field
+  const [frameTick, setFrameTick] = useState(0);      // bump to re-frame the home screen
+  const [routePlan, setRoutePlan] = useState(null);   // { variants: [long, across], idx, best } from planSprayRoute
+  const routePlanRef = useRef(null); routePlanRef.current = routePlan; // the rename sheet opened by itself for a just-plotted field
   const askNameAfterStationRef = useRef(false);
   const [saveFieldName, setSaveFieldName] = useState('');
   const [confirmDeleteFieldId, setConfirmDeleteFieldId] = useState(null);
@@ -2242,8 +2451,8 @@ function App() {
    *  change, so the NEXT app open (the effect above) has something to
    *  restore. */
   useEffect(() => {
-    saveLastSettings({ tankCapacity, rateLRai, swath, activeFieldId });
-  }, [tankCapacity, rateLRai, swath, activeFieldId]);
+    saveLastSettings({ tankCapacity, rateLRai, swath, activeFieldId, edgeGap });
+  }, [tankCapacity, rateLRai, swath, activeFieldId, edgeGap]);
   /** The active field remembers its own spray width and tank size, so the
    *  next time it is loaded it comes back set up the way it was last used. */
   useEffect(() => {
@@ -2505,7 +2714,7 @@ function App() {
     const ro = new ResizeObserver(fit);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [phase, activeFieldId, frameTick]);
+  }, [phase, activeFieldId, frameTick, !!routePlan]);
 
   /** Home screen: where spraying stopped on the active field last time, and the
    *  operator's position when they are close enough to be heading there. */
@@ -2525,6 +2734,22 @@ function App() {
     if (phase !== 'ready') { framedWithGpsRef.current = false; return; }
     if (!framedWithGpsRef.current && gpsInfo) { framedWithGpsRef.current = true; setFrameTick((n) => n + 1); }
   }, [phase, gpsInfo]);
+  /** Area one tank covers on the active field: its own full tanks from
+   *  history (a tank under 60% of the largest is a part tank at mission end),
+   *  else any field's, else tank size / planned rate. */
+  const areaPerTank = () => {
+    const full = (list) => { if (!list.length) return null; const mx = Math.max(...list); const f = list.filter((a) => a >= mx * 0.6); return f.reduce((x, y) => x + y, 0) / f.length; };
+    const all = missions.filter((m) => m.tankAreas && m.tankAreas.length);
+    const mine = all.filter((m) => m.fieldId === activeFieldIdRef.current).flatMap((m) => m.tankAreas);
+    return full(mine) || full(all.flatMap((m) => m.tankAreas)) || (tankCapacity / (rateLRai || DEFAULT_RATE_L_PER_RAI)) * 1600;
+  };
+  const toggleRoute = () => {
+    if (routePlanRef.current) { setRoutePlan(null); return; }
+    const plan = planSprayRoute(fieldRef.current.poly, swathRef.current, stationRef.current, areaPerTank(), edgeGapRef.current);
+    if (plan) { plan.tankArea = areaPerTank(); setRoutePlan(plan); AgrasLog.add('ROUTE', `suggested ${plan.variants.map((r) => `${r.along ? 'along' : 'across'} ${r.lanes} lanes empty ${Math.round(r.empty)}m`).join(' / ')}`); }
+  };
+  useEffect(() => { setRoutePlan(null); }, [activeFieldId, swath, edgeGap]);
+  useEffect(() => { if (phase === 'done' || phase === 'boundary' || phase === 'station') setRoutePlan(null); }, [phase]);
   const driveTo = (target, onDone) => {
     const sim = simRef.current;
     const d = dist(sim.pos, target);
@@ -2753,6 +2978,8 @@ function App() {
         const om = opModeRef.current;
         if (ph === 'running' && om === 'toStation') navLine = { from: sim.pos, to: stationRef.current, color: 'rgba(46,230,199,.85)' };
         const lastStop = ph === 'ready' ? lastStopOfActiveField() : null;
+        const rp = routePlanRef.current;
+        const route = rp && (ph === 'ready' || ph === 'running' || ph === 'paused') ? { ...rp.variants[rp.idx], faint: ph !== 'ready', swath: swathRef.current } : null;
         const gl = gpsLiveRef.current;
         const you = ph === 'ready' && gl.lat != null ? { x: gl.x, y: gl.y } : null;
         if (lastStop && you) navLine = { from: you, to: lastStop, color: 'rgba(255,255,255,.9)' };
@@ -2767,14 +2994,14 @@ function App() {
              oobRef.current, om, field.area, field.poly.length, stationRef.current.x, stationRef.current.y,
              sim.pos.x, sim.pos.y, sim.heading, sim.fixes.length, sim.sprayedCells, sim.overlapCells, sim.done,
              bp ? bp.x : '', bp ? bp.y : '', gridVersionRef.current, satelliteOnRef.current, tileVersion,
-             satelliteOnRef.current && zoomCeilingRef.current, lastStop ? lastStop.x + ',' + lastStop.y : ''].join('|');
+             satelliteOnRef.current && zoomCeilingRef.current, lastStop ? lastStop.x + ',' + lastStop.y : '', route ? rp.idx + ':' + route.segs.length + ':' + route.faint : ''].join('|');
         if (sig !== null && sig === lastSigRef.current) return;
         lastSigRef.current = sig || '';
         drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, stationRef.current, {
           plotting: ph === 'boundary', drafting: draftRef.current,
           live: ph === 'boundary' && sm === 'gps' && gpsLiveRef.current.lat != null ? gpsLiveRef.current : null,
           static: ph === 'ready' || ph === 'boundary',
-          oob: oobRef.current, navLine, hideStation: ph === 'boundary', lastStop, you,
+          oob: oobRef.current, navLine, hideStation: ph === 'boundary', lastStop, you, route,
           accuracyRadius: sm === 'gps' && missionActive ? gpsLiveRef.current.accuracy : null,
           satellite: satelliteOnRef.current && unprojectRef.current
             ? { unproject: unprojectRef.current, tileCache: tileCacheRef.current, cacheStore: mapCacheRef.current, zoomCeilingRef }
@@ -3260,6 +3487,7 @@ function App() {
   const backHandlerRef = useRef(null);
   backHandlerRef.current = () => {
     if (showFinishChoice) { setShowFinishChoice(false); return 'finish-choice'; }
+    if (routePlan && phase === 'ready') { setRoutePlan(null); return 'route'; }
     if (chemSheet) { setChemSheet(null); return 'chemicals'; }
     if (reportFieldId != null) { setReportFieldId(null); return 'report'; }
     if (phase === 'done') { goHomeFromSummary(); return 'summary'; }
@@ -3915,6 +4143,12 @@ function App() {
                     {phase === 'boundary' && draft.length >= 2 && <MapCtrlBtn icon={OverviewIcon} onClick={fitDraftInView} title="Show all corners" />}
 </>
                 )}
+                {phase === 'ready' && (
+                  <div className="flex flex-col items-center gap-0.5">
+                    <MapCtrlBtn icon={RouteIcon} active={!!routePlan} onClick={toggleRoute} title="Suggest route" />
+                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#EAF3F1] [text-shadow:0_1px_3px_#000]">ROUTE</span>
+                  </div>
+                )}
                 {/* compass: only when the map has been rotated; tap = north up */}
                 {panRef.current && Math.abs(panRef.current.a || 0) > 0.03 && (phase !== 'running' && phase !== 'paused' || camMode === 'free') && (
                   <MapCtrlBtn icon={(p) => <NorthArrow size={p.size} style={{ transform: `rotate(${-(panRef.current.a || 0)}rad)` }} />}
@@ -4010,6 +4244,37 @@ function App() {
           )}
           {phase === 'ready' && (
             <div className="flex flex-col gap-2">
+              {routePlan && (() => {
+                const r = routePlan.variants[routePlan.idx], other = routePlan.variants[1 - routePlan.idx];
+                const tanks = r.tanks.length + 1;
+                return (
+                  <div className="rounded-xl bg-[#131A1D] border border-[#29C5F6]/50 px-3.5 py-2.5 shadow-[0_2px_14px_rgba(0,0,0,.5)]">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#29C5F6] font-bold">
+                          Suggested route · {r.along ? 'along the long side' : 'across the field'}{routePlan.idx === routePlan.best ? ' · best' : ''}
+                        </p>
+                        <p className="text-[12px] font-mono text-[#EAF3F1] font-bold mt-0.5">
+                          {r.lanes} lanes · {Math.round(r.sprayLen)} m · about {tanks} tank{tanks === 1 ? '' : 's'}
+                        </p>
+                        <p className="text-[10px] font-mono text-[#9AABAA] mt-0.5">
+                          Walk to refill ≈ {Math.round(r.empty)} m{r.tanks.length ? ` · ① ② … = tank runs out` : ''}
+                        </p>
+                        {routePlan.idx === routePlan.best && routePlan.farSaves >= 30 && (
+                          <p className="text-[10px] font-mono text-[#7C8C8C] mt-0.5">Starting at the far end would save ≈ {routePlan.farSaves} m</p>
+                        )}
+                      </div>
+                      <button onClick={() => setRoutePlan(null)} aria-label="Close route" className="text-[#7C8C8C] p-1 shrink-0"><X size={16} /></button>
+                    </div>
+                    {other && (
+                      <button onClick={() => setRoutePlan((p) => ({ ...p, idx: 1 - p.idx }))}
+                        className="mt-2 w-full min-h-[38px] rounded-lg border border-[#29C5F6]/50 text-[11px] font-mono font-bold text-[#29C5F6] flex items-center justify-center gap-1.5">
+                        <RotateCcw size={13} /> {other.along ? 'LANES ALONG THE LONG SIDE' : 'LANES ACROSS THE FIELD'} · {Math.round(other.empty)} m walk
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
               {/* Everything that isn't "pick the field" or "start" — spray settings,
                   the pre-flight checklist, plotting/station/rename, and the tools —
                   sits behind this one round button. The amber dot is the
@@ -4547,6 +4812,7 @@ function App() {
             <Glass className="px-2 py-2 flex flex-col gap-1">
               <Stepper label="Tank" value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
               <Stepper label="Width" value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
+              <Stepper label="Edge gap" value={edgeGap} unit="m" dec={1} step={0.5} min={0} max={10} onChange={setEdgeGap} />
             </Glass>
             {(() => {
               const items = [

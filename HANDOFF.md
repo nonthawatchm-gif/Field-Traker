@@ -20,11 +20,11 @@ farmer walk-through fixes (`72fd2d2`) — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 84 checks, ~20 min, expect 84/84
+node test/run.js                     # 92 checks, ~20 min, expect 92/92
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 84/84 on a clean checkout, something in the fixes below
+If `test/run.js` is not 92/92 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -442,8 +442,55 @@ followed:
   (`field.inside === 0`) paint grey in `paintCell`. They are **still counted**
   as sprayed; the edge-tolerance rule (Spec §3C) is unchanged.
 
-Tests `sprayTimeOnly` and `continueField` cover these. **Not built or installed
-yet.**
+Tests `sprayTimeOnly` and `continueField` cover these. Built as `build-61`,
+installed on the phone.
+
+### Suggested route (the ROUTE button)
+
+The owner asked for a spray route drawn on the map, planned from the swath,
+the field's size and shape, and the distance from the refill station.
+
+**The button and its panel**
+- ROUTE is a round map button on the home screen. It plans and draws the route;
+  tapping it again, ✕, or back closes it.
+- The panel shows: the direction, lane count, spray length, tanks needed, the
+  empty walking to refill, and a switch to the other direction.
+- An open route stays drawn, faint, while spraying.
+
+**What gets drawn**
+- A blue line down the middle of each swath-wide band.
+- Chevrons, only when lanes are wide apart on screen.
+- START is a triangle and END is a dot, from the owner's drawing.
+- Numbered circles mark where each tank runs out. One that would overlap an
+  earlier one slides along its own lane, with no leader line.
+
+**Planner** (`routeLanes` / `simulateRoute` / `planSprayRoute`, module level)
+- Directions: two are tried, along the long side (`fieldOrientationAngle`) and
+  across it.
+- Lane layout:
+  - Lanes are laid from the start side. The first centre is `edgeGap` in from
+    the edge (Settings → Edge gap, default half a swath, saved in last-settings),
+    then one swath apart.
+  - The last lane keeps the spacing even if it runs past the far edge. The
+    owner's words: "the sprayer knows". It is not squeezed back.
+  - Lane ends stop `edgeGap` short of the real end edge, measured square to it
+    (`gap / sin`).
+- **The start is always the lane end nearest the station** (the owner's call,
+  over the shorter-walk "start at the far end"). Among those starts, the least
+  `score` wins: empty walking + 10 m per lane change (`ROUTE_TURN_COST_M`).
+  That makes a long strip get long lanes. The panel notes what starting at the
+  far end would save.
+- Tank area comes from this field's full tanks in history (tanks under 60% of
+  the largest are ignored). Fallbacks: any field's tanks, then tank size ÷ rate.
+- The route covers the whole field; the owner asked for this, not only the
+  unsprayed part.
+
+**Home-screen framing** (`computeFitView`) now tries all four quarter turns.
+It keeps the one that shows the field biggest and, between equals, the one
+closest to north-up. Before, a long strip lay sideways on a portrait phone. The
+view also re-frames when the route panel opens.
+
+Test `routeSuggest` covers these.
 
 ## Verified on the phone, and what wasn't
 

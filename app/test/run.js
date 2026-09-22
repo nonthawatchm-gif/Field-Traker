@@ -714,10 +714,62 @@ async function continueField() {
   await browser.close();
 }
 
+/* 22. Suggested route: the ROUTE button plans lanes one swath apart in the
+ *     direction with the least empty walking, numbers where each tank runs
+ *     out, switches direction, and closes with back. */
+async function routeSuggest() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page, [[0, 0], [40, 0], [40, 160], [0, 160]], [-8, -6]);
+  await page.locator('[aria-label="Suggest route"]').click({ force: true }); await page.waitForTimeout(900);
+  let t = await txt(page);
+  const m = t.match(/(\d+) lanes · (\d+) m · about (\d+) tanks?/);
+  check('ROUTE shows a suggested route with lanes, length and tanks', !!m, m ? m[0] : t.slice(0, 120));
+  // 40 m wide / 2.5 m swath = 16 lanes along; 6400 m² at 1 rai (1600 m²) per tank = 4 tanks
+  check('lanes are one swath apart along the long side', /ALONG THE LONG SIDE/.test(t) && m && +m[1] === 16, m && `${m[1]} lanes`);
+  check('it plans about one tank per rai', m && +m[3] === 4, m && `${m[3]} tanks`);
+  const plan = await page.evaluate(() => {
+    const L = JSON.parse(localStorage.getItem('agras-tracker-field-library'))[0];
+    return { station: L.station };
+  });
+  const startGap = await page.evaluate(() => {
+    const L = JSON.parse(localStorage.getItem('agras-tracker-field-library'))[0];
+    const p = planSprayRoute(L.poly, 2.5, L.station, 1600, 1.25), r = p.variants[p.idx];
+    return Math.round(dist(r.segs[0].a, L.station));
+  });
+  check('the route starts at the lane end nearest the refill station', startGap < 16, `start ${startGap} m from the station`);
+  const walk1 = +(t.match(/Walk to refill ≈ (\d+) m/) || [])[1];
+  check('it counts the empty walking to refill', walk1 > 0, `${walk1} m`);
+  await page.locator('text=/LANES ACROSS THE FIELD/').first().click({ force: true }); await page.waitForTimeout(700);
+  t = await txt(page);
+  const m2 = t.match(/(\d+) lanes/);
+  check('the switch gives lanes across the field', /SUGGESTED ROUTE · ACROSS THE FIELD/.test(t) && m2 && +m2[1] === 64, m2 && m2[0]);
+  await page.evaluate(() => window.__agrasBack()); await page.waitForTimeout(500);
+  check('back closes the route', !/SUGGESTED ROUTE/.test(await txt(page)));
+  // Edge gap 2.75 m on a 40 x 160 m field: outer lanes 2.75 m in, lanes 160 - 5.5 m long
+  await openSettings(page);
+  // Stepper row: label ... [-] value [+]; press + three times (1.25 -> 2.75 m)
+  for (let i = 0; i < 3; i++) await page.evaluate(() => {
+    const lab = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent.trim() === 'Edge gap');
+    let row = lab; while (row && row.querySelectorAll('button').length < 2) row = row.parentElement;
+    const bs = row.querySelectorAll('button'); bs[bs.length - 1].click();
+  });
+  await page.waitForTimeout(300);
+  await tap(page, 'DONE', { wait: 500 });
+  const gapNow = await page.evaluate(() => JSON.parse(localStorage.getItem('agras-tracker-last-settings') || '{}').edgeGap);
+  await page.locator('[aria-label="Suggest route"]').click({ force: true }); await page.waitForTimeout(900);
+  t = await txt(page);
+  const m3 = t.match(/(\d+) lanes · (\d+) m/);
+  const expLanes = Math.ceil((40 - 2 * gapNow) / 2.5 - 0.05) + 1, expLen = expLanes * (160 - 2 * gapNow);
+  check('Edge gap moves the outer lanes and lane ends in from the edge', gapNow === 2.75 && m3 && +m3[1] === expLanes && Math.abs(+m3[2] - expLen) < expLanes * 1.5,
+    m3 ? `gap ${gapNow} m: ${m3[0]} (expected ${expLanes} lanes, ~${expLen} m)` : `gap ${gapNow}`);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
