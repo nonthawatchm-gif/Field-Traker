@@ -4,3 +4,4 @@ app/tw.config.js
 app/tw.in.css
 **/build/
 .gradle/
+app/test/shots/
