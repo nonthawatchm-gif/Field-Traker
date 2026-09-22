@@ -28,3 +28,15 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Build ${{ github.run_number }}
           files: app/android/app/build/outputs/apk/debug/app-debug.apk
+      # Keep only the three newest build-N releases; delete older ones and their tags
+      - name: Delete old builds
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName --jq '.[].tagName' \
+            | grep -E '^build-[0-9]+$' | sort -t- -k2 -nr | tail -n +4 \
+            | while read -r tag; do
+                echo "deleting $tag"
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+              done
