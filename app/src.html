@@ -386,10 +386,12 @@ const Y_ = (v, y) => v.oy + y * v.s;
  *  applied to the *rotated* bbox, and are then reused as the pivot for the
  *  ctx rotation in drawScene — that's what makes the un-rotated X_()/Y_()
  *  draw math land in the right place with zero other changes. */
-function computeFitView(pxW, pxH, poly, pad) {
+/** extra: points to keep in frame too (the last-stop marker, the operator)
+ *  without letting them change the field's orientation. */
+function computeFitView(pxW, pxH, poly, pad, extra) {
   if (!poly || poly.length < 3) return { ...computeView(pxW, pxH, polyBBox(poly && poly.length ? poly : [{ x: -10, y: -10 }, { x: 10, y: 10 }]), pad), angle: 0 };
   const angle = fieldOrientationAngle(poly);
-  const rotated = poly.map((p) => rotatePt(p, -angle));
+  const rotated = [...poly, ...(extra || [])].map((p) => rotatePt(p, -angle));
   const bbox = polyBBox(rotated);
   const v = computeView(pxW, pxH, bbox, pad);
   return { ...v, angle };
@@ -840,7 +842,7 @@ function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankC
     simPos: sim.pos, simHeading: sim.heading,
     fieldId: __sessionExtras.fieldId, covBase: __sessionExtras.covBase, tankAreas: __sessionExtras.tankAreas, tankOpen: __sessionExtras.tankOpen,
     recordId: __sessionExtras.recordId, startTs: __sessionExtras.startTs, weatherStart: __sessionExtras.weatherStart,
-    distance: sim.distance, elapsed: sim.elapsed,
+    distance: sim.distance, sprayDistance: sim.sprayDistance || 0, elapsed: sim.elapsed,
     sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, epoch: sim.epoch,
     cells: sim.passes.length,
     passes: rleEncode(sim.passes),
@@ -935,7 +937,7 @@ function makeSim(field, swath) {
     missed: new Uint8Array(field.GW * field.GH),
     sprayedCells: 0, overlapCells: 0, epoch: 0, passHeading: null,
     track: [{ ...route[0] }], fixes: [{ ...route[0] }],
-    distance: 0, elapsed: 0, sampleAcc: 0, trackAcc: 0,
+    distance: 0, sprayDistance: 0, elapsed: 0, sampleAcc: 0, trackAcc: 0,
     done: route.length < 2, breakpoint: null
   };
 }
@@ -1549,6 +1551,29 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.restore();
   }
 
+  // Home screen: where spraying stopped last time (a target ring) and the
+  // operator (a blue dot), so it is obvious where to walk to carry on.
+  if (opts.lastStop) {
+    const k = Math.min(2, window.devicePixelRatio || 1);
+    const lx = X_(v, opts.lastStop.x), ly = Y_(v, opts.lastStop.y);
+    ctx.save();
+    ctx.lineWidth = 3 * k; ctx.strokeStyle = 'rgba(0,0,0,.55)';
+    ctx.beginPath(); ctx.arc(lx, ly, 11 * k, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2.5 * k; ctx.strokeStyle = '#FFFFFF';
+    ctx.beginPath(); ctx.arc(lx, ly, 11 * k, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#FFB648'; ctx.beginPath(); ctx.arc(lx, ly, 5 * k, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  if (opts.you) {
+    const k = Math.min(2, window.devicePixelRatio || 1);
+    const yx = X_(v, opts.you.x), yy = Y_(v, opts.you.y);
+    ctx.save();
+    ctx.fillStyle = 'rgba(66,153,255,.25)'; ctx.beginPath(); ctx.arc(yx, yy, 13 * k, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#4299FF'; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * k;
+    ctx.beginPath(); ctx.arc(yx, yy, 7 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
   // Refill station: a map pin (tip on the spot) with a water drop, sized for
   // the screen — the old 7 px dot was hard to find on satellite imagery.
   if (station && !opts.hideStation) {
@@ -1774,7 +1799,8 @@ function App() {
   const [fieldLibrary, setFieldLibrary] = useState(() => loadFieldLibrary());
   const [showFieldLibrary, setShowFieldLibrary] = useState(false);
   const [showSaveField, setShowSaveField] = useState(false);
-  const [namingNewField, setNamingNewField] = useState(false); // the rename sheet opened by itself for a just-plotted field
+  const [namingNewField, setNamingNewField] = useState(false);
+  const [frameTick, setFrameTick] = useState(0);      // bump to re-frame the home screen // the rename sheet opened by itself for a just-plotted field
   const askNameAfterStationRef = useRef(false);
   const [saveFieldName, setSaveFieldName] = useState('');
   const [confirmDeleteFieldId, setConfirmDeleteFieldId] = useState(null);
@@ -1928,7 +1954,12 @@ function App() {
   const paintCell = useCallback((i, j, state) => {
     const img = imgDataRef.current, gw = fieldRef.current.GW;
     const idx = (j * gw + i) * 4;
-    if (state === -1) {
+    const outside = state >= 1 && fieldRef.current.inside && !fieldRef.current.inside[j * gw + i];
+    if (outside) {
+      // spray that landed past the boundary (the edge-tolerance band): grey,
+      // so it reads as over the line rather than as field coverage
+      img.data[idx] = 150; img.data[idx + 1] = 160; img.data[idx + 2] = 160; img.data[idx + 3] = 150;
+    } else if (state === -1) {
       // red hatch: alternate cell-granularity checker so the missed band
       // reads as a stripe rather than a flat fill, at the same 1px-per-cell
       // resolution the rest of the raster paints at.
@@ -2074,7 +2105,7 @@ function App() {
     updateLibrary((list) => list.map((e) => {
       if (e.id !== id) return e;
       const st = e.stats || { missions: 0, seconds: 0, distance: 0, tanks: 0 };
-      const next = { ...e, cov, settings: { swath: swathRef.current, tankCapacity: tankCapacityRef.current },
+      const next = { ...e, cov, lastStop: sim.lastSprayPos || e.lastStop || null, settings: { swath: swathRef.current, tankCapacity: tankCapacityRef.current },
         lastSprayedTs: (sim.sprayedCells > cb.sprayed || sim.overlapCells > cb.overlap) ? Date.now() : e.lastSprayedTs };
       if (final) next.stats = { missions: st.missions + 1, seconds: st.seconds + elapsed, distance: st.distance + distance, tanks: st.tanks + tanksNow };
       return next;
@@ -2298,7 +2329,7 @@ function App() {
       const rai = (simRef.current.sprayedCells * CELL * CELL) / 1600;
       updateLibrary((list) => list.map((f) => {
         if (f.id !== id) return f;
-        const { cov, stats, ...rest } = f;
+        const { cov, stats, lastStop, ...rest } = f;
         const { roundMeta, ...keep } = rest;
         const meta = roundMeta || {};
         return { ...keep, round: round + 1, lastSprayedTs: Date.now(),
@@ -2445,10 +2476,13 @@ function App() {
         topCss += 8; botCss -= 8;
         if (botCss - topCss > 120) {
           const fp = fieldRef.current.poly;
-          const v = phaseRef.current === 'station' ? { ...computeView(c.width, (botCss - topCss) * dpr, polyBBox(fp), 4), angle: 0 } : computeFitView(c.width, (botCss - topCss) * dpr, fp, 4);
+          const v = phaseRef.current === 'station' ? { ...computeView(c.width, (botCss - topCss) * dpr, polyBBox(fp), 4), angle: 0 } : computeFitView(c.width, (botCss - topCss) * dpr, fp, 6, phaseRef.current === 'ready' ? readyFramePoints() : null);
           viewRef.current = { ...v, oy: v.oy + topCss * dpr };
           freeRectRef.current = { top: topCss * dpr, h: (botCss - topCss) * dpr };
           freeDyRef.current = ((topCss + botCss) / 2) * dpr - c.height / 2;
+          // The home screen always opens on the whole field (it used to keep
+          // whatever camera the last mission or gesture left, e.g. zoomed on a corner)
+          if (phaseRef.current === 'ready' && satelliteOnRef.current) panRef.current = camFromView(viewRef.current, c.width, c.height, freeDyRef.current);
         } else {
           viewRef.current = phaseRef.current === 'station' ? { ...computeView(c.width, c.height, polyBBox(fieldRef.current.poly), 4), angle: 0 } : computeFitView(c.width, c.height, fieldRef.current.poly, 4);
           freeDyRef.current = 0; freeRectRef.current = { top: 0, h: c.height };
@@ -2471,8 +2505,26 @@ function App() {
     const ro = new ResizeObserver(fit);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [phase]);
+  }, [phase, activeFieldId, frameTick]);
 
+  /** Home screen: where spraying stopped on the active field last time, and the
+   *  operator's position when they are close enough to be heading there. */
+  const lastStopOfActiveField = () => {
+    const e = fieldLibraryRef.current.find((f) => f.id === activeFieldIdRef.current);
+    return e && e.cov && e.cov.sprayedCells > 0 && e.lastStop ? e.lastStop : null;
+  };
+  const readyFramePoints = () => {
+    const pts = [], stop = lastStopOfActiveField(), live = gpsLiveRef.current, b = fieldRef.current.bbox;
+    if (stop) pts.push(stop);
+    if (live.lat != null && live.x > b.minX - 250 && live.x < b.maxX + 250 && live.y > b.minY - 250 && live.y < b.maxY + 250) pts.push({ x: live.x, y: live.y });
+    return pts;
+  };
+  // re-frame once when the first GPS fix arrives on the home screen, so "you" is in view
+  const framedWithGpsRef = useRef(false);
+  useEffect(() => {
+    if (phase !== 'ready') { framedWithGpsRef.current = false; return; }
+    if (!framedWithGpsRef.current && gpsInfo) { framedWithGpsRef.current = true; setFrameTick((n) => n + 1); }
+  }, [phase, gpsInfo]);
   const driveTo = (target, onDone) => {
     const sim = simRef.current;
     const d = dist(sim.pos, target);
@@ -2498,8 +2550,12 @@ function App() {
       const ph = phaseRef.current, sm = srcModeRef.current;
       const missionActive = (ph === 'running' || ph === 'paused');
 
-      // wall-clock elapsed (not the clamped dt), so time keeps counting even if frames were suspended
-      if (ph === 'running') sim.elapsed += Math.min(rawDt, 6 * 3600) * (sm === 'sim' ? multRef.current : 1);
+      // Spray time only (the owner's call): the clock runs while spraying, and
+      // stops for the walk to the station (TANK EMPTY until REFILLED) and while
+      // out of bounds, where nothing is painted either. Wall-clock dt, not the
+      // clamped one, so it keeps counting while frames are suspended.
+      const sprayingNow = ph === 'running' && opModeRef.current === 'spray' && !oobRef.current;
+      if (sprayingNow) sim.elapsed += Math.min(rawDt, 6 * 3600) * (sm === 'sim' ? multRef.current : 1);
 
       if (missionActive && t - lastStatT >= 60000) {
         lastStatT = t;
@@ -2615,7 +2671,7 @@ function App() {
           const teleport = !lastLatLngRef.current || dist(from, newPos) > 30;
           const armed = spraying && !oobRef.current && !teleport && pointInPoly(newPos, field.poly);
           if (teleport) { AgrasLog.add('FIXAPPLY', `re-anchor, no paint (jump ${Math.round(dist(from, newPos))}m)`); }
-          else if (armed) stamp(sim, field, from, newPos, swathRef.current / 2, gpsPassId(sim, from, newPos), paintCell);
+          else if (armed) { stamp(sim, field, from, newPos, swathRef.current / 2, gpsPassId(sim, from, newPos), paintCell); sim.lastSprayPos = { x: newPos.x, y: newPos.y }; }
           else if (onSprayLane) markMissed(sim, field, from, newPos, swathRef.current / 2, paintCell);
           // Safety net for the failure the field test hit: TANK EMPTY has
           // recording switched off, the operator is walking around inside the
@@ -2641,7 +2697,11 @@ function App() {
           } else if (opModeRef.current === 'spray') unrecordedRef.current.walked = 0;
           sim.pos = newPos;
           sim.track.push({ ...newPos }); sim.fixes.push({ ...newPos });
-          if (lastLatLngRef.current && !teleport && ph === 'running') sim.distance += haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
+          if (lastLatLngRef.current && !teleport && ph === 'running') {
+            const d = haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
+            sim.distance += d;
+            if (sprayingNow) sim.sprayDistance = (sim.sprayDistance || 0) + d; // pace = spray distance / spray time
+          }
           lastLatLngRef.current = { lat: live.lat, lng: live.lng };
         }
       }
@@ -2692,6 +2752,10 @@ function App() {
         let navLine = null;
         const om = opModeRef.current;
         if (ph === 'running' && om === 'toStation') navLine = { from: sim.pos, to: stationRef.current, color: 'rgba(46,230,199,.85)' };
+        const lastStop = ph === 'ready' ? lastStopOfActiveField() : null;
+        const gl = gpsLiveRef.current;
+        const you = ph === 'ready' && gl.lat != null ? { x: gl.x, y: gl.y } : null;
+        if (lastStop && you) navLine = { from: you, to: lastStop, color: 'rgba(255,255,255,.9)' };
 
         const vv = viewRef.current, lv = gpsLiveRef.current;
         // Repaint only when something drawScene actually depends on changed (nothing in it is
@@ -2703,14 +2767,14 @@ function App() {
              oobRef.current, om, field.area, field.poly.length, stationRef.current.x, stationRef.current.y,
              sim.pos.x, sim.pos.y, sim.heading, sim.fixes.length, sim.sprayedCells, sim.overlapCells, sim.done,
              bp ? bp.x : '', bp ? bp.y : '', gridVersionRef.current, satelliteOnRef.current, tileVersion,
-             satelliteOnRef.current && zoomCeilingRef.current].join('|');
+             satelliteOnRef.current && zoomCeilingRef.current, lastStop ? lastStop.x + ',' + lastStop.y : ''].join('|');
         if (sig !== null && sig === lastSigRef.current) return;
         lastSigRef.current = sig || '';
         drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, stationRef.current, {
           plotting: ph === 'boundary', drafting: draftRef.current,
           live: ph === 'boundary' && sm === 'gps' && gpsLiveRef.current.lat != null ? gpsLiveRef.current : null,
           static: ph === 'ready' || ph === 'boundary',
-          oob: oobRef.current, navLine, hideStation: ph === 'boundary',
+          oob: oobRef.current, navLine, hideStation: ph === 'boundary', lastStop, you,
           accuracyRadius: sm === 'gps' && missionActive ? gpsLiveRef.current.accuracy : null,
           satellite: satelliteOnRef.current && unprojectRef.current
             ? { unproject: unprojectRef.current, tileCache: tileCacheRef.current, cacheStore: mapCacheRef.current, zoomCeilingRef }
@@ -3098,7 +3162,7 @@ function App() {
     AgrasLog.add('CHEM', clean.length ? clean.map(chemLine).join('; ') : 'none entered');
   };
   const resetFieldCoverage = (id) => {
-    updateLibrary((list) => list.map((e) => { if (e.id !== id) return e; const { cov, stats, ...rest } = e; return { ...rest, lastSprayedTs: null }; }));
+    updateLibrary((list) => list.map((e) => { if (e.id !== id) return e; const { cov, stats, lastStop, ...rest } = e; return { ...rest, lastSprayedTs: null }; }));
     setConfirmResetCovId(null);
     AgrasLog.add('RESET', 'sprayed area cleared for field ' + id);
     if (id === activeFieldIdRef.current && phaseRef.current === 'ready') resetSim(swathRef.current);
@@ -3133,7 +3197,7 @@ function App() {
       stationRef.current = editing.station || stationRef.current;
       updateLibrary((list) => list.map((e) => {
         if (e.id !== editing.id) return e;
-        const { cov, stats, ...rest } = e;
+        const { cov, stats, lastStop, ...rest } = e;
         return { ...rest, poly: f.poly, gpsAnchored: f.gpsAnchored, areaRai: f.area / 1600, areaSqm: f.area,
           originLat: origin ? origin.lat : e.originLat, originLng: origin ? origin.lng : e.originLng };
       }));
@@ -3277,6 +3341,7 @@ function App() {
     sim.heading = saved.simHeading || 0;
     sim.breakpoint = null; // the breakpoint return leg no longer exists
     sim.distance = saved.distance || 0;
+    sim.sprayDistance = saved.sprayDistance || 0;
     sim.elapsed = saved.elapsed || 0;
     sim.sprayedCells = saved.sprayedCells || 0;
     sim.overlapCells = saved.overlapCells || 0;
@@ -3427,7 +3492,7 @@ function App() {
       fieldId: activeFieldIdRef.current, startedTs: missionStartTsRef.current, weatherStart: weatherStartRef.current,
       chemicals: (() => { const e = fieldLibraryRef.current.find((x) => x.id === activeFieldIdRef.current); return (e && e.roundMeta && e.roundMeta.chemicals) || []; })(),
       areaSprayed: areaSprayedNow, rai: raiNow.rai, ngan: raiNow.ngan, wa: raiNow.wa, raiDec: raiDecNow,
-      distance: s.distance, elapsed: s.elapsed, overlapRate: overlapRateNow,
+      distance: s.distance, sprayDistance: s.sprayDistance || 0, elapsed: s.elapsed, overlapRate: overlapRateNow,
       overlapRai: overlapRaiNow,
       missedRai: missedRaiNow,
       litres: litresNow, tanks: tanksUsedNow, tankAreas: tankAreasRef.current, tankCapacity, swath, fieldRai: f.area / 1600, thumb,
@@ -3481,7 +3546,7 @@ function App() {
   const areaSprayed = sim.sprayedCells * CELL * CELL;
   const coveragePct = Math.min(100, (areaSprayed / field.area) * 100) || 0;
   const overlapRate = sim.sprayedCells > 0 ? (sim.overlapCells / sim.sprayedCells) * 100 : 0;
-  const speedMs = sim.elapsed > 2 ? sim.distance / sim.elapsed : 0;      // lifetime average — mission summary only
+  const speedMs = sim.elapsed > 2 ? (sim.sprayDistance || sim.distance) / sim.elapsed : 0;      // lifetime average — mission summary only
   // ---- Live Speed-Based Flow Rate & Pace Engine -----------------------
   // liveSpeedMs is an EMA sampled every frame (see the main loop) so the
   // widget reacts to the operator's actual current pace, not a lifetime
@@ -3817,7 +3882,7 @@ function App() {
           <div className={'flex flex-col gap-2 pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2" style={running && !showStats ? { display: 'none' } : undefined}>
-                <Tile icon={TimerIcon} label="Time" value={fmtTime(sim.elapsed)} />
+                <Tile icon={TimerIcon} label="Spray time" value={fmtTime(sim.elapsed)} />
                 <Tile icon={Footprints} label="Distance" value={sim.distance.toFixed(0)} unit="m" />
                 <PaceTile kmh={liveSpeedKmh} label={paceLabel} color={paceColor} />
               </div>
@@ -3957,8 +4022,16 @@ function App() {
                   : wx && wx.rainSoonWarning ? `Rain ${wx.rainSoonProb != null ? Math.round(wx.rainSoonProb) + '% ' : ''}in 3 h`
                   : wx && wx.windWarning ? `Wind ${Math.round(wx.windKmh || 0)} km/h`
                   : unchecked > 0 ? `${unchecked} check${unchecked === 1 ? '' : 's'} left` : null;
+                const stop = lastStopOfActiveField(), live = gpsLiveRef.current;
+                const stopDist = stop && live.lat != null ? dist(stop, { x: live.x, y: live.y }) : null;
                 return (
-                  <div className="flex justify-end items-center gap-2">
+                  <div className="flex justify-end items-center gap-2 flex-wrap">
+                    {stop && (
+                      <div className="mr-auto flex items-center gap-1.5 rounded-full bg-[#131A1D] border border-white/40 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(0,0,0,.5)] text-[11px] font-mono font-bold text-[#EAF3F1]">
+                        <span className="w-3 h-3 rounded-full border-2 border-white flex items-center justify-center shrink-0"><span className="w-1 h-1 rounded-full bg-[#FFB648]" /></span>
+                        {stopDist == null ? 'Last stop' : stopDist < 8 ? 'You are at the last stop' : `Last stop · ${Math.round(stopDist)} m`}
+                      </div>
+                    )}
                     {reason && (
                       <button onClick={() => setShowSpraySettings(true)}
                         className="flex items-center gap-1.5 rounded-full bg-[#131A1D] border border-[#FFB648]/50 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(0,0,0,.5)] text-[11px] font-mono font-bold text-[#FFB648]">
@@ -4195,7 +4268,7 @@ function App() {
             </div>
             <dl className="grid grid-cols-2 gap-px bg-[#2A363A] mt-2">
               {[
-                ['ELAPSED', fmtTime(sim.elapsed), `pace ${speedMs.toFixed(2)} m/s`],
+                ['SPRAY TIME', fmtTime(sim.elapsed), `pace ${speedMs.toFixed(2)} m/s`],
                 ['DISTANCE', `${sim.distance.toFixed(0)} m`, `swath ${swath.toFixed(1)} m`],
                 ['AREA SPRAYED', `${mRai.rai}-${mRai.ngan}-${mRai.wa} rai`, `${mRaiDec.toFixed(2)} rai · ${mArea.toFixed(0)} m²${cbase.sprayed > 0 ? ` · field ${coveragePct.toFixed(0)}% done` : ''}`],
                 // Spec §4D "Metrics Rule": physical quantities, not bare percentages.
@@ -4280,7 +4353,7 @@ function App() {
                   </div>
                   <dl className="grid grid-cols-2 gap-px bg-[#2A363A] rounded-xl overflow-hidden">
                     {[
-                      ['ELAPSED', fmtTime(selected.elapsed), `field ${selected.fieldRai.toFixed(2)} rai`],
+                      ['SPRAY TIME', fmtTime(selected.elapsed), `field ${selected.fieldRai.toFixed(2)} rai`],
                       ['DISTANCE', `${selected.distance.toFixed(0)} m`, `swath ${selected.swath.toFixed(1)} m`],
                       ['AREA SPRAYED', `${selected.rai}-${selected.ngan}-${selected.wa} rai`, `${selected.raiDec.toFixed(2)} rai · ${selected.areaSprayed.toFixed(0)} m²`],
                       ['OVERLAPPED', `${(selected.overlapRai ?? 0).toFixed(2)} rai`, `${(selected.overlapRate ?? 0).toFixed(0)}% of sprayed area`],

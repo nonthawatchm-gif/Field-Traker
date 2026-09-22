@@ -20,11 +20,11 @@ farmer walk-through fixes (`72fd2d2`) — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 77 checks, ~20 min, expect 77/77
+node test/run.js                     # 84 checks, ~20 min, expect 84/84
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 77/77 on a clean checkout, something in the fixes below
+If `test/run.js` is not 84/84 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -408,6 +408,42 @@ fix everything except the language:
 Test `farmerFixes` covers these; 77/77 pass. Built as `build-59` and installed with `adb install -r`
 (data kept). On the phone only the wider plotting view and the "0 corners" card
 have been seen so far; the rest was checked in Playwright screenshots.
+
+### After the 2026-09-22 field test (build-59)
+
+The owner sprayed แปลงถั่ว 2 in two sessions, on purpose, to test saving and
+carrying on with the same field. Both worked: coverage survived three app
+restarts, and session 2 continued at 1.41 rai with 2.5% overlap. Three changes
+followed:
+
+- **The clock counts spray time only** (the owner's call). `sim.elapsed` runs
+  only while `running && opMode === 'spray' && !oob`, so it stops for the trip to
+  the station and while out of bounds. Pace uses the new `sim.sprayDistance`,
+  which is saved in the snapshot and on the mission record. The labels now read
+  "Spray time" / SPRAY TIME. Tank count, distance and start/finish timestamps are
+  unchanged.
+- **Carrying on with a field.** The owner's complaint was that picking a field
+  gave no clue where to go.
+  - The last point sprayed (`sim.lastSprayPos`) is saved on the field as
+    `entry.lastStop`, and dropped when the round closes, when coverage is reset,
+    or when the boundary is edited.
+  - The home screen always re-frames on the whole field:
+    - The `fit()` effect now depends on `[phase, activeFieldId, frameTick]` and
+      seeds `panRef` from the fit. Before, the camera stayed wherever the last
+      mission or gesture left it, zoomed on a corner.
+    - The frame includes the last stop, and "you" when within 250 m of the
+      field. `computeFitView` takes an `extra` point list that does not affect
+      the rotation.
+    - It re-frames once more when the first GPS fix arrives.
+  - The map draws a white ring with an amber dot at the last stop, a blue dot
+    for the operator, and a dashed white line between them.
+  - A chip reads "Last stop · N m" ("You are at the last stop" under 8 m).
+- **Overspray is grey.** Credit-band cells outside the polygon
+  (`field.inside === 0`) paint grey in `paintCell`. They are **still counted**
+  as sprayed; the edge-tolerance rule (Spec §3C) is unchanged.
+
+Tests `sprayTimeOnly` and `continueField` cover these. **Not built or installed
+yet.**
 
 ## Verified on the phone, and what wasn't
 

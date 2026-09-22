@@ -648,10 +648,76 @@ async function farmerFixes() {
   await browser.close();
 }
 
+/* 20. The mission clock is spray time: it stops for the refill trip (TANK
+ *     EMPTY until REFILLED) and runs again once spraying resumes. */
+async function sprayTimeOnly() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await startSpray(page, 1200);
+  const clock = () => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('agras-tracker-active-session')).elapsed; } catch (e) { return null; } });
+  const snap = () => page.evaluate(() => window.__agrasSaveNow && window.__agrasSaveNow());
+  await walk(ctx, page, [40, 10], [40, 40], 2, 100);
+  await tap(page, 'TANK EMPTY', { wait: 600 });
+  await snap(); await page.waitForTimeout(6500);
+  const t0 = await clock();
+  await walk(ctx, page, [40, 40], [-10, -10], 4, 90);
+  await page.waitForTimeout(4000);
+  await snap(); await page.waitForTimeout(6500);
+  const t1 = await clock();
+  check('the clock stops during the refill trip', t0 != null && t1 != null && t1 - t0 < 1.5, `${t0 && t0.toFixed(1)}s -> ${t1 && t1.toFixed(1)}s over ~25 s of refilling`);
+  await tap(page, 'REFILLED · START SPRAYING', { wait: 900 });
+  await walk(ctx, page, [-10, -10], [40, 45], 4, 90);
+  await walk(ctx, page, [40, 45], [40, 70], 2, 100);
+  await snap(); await page.waitForTimeout(6500);
+  const t2 = await clock();
+  check('and runs again once spraying resumes', t2 - t1 > 3, `${t1.toFixed(1)}s -> ${t2.toFixed(1)}s`);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page);
+  check('the summary calls it spray time', /SPRAY TIME/.test(await txt(page)));
+  await browser.close();
+}
+
+/* 21. Carrying on with a field: the home screen frames the whole field, marks
+ *     where spraying stopped, and says how far away that is. */
+async function continueField() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await startSpray(page, 1200);
+  await walk(ctx, page, [40, 10], [40, 50], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, false);
+  await tap(page, 'START NEW', { wait: 1500 });
+  const lib = await library(page);
+  const stop = lib[0] && lib[0].lastStop;
+  check('the field remembers where spraying stopped', !!stop && Math.abs(stop.x - 40) < 3 && Math.abs(Math.abs(stop.y) - 50) < 3, stop ? `${stop.x.toFixed(0)},${stop.y.toFixed(0)}` : 'none');
+  await moveTo(ctx, page, -20, -20, 1500);
+  const t = await txt(page);
+  const m = t.match(/Last stop · (\d+) m/);
+  check('the home screen says how far the last stop is', !!m && Math.abs(+m[1] - Math.hypot(60, 70)) < 6, m ? m[0] : t.slice(0, 80));
+  const framed = await page.evaluate(() => {
+    const d = window.__agrasDbg, c = document.querySelector('canvas');
+    return d && d.pan ? 80 * d.pan.s < c.width && 80 * d.pan.s > c.width * 0.25 : false;
+  });
+  check('and frames the whole field', framed);
+  await startSpray(page, 900);
+  await walk(ctx, page, [-20, -20], [45, 50], 4, 90);
+  await walk(ctx, page, [45, 50], [45, 70], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, true);
+  await tap(page, 'START NEW', { wait: 1500 });
+  const lib2 = await library(page);
+  check('a closed round forgets the last stop', lib2[0] && !lib2[0].lastStop && !/Last stop/.test(await txt(page)));
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
