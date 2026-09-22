@@ -3941,7 +3941,7 @@ function App() {
                   reserved for the tank/critical-alert palette elsewhere),
                   plus an arrow pointing back toward the nearest boundary
                   point so the operator knows which way to walk. */}
-              <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#8A4B06] text-[#FFFFFF] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(180,101,10,.35)]">
+              <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#A5201A] text-[#FFFFFF] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(165,32,26,.35)]">
                 <Navigation size={22} strokeWidth={2.4} className="shrink-0" style={{ transform: `rotate(${oobArrowDeg}deg)` }} />
                 <div className="leading-tight min-w-0">
                   <p className="font-display font-extrabold text-sm tracking-wide">OUT OF BOUNDS — PAUSED</p>
@@ -4210,9 +4210,13 @@ function App() {
             </div>
             <div className="pointer-events-auto shrink-0">
               <Glass className="px-3 py-2.5 flex flex-col gap-1.5">
-                {[['#C6C0AC', 'Unsprayed'], ['#0A5238', 'Sprayed'], ['#8A4B06', 'Overlapped']].map(([c, l]) => (
+                {/* These are the colours paintCell writes into the coverage
+                    raster, not UI tokens: the raster is tuned to read over
+                    satellite imagery, so the swatches track it rather than
+                    the palette, or the key stops matching the map. */}
+                {[['#E4DFCD', 'Unsprayed'], ['#34C76F', 'Sprayed'], ['#FFB648', 'Overlapped']].map(([c, l]) => (
                   <div key={l} className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-[2px] shrink-0" style={{ background: c }} />
+                    <span className="w-2.5 h-2.5 rounded-[2px] shrink-0 border border-[#14201C]/20" style={{ background: c }} />
                     <span className="text-[9.5px] text-[#55655F] whitespace-nowrap">{l}</span>
                   </div>
                 ))}
