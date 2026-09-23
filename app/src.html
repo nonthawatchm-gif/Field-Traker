@@ -1253,6 +1253,13 @@ function advance(sim, field, sdt, swath, paint, armed) {
  *  (lines are also console.log'd with an AGRASLOG prefix).          *
  * ============================================================== */
 const APP_BUILD = '__BUILD__';
+/** Which app this is, set by variant.js (each Android flavour ships its own
+ *  copy, app/android/app/src/{prod,beta}/assets/public/variant.js):
+ *  'prod' — the field app: no DEV panel, no SIM, no test-log row;
+ *  'test' — the side-by-side test app: DEV on by default, a TEST tag;
+ *  'web'  — the local preview and the test harness (behaves as before). */
+const APP_VARIANT = (typeof window !== 'undefined' && window.AGRAS_VARIANT) || 'web';
+const IS_PROD = APP_VARIANT === 'prod', IS_TEST_APP = APP_VARIANT === 'test';
 const LOG_KEY = 'agras_log_v1', LOG_MAX = 6000;
 const AgrasLog = (() => {
   let buf = [];
@@ -2006,7 +2013,10 @@ const MapCtrlBtn = ({ icon: Icon, onClick, disabled, active, title }) => (
 function App() {
   const [phase, setPhase] = useState('ready');       // boundary | station | ready | running | paused | done
   const [opMode, setOpMode] = useState('spray');      // spray | toStation (TANK EMPTY tapped: recording off until REFILLED · START SPRAYING)
-  const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('agras_dev') === '1'; } catch (e) { return false; } });
+  const [devMode, setDevMode] = useState(() => {
+    if (IS_PROD) return false;   // the field app has no dev mode (and so no SIM) at all
+    try { const v = localStorage.getItem('agras_dev'); return v === '1' || (IS_TEST_APP && v !== '0'); } catch (e) { return IS_TEST_APP; }
+  });
   const devTapsRef = useRef({ n: 0, t: 0 });
   const freeRectRef = useRef({ top: 0, h: 0 }); // the map area not covered by the HUD cards / dock (canvas px)
   const freeDyRef = useRef(0); // px offset of the free map zone's centre from the canvas centre (ready/running screens)
@@ -2033,6 +2043,7 @@ function App() {
   const headlessFrameRef = useRef(null); // runs one simulation frame without painting (screen-off GPS fixes)
   const lastSigRef = useRef(''); // static-redraw guard; cleared whenever the canvas is wiped or the coverage grid is rebuilt
   const secretDevTap = () => {
+    if (IS_PROD) return;
     const d = devTapsRef.current, now = Date.now();
     d.n = now - d.t < 1500 ? d.n + 1 : 1; d.t = now;
     if (d.n >= 7) {
@@ -4084,6 +4095,7 @@ function App() {
           <div className="flex items-start justify-between gap-2">
             <Glass data-hud className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 basis-0 min-h-[48px]" onClick={secretDevTap}>
               <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#A5201A]' : running ? 'text-[#0C6B48]' : 'text-[#55655F]')} />
+              {IS_TEST_APP && <span className="shrink-0 text-[8px] font-mono font-bold tracking-[.12em] px-1.5 py-0.5 rounded bg-[#E8890C] text-[#FFFFFF]">TEST</span>}
               <div className="leading-tight min-w-0">
                 <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#A5201A]' : '')}>{statusLabel}</p>
                 <p className="text-[9px] text-[#55655F] font-mono truncate">
@@ -5082,7 +5094,7 @@ function App() {
                 </span>
                 {missions.length > 0 && <span className="text-[#0A5238] shrink-0">{missions.reduce((a, m) => a + m.raiDec, 0).toFixed(2)} rai total →</span>}
               </button>
-              <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg pl-3.5 pr-1.5 min-h-[44px]">
+              {!IS_PROD && <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg pl-3.5 pr-1.5 min-h-[44px]">
                 <span className="truncate">{logMsg || `Test log · ${AgrasLog.lines().length} lines`}</span>
                 <span className="flex gap-1 shrink-0">
                   <button onClick={() => { setLogMsg('Preparing…'); shareTestLog().then(setLogMsg).catch((e) => setLogMsg('Share failed: ' + ((e && e.message) || e))); }}
@@ -5090,7 +5102,7 @@ function App() {
                   <button onClick={() => { AgrasLog.clear(); setLogMsg('Log cleared'); }}
                     className="min-h-[36px] px-2 rounded-md border border-[#C6C0AC] text-[#55655F]">CLEAR</button>
                 </span>
-              </div>
+              </div>}
             </div>
             {/* DONE stays pinned to the bottom of the sheet while it scrolls */}
             <div className="sticky -bottom-4 -mx-4 -mb-4 mt-4 px-4 pt-3 pb-4 bg-[#FFFFFF] border-t border-[#E2DCC9] flex justify-center">

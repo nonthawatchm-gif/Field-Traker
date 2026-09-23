@@ -17,17 +17,30 @@ jobs:
       - run: npm ci
       - run: node build.js
       - run: npx cap sync android
-      - run: chmod +x gradlew && ./gradlew assembleDebug
+      # Two apps: prod (the field app) and beta ("Agras ทดสอบ", installs alongside)
+      - run: chmod +x gradlew && ./gradlew assembleProdDebug assembleBetaDebug
         working-directory: app/android
+      - name: Name the APKs and check each carries the right variant.js
+        working-directory: app/android/app/build/outputs/apk
+        run: |
+          cp prod/debug/app-prod-debug.apk ../../../../../app-prod.apk
+          cp beta/debug/app-beta-debug.apk ../../../../../app-test.apk
+          cd ../../../../..
+          unzip -p app-prod.apk assets/public/variant.js | tee /dev/stderr | grep -q "'prod'"
+          unzip -p app-test.apk assets/public/variant.js | tee /dev/stderr | grep -q "'test'"
       - uses: actions/upload-artifact@v4
         with:
-          name: AgrasFieldTracker-debug-apk
-          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+          name: AgrasFieldTracker-debug-apks
+          path: |
+            app/app-prod.apk
+            app/app-test.apk
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Build ${{ github.run_number }}
-          files: app/android/app/build/outputs/apk/debug/app-debug.apk
+          files: |
+            app/app-prod.apk
+            app/app-test.apk
       # Keep only the three newest build-N releases; delete older ones and their tags
       - name: Delete old builds
         working-directory: .

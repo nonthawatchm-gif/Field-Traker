@@ -827,10 +827,40 @@ async function simToGps() {
   await browser.close();
 }
 
+/** The two Android apps: the field app ('prod') has no DEV panel even with the
+ *  old agras_dev flag set, ignores the 7-tap, and has no test-log row; the test
+ *  app ('test') shows DEV and a TEST tag without any setup. variant.js keeps a
+ *  preset window.AGRAS_VARIANT, so an init script stands in for each flavour. */
+async function appVariants() {
+  const visible = (page, re) => page.locator(`text=${re}`).locator('visible=true').count();
+  for (const v of ['prod', 'test']) {
+    const { browser, ctx, page } = await boot();
+    await ctx.addInitScript((val) => { window.AGRAS_VARIANT = val; }, v);
+    await makeField(ctx, page, [[0, 0], [50, 0], [50, 120], [0, 120]], [-8, -6]);   // home screen, with the Settings button
+    await page.evaluate((val) => localStorage.setItem('agras_dev', val === 'prod' ? '1' : ''), v);
+    await page.reload(); await page.waitForTimeout(2500);
+    const pill = page.locator('[data-hud]:has-text("swath")').locator('visible=true').first();
+    if (v === 'prod') {
+      const dev0 = await visible(page, /^DEV/);
+      for (let i = 0; i < 8; i++) { await pill.click({ force: true }); await page.waitForTimeout(80); }
+      await page.waitForTimeout(400);
+      const dev1 = await visible(page, /^DEV/);
+      await openSettings(page);
+      const logRow = await visible(page, /Test log/);
+      check('field app: no DEV panel (even with the old flag), the 7-tap does nothing, no test-log row',
+        dev0 === 0 && dev1 === 0 && logRow === 0, `dev ${dev0}/${dev1} log ${logRow}`);
+    } else {
+      const dev = await visible(page, /^DEV/), tag = await visible(page, /^TEST$/);
+      check('test app: DEV panel on without setup, TEST tag shown', dev > 0 && tag > 0, `dev ${dev} tag ${tag}`);
+    }
+    await browser.close();
+  }
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

@@ -11,7 +11,7 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (98 checks now, all passing). `build-72` — the APK built from
+`app/test/run.js` (100 checks now, all passing). `build-72` — the APK built from
 `4eda92f` (SIM→GPS switch fix) — is installed on the owner's phone.
 
 ## Start here
@@ -20,11 +20,11 @@ and its save system made fully automatic — each with regression checks in
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 98 checks, ~20 min, expect 98/98
+node test/run.js                     # 100 checks, ~20 min, expect 100/100
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 98/98 on a clean checkout, something in the fixes below
+If `test/run.js` is not 100/100 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -579,6 +579,40 @@ display problems and a SIM that painted junk; all three are fixed here.
   แปลงถั่ว 1 were then deleted and the field reset to an empty round 1
   (backup: `ls_backup_h.json`, session scratchpad 12ed6794…). Real per-tank
   data left: 1,373 / 1,368 / 1,377 m² ≈ 0.86 rai per 25 L tank at 6 m.
+
+### Two apps: the field app and the test app
+
+The owner asked for this before the crop-health feature. One source, two
+Android product flavours, installed side by side with **separate data**:
+
+| | field app | test app |
+|---|---|---|
+| flavour | `prod` | `beta` (a flavour may not be named `test*`) |
+| package | `com.agras.fieldtracker` (unchanged, so it updates the installed app and keeps its data) | `com.agras.fieldtracker.test` |
+| name / icon | Agras Field Tracker, white icon | Agras ทดสอบ, orange icon, orange TEST tag in the status pill |
+| DEV panel, SIM | gone: no 7-tap, `agras_dev` ignored | on by default (`agras_dev = '0'` turns it off) |
+| Test log SHARE/CLEAR row | gone (the log is still recorded; pull it over CDP) | shown |
+| release file | `app-prod.apk` | `app-test.apk` |
+
+- **How the page knows.** `build.js` writes `www/variant.js`
+  (`window.AGRAS_VARIANT = window.AGRAS_VARIANT || 'web'`) and loads it before
+  `app.js`. Each flavour ships its own `assets/public/variant.js`
+  (`app/android/app/src/{prod,beta}/`), which overrides the copy `cap sync`
+  puts in `main`. `src.html` reads it into `APP_VARIANT` / `IS_PROD` /
+  `IS_TEST_APP`. `'web'` (local preview, the harness) behaves as before.
+- **CI checks the override.** The workflow unzips each APK and fails unless
+  `variant.js` says `'prod'` / `'test'`. Without that check, a failed
+  override would quietly ship the DEV panel in the field app.
+- **SIM code is still in the field app's bundle,** only unreachable. The
+  owner asked for SIM to be cut from the field app; hiding it behind
+  `IS_PROD` does that without forking the source.
+- **Testing on the phone is now the test app.** It started with a copy of
+  the field app's data (fields and missions, copied once over CDP). Nothing
+  done in it touches the field app. The back-up / restore routine is only
+  needed if you must drive the field app itself.
+- Download URLs: `.../releases/download/build-N/app-prod.apk` and
+  `.../app-test.apk`. Releases up to build-73 carry the single `app-debug.apk`.
+- Test: `appVariants` (2 checks; an init script presets `AGRAS_VARIANT`).
 
 ## Verified on the phone, and what wasn't
 

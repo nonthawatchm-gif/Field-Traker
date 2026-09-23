@@ -24,6 +24,22 @@ android {
             keyPassword 'android'
         }
     }
+    // Two apps from one source, installable side by side with separate data:
+    //   prod — the field app (no DEV panel, no SIM, no test-log row)
+    //   beta — "Agras ทดสอบ", the test app (DEV on, orange icon, TEST tag)
+    // Each ships its own assets/public/variant.js, which tells src.html which it is.
+    // (A flavour may not be named test*, hence beta.)
+    flavorDimensions "variant"
+    productFlavors {
+        prod {
+            dimension "variant"
+        }
+        beta {
+            dimension "variant"
+            applicationIdSuffix ".test"
+            versionNameSuffix "-test"
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false

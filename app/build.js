@@ -50,7 +50,11 @@ html = html
   .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/react@[^>]*><\/script>/, '<script src="react.js"></script>')
   .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/react-dom@[^>]*><\/script>/, '<script src="react-dom.js"></script>')
   .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@babel[^>]*><\/script>/, '')
-  .replace(m[0], '<script src="app.js"></script>')
+  .replace(m[0], '<script src="variant.js"></script><script src="app.js"></script>')
   .replace('|| !window.Babel', '');
 fs.writeFileSync(W + '/index.html', html);
+// Which app this is. www/ gets 'web' (local preview, test harness; a test may
+// preset it); each Android flavour overrides the file with its own copy in
+// android/app/src/{prod,beta}/assets/public/variant.js.
+fs.writeFileSync(W + '/variant.js', "window.AGRAS_VARIANT = window.AGRAS_VARIANT || 'web';\n");
 console.log('built', fs.readdirSync(W));
