@@ -59,6 +59,7 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | the field remembers where spraying stopped; home shows the distance and frames the whole field; a closed round forgets it | carrying on with a field |
 | ROUTE: lanes one swath apart, tanks per rai, start nearest the station, direction switch, back closes, Edge gap | suggested route |
 | SIM: tank runs out per area, walks to the station and back without painting, covers the field, stops at FINISH | SIM walks the route |
+| SIM → GPS mid-mission: the SIM walk stops, no auto-REFILLED, the record is tagged `src: 'sim'` | SIM→GPS switch |
 
 ## Writing more
 

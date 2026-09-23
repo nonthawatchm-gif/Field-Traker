@@ -1,4 +1,4 @@
-# Handoff — 2026-09-20
+# Handoff — 2026-09-20 (last updated 2026-09-23)
 
 Written for whoever picks this up next (including Claude Code). Everything below
 was established by running the app, not by reading it: a GPS test harness now
@@ -11,8 +11,8 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (77 checks, all passing). `build-59` — the APK built from the
-farmer walk-through fixes (`72fd2d2`) — is installed on the owner's phone.
+`app/test/run.js` (98 checks now, all passing). `build-72` — the APK built from
+`4eda92f` (SIM→GPS switch fix) — is installed on the owner's phone.
 
 ## Start here
 
@@ -20,11 +20,11 @@ farmer walk-through fixes (`72fd2d2`) — is installed on the owner's phone.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 96 checks, ~20 min, expect 96/96
+node test/run.js                     # 98 checks, ~20 min, expect 98/98
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 96/96 on a clean checkout, something in the fixes below
+If `test/run.js` is not 98/98 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -40,17 +40,19 @@ Two notes on running it:
 
 ## Where things stand
 
-- Everything is on `main` and pushed; the last code commit is `72fd2d2`
-  (farmer walk-through fixes). `build-59` is built from it and
-  installed on the phone.
+- Everything is on `main`; the last code commit is `4eda92f` (SIM→GPS switch
+  fix). `build-72` is built from it and installed on the phone. CI keeps only
+  the 3 newest releases.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
   turned out to be the docs commit, not the UI change it was assumed to be, and
   went onto the phone as "the update". `git ls-remote --tags origin build-N`
   gives the commit.
-- The owner has a real unfinished mission saved on the phone (4.90-rai field
-  ถั่ว 1, 13,709 cells = 1,234 m² sprayed). It is theirs — don't finish or
-  discard it while testing. To test on the phone, back up every localStorage
+- Phone data (2026-09-23): แปลงถั่ว 1 (5.0 rai) is empty — round 1, not
+  started, its test history deleted at the owner's request. แปลงถั่ว 2
+  (5.26 rai) is round 1 at 2.89 rai with 3 real GPS mission records. No mission
+  in progress. It is the owner's data — don't finish or discard anything while
+  testing. To test on the phone, back up every localStorage
   key first, and restore BOTH copies afterwards — localStorage and the native
   `DATA/active-session.json` — or the newer native file wins on the next launch.
   Stub `Storage.prototype.setItem` and `Filesystem.writeFile` before the
@@ -556,6 +558,27 @@ display problems and a SIM that painted junk; all three are fixed here.
 - **`areaPerTank()` normalises by swath.** Each tank's area ÷ the swath it was
   recorded at gives lane metres; that is multiplied by the current swath.
   Changing Width no longer skews the per-tank area.
+- **…and by tank size.** Each tank is also scaled by `current tank ÷ the tank
+  size it was recorded at`, so changing Tank in Settings moves the per-tank
+  area (and the ROUTE tank markers) straight away. The ROUTE plan is cleared
+  whenever field, swath, edge gap or tank size change, so it is always
+  recomputed from the current Settings.
+- **The refill card no longer covers the map.** The big guidance card during a
+  refill trip was replaced by a slim pill: `To station · N m` with an arrow
+  on the way there, `At the station · refill, then tap REFILLED` once within
+  10 m. After reaching the station, the pill disappears once the operator is
+  15 m away again, so the map is clear on the walk back to carry on
+  (`reachedStationRef`, reset in `tankEmpty`).
+- **Switching SIM → GPS mid-mission.** A SIM walk kept going after the owner
+  switched to GPS, drew a "to station 12 m" card and fired REFILLED by itself.
+  Now switching to GPS cancels the SIM walk (`manualPathRef`), and any mission
+  that used SIM at any point is recorded with `src: 'sim'` (`simUsedRef`), so
+  it stays out of `areaPerTank()`. Covered by `simToGps` (2 checks).
+- **Data clean-up on the phone.** The 12:49 mixed SIM/GPS test was closed as
+  NOT DONE and tagged sim. At the owner's request, all 6 test records of
+  แปลงถั่ว 1 were then deleted and the field reset to an empty round 1
+  (backup: `ls_backup_h.json`, session scratchpad 12ed6794…). Real per-tank
+  data left: 1,373 / 1,368 / 1,377 m² ≈ 0.86 rai per 25 L tank at 6 m.
 
 ## Verified on the phone, and what wasn't
 
