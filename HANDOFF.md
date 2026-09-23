@@ -536,6 +536,27 @@ display problems and a SIM that painted junk; all three are fixed here.
 - **Home framing** now includes the station when it is within 250 m of the
   field, so it no longer hides under the dock.
 
+### Field test 2026-09-23 and the real swath (6 m)
+
+- **What the log showed.**
+  - แปลงถั่ว 2 was sprayed for 8.5 min of spray time and reached 2.89 / 5.26 rai.
+  - The clock stopped for the 10-min refill trip, as intended.
+  - GPS: 1,812 fixes, median ±3 m.
+  - Lane metres per 25 L tank were the same as the day before (~230 m), but the
+    swath setting had changed from 5 to 6 m. The area per tank therefore read
+    0.71 then 0.86 rai.
+- **The owner confirmed the real swath is 6 m.** The two real 2026-09-22
+  records for แปลงถั่ว 2 were corrected on the phone:
+  - Changes: swath 5→6, and area / tankAreas / overlap / missed ×1.2.
+  - They are marked `swathCorrected: '5->6'`.
+  - Backup before the change: `ls_backup_f.json` in session scratchpad
+    12ed6794….
+  - The field's coverage raster from that day stays painted at 5 m, so thin
+    gaps can show between those lanes.
+- **`areaPerTank()` normalises by swath.** Each tank's area ÷ the swath it was
+  recorded at gives lane metres; that is multiplied by the current swath.
+  Changing Width no longer skews the per-tank area.
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against

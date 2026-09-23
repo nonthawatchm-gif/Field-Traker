@@ -2806,8 +2806,13 @@ function App() {
     // SIM when the clock ran much faster than the wall (20x / 60x).
     const isReal = (m) => (m.src ? m.src === 'gps' : !(m.startedTs && m.elapsed > 60 && (m.ts - m.startedTs) / 1000 < m.elapsed * 0.5));
     const all = missions.filter((m) => m.tankAreas && m.tankAreas.length && isReal(m));
-    const mine = all.filter((m) => m.fieldId === activeFieldIdRef.current).flatMap((m) => m.tankAreas);
-    return full(mine) || full(all.flatMap((m) => m.tankAreas)) || (tankCapacity / (rateLRai || DEFAULT_RATE_L_PER_RAI)) * 1600;
+    // what a tank really buys is metres of lane walked; the area follows the
+    // swath. Normalise each tank to lane metres with the swath it was recorded
+    // at, then scale by today's swath, so changing Width keeps this right.
+    const w = swathRef.current;
+    const lanes = (list) => list.flatMap((m) => m.tankAreas.map((a) => a / (m.swath || w) * w));
+    const mine = lanes(all.filter((m) => m.fieldId === activeFieldIdRef.current));
+    return full(mine) || full(lanes(all)) || (tankCapacity / (rateLRai || DEFAULT_RATE_L_PER_RAI)) * 1600;
   };
   const toggleRoute = () => {
     if (routePlanRef.current) { setRoutePlan(null); return; }
