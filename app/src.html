@@ -2716,6 +2716,16 @@ function App() {
     }
   }, [phase === 'running']);
 
+  /* Switching SIM <-> GPS mid-mission: a SIM walk to the station (and its
+   * automatic REFILLED) must not carry on in GPS mode, where it moved the
+   * marker and started a tank by itself (field test 2026-09-23). A mission
+   * that ran any SIM is a test: it is recorded as SIM so its tanks never feed
+   * the per-tank area. */
+  useEffect(() => {
+    if (srcMode === 'sim' && (phaseRef.current === 'running' || phaseRef.current === 'paused')) simUsedRef.current = true;
+    if (srcMode === 'gps' && manualPathRef.current) { manualPathRef.current = null; setExcursionActive(false); AgrasLog.add('SIM', 'walk cancelled: switched to GPS'); }
+  }, [srcMode]);
+
   /* switching into GPS mode with a boundary that isn't real-world anchored: re-map it first */
   useEffect(() => {
     if (srcMode === 'gps' && !fieldRef.current.gpsAnchored && phaseRef.current !== 'boundary') {
@@ -3455,6 +3465,7 @@ function App() {
     const id = activeFieldIdRef.current;
     if (id) updateLibrary((list) => list.map((f) => (f.id === id && !(f.roundMeta && f.roundMeta.startedTs)
       ? { ...f, roundMeta: { ...(f.roundMeta || {}), startedTs: Date.now() } } : f)));
+    simUsedRef.current = srcMode === 'sim';
     if (srcMode === 'sim') prepareSimWalk();
     setPhase('running');
   };
@@ -3745,7 +3756,7 @@ function App() {
         { to: { ...st }, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },   // walk to the tank
         { to: { ...st }, dur: SIM_MIX_MS },                                      // mix a new tank
         { to: back, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },         // walk back to the lane
-      ], idx: 0, prog: 0, from: { ...back }, onDone: () => { if (autoWalkRef.current) { modeSwitchAtRef.current = 0; resumeRef.current(); } } };
+      ], idx: 0, prog: 0, from: { ...back }, onDone: () => { if (autoWalkRef.current && srcModeRef.current === 'sim') { modeSwitchAtRef.current = 0; resumeRef.current(); } } };
       AgrasLog.add('SIM', `tank out at ${back.x.toFixed(1)},${back.y.toFixed(1)}: walking to the station`);
     }
     saveSessionNow(); // key-event autosave — operator may set the phone down here to walk to the tank
@@ -3771,6 +3782,7 @@ function App() {
 
   const resumeRef = useRef(null); resumeRef.current = resumeSprayingNow;
   const reachedStationRef = useRef(false);   // this refill trip has reached the station (see the refill pill)
+  const simUsedRef = useRef(false);          // this mission ran any SIM walking (see the srcMode effect)
   const tankEmptyRef = useRef(null); tankEmptyRef.current = tankEmpty;
   /** Tank tile button: TANK EMPTY while spraying, REFILLED during the trip. */
   const onTankTileRefill = () => {
@@ -3835,7 +3847,7 @@ function App() {
       fieldId: activeFieldIdRef.current, startedTs: missionStartTsRef.current, weatherStart: weatherStartRef.current,
       chemicals: (() => { const e = fieldLibraryRef.current.find((x) => x.id === activeFieldIdRef.current); return (e && e.roundMeta && e.roundMeta.chemicals) || []; })(),
       areaSprayed: areaSprayedNow, rai: raiNow.rai, ngan: raiNow.ngan, wa: raiNow.wa, raiDec: raiDecNow,
-      distance: s.distance, sprayDistance: s.sprayDistance || 0, elapsed: s.elapsed, src: srcModeRef.current, overlapRate: overlapRateNow,
+      distance: s.distance, sprayDistance: s.sprayDistance || 0, elapsed: s.elapsed, src: simUsedRef.current ? 'sim' : srcModeRef.current, overlapRate: overlapRateNow,
       overlapRai: overlapRaiNow,
       missedRai: missedRaiNow,
       litres: litresNow, tanks: tanksUsedNow, tankAreas: tankAreasRef.current, tankCapacity, swath, fieldRai: f.area / 1600, thumb,

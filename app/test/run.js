@@ -802,10 +802,35 @@ async function simWalk() {
   await browser.close();
 }
 
+/* 24. Switching SIM -> GPS during a SIM refill walk stops the walk (no marker
+ *     moving, no automatic REFILLED in GPS mode), and the mission is recorded
+ *     as SIM so it never feeds the per-tank area (field test 2026-09-23). */
+async function simToGps() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page, [[0, 0], [50, 0], [50, 120], [0, 120]], [-8, -6]);
+  await page.evaluate(() => localStorage.setItem('agras_dev', '1'));
+  await page.reload(); await page.waitForTimeout(3000);
+  const click = async (t) => { const el = page.locator(`text="${t}"`).locator('visible=true').first(); if (await el.count()) { await el.click({ force: true }); await page.waitForTimeout(400); } };
+  await click('DEV'); await click('SIM'); await click('60×');
+  await startSpray(page, 500);
+  let t = '';
+  for (let i = 0; i < 40 && !/REFILL · NOT RECORDING/.test(t); i++) { await page.waitForTimeout(1000); t = await txt(page); }
+  await click('GPS');
+  await page.waitForTimeout(6000);
+  t = await txt(page);
+  check('switching to GPS stops the SIM refill walk (no automatic REFILLED)', /REFILL · NOT RECORDING/.test(t) && /REFILLED · START SPRAYING/.test(t));
+  await tap(page, 'SAVE & PAUSE', { wait: 800 });
+  await finishAs(page, false);
+  const src = await page.evaluate(() => JSON.parse(localStorage.getItem('agras-tracker-missions'))[0].src);
+  check('a mission that ran SIM is recorded as SIM', src === 'sim', `src ${src}`);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
