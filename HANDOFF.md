@@ -11,8 +11,8 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (100 checks now, all passing). `build-72` — the APK built from
-`4eda92f` (SIM→GPS switch fix) — is installed on the owner's phone.
+`app/test/run.js` (100 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
+phone: the field app updated in place, and the test app alongside it.
 
 ## Start here
 
@@ -40,8 +40,10 @@ Two notes on running it:
 
 ## Where things stand
 
-- Everything is on `main`; the last code commit is `4eda92f` (SIM→GPS switch
-  fix). `build-72` is built from it and installed on the phone. CI keeps only
+- Everything is on `main`; the last code commit is `9101a36` (two apps).
+  `build-74` is built from it; both APKs are installed on the phone, and the
+  test app holds a copy of the field app's data from 2026-09-23 17:08
+  (backup of the field app before the update: `ls_backup_i.json`). CI keeps only
   the 3 newest releases.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
