@@ -651,8 +651,11 @@ photos; asking a chat app by hand is free but manual.
 - **Report.** `buildFieldReport(field, missions, checks)` gives each round its
   checks; the report screen and the shared text list them.
 - Test: `cropChecks` (5 checks; the API is mocked with `page.route`).
-- **Not yet verified on the phone:** the camera intent, the CAMERA permission
-  prompt, and a real API call (the owner has no key yet).
+- **Verified on the phone (build-75, test app, 2026-09-23):** the owner took
+  photos through CHECK → TAKE PHOTO HERE (camera permission prompt, photo,
+  pin, crop, status, note) and reported every step working. **Not yet
+  verified:** a real API call — the owner has no key yet. The field app is
+  still build-74 (no crop check) until the owner says to install it.
 
 ### CPU / RAM pass (2026-09-26)
 
