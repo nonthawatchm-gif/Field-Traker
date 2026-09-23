@@ -2809,8 +2809,9 @@ function App() {
     // what a tank really buys is metres of lane walked; the area follows the
     // swath. Normalise each tank to lane metres with the swath it was recorded
     // at, then scale by today's swath, so changing Width keeps this right.
-    const w = swathRef.current;
-    const lanes = (list) => list.flatMap((m) => m.tankAreas.map((a) => a / (m.swath || w) * w));
+    // Same for the tank size: a 20 L tank buys 20/25 of a 25 L tank's lane.
+    const w = swathRef.current, cap = tankCapacityRef.current;
+    const lanes = (list) => list.flatMap((m) => m.tankAreas.map((a) => a / (m.swath || w) * w * cap / (m.tankCapacity || cap)));
     const mine = lanes(all.filter((m) => m.fieldId === activeFieldIdRef.current));
     return full(mine) || full(lanes(all)) || (tankCapacity / (rateLRai || DEFAULT_RATE_L_PER_RAI)) * 1600;
   };
@@ -2819,7 +2820,7 @@ function App() {
     const plan = planSprayRoute(fieldRef.current.poly, swathRef.current, stationRef.current, areaPerTank(), edgeGapRef.current);
     if (plan) { plan.tankArea = areaPerTank(); setRoutePlan(plan); AgrasLog.add('ROUTE', `suggested ${plan.variants.map((r) => `${r.along ? 'along' : 'across'} ${r.lanes} lanes empty ${Math.round(r.empty)}m`).join(' / ')}`); }
   };
-  useEffect(() => { setRoutePlan(null); }, [activeFieldId, swath, edgeGap]);
+  useEffect(() => { setRoutePlan(null); }, [activeFieldId, swath, edgeGap, tankCapacity]);
   useEffect(() => { if (phase === 'done' || phase === 'boundary' || phase === 'station') setRoutePlan(null); }, [phase]);
   const driveTo = (target, onDone) => {
     const sim = simRef.current;
@@ -3736,6 +3737,7 @@ function App() {
     closeTank();
     opModeRef.current = 'toStation'; setOpMode('toStation');
     unrecordedRef.current = { walked: 0, startDist: 0, lastAlert: unrecordedRef.current.lastAlert };
+    reachedStationRef.current = false;
     if (srcMode === 'sim') {
       const sim = simRef.current, back = { ...sim.pos }, st = stationRef.current;
       simRefillRef.current = { resumeAt: back };
@@ -3768,6 +3770,7 @@ function App() {
   };
 
   const resumeRef = useRef(null); resumeRef.current = resumeSprayingNow;
+  const reachedStationRef = useRef(false);   // this refill trip has reached the station (see the refill pill)
   const tankEmptyRef = useRef(null); tankEmptyRef.current = tankEmpty;
   /** Tank tile button: TANK EMPTY while spraying, REFILLED during the trip. */
   const onTankTileRefill = () => {
@@ -4282,28 +4285,29 @@ function App() {
             A separate flex row from the area/legend row below means the two
             can never fight for the same vertical band the way two
             independently-guessed bottom offsets (104px vs 178px) used to. */}
-        {phase === 'running' && guidanceCopy && (
-          <div className="shrink-0 px-3 pb-2 flex justify-center">
-            <div className="pointer-events-auto w-full max-w-[380px]">
-              <Glass className={'overflow-hidden ' + (guidanceCopy.tone === 'cyan' ? 'border-[#0C6B48]/40' : 'border-[#8A4B06]/40')}>
-                <div className="px-4 pt-3 pb-2.5 flex items-center gap-3">
-                  <div className={'shrink-0 w-10 h-10 rounded-full flex items-center justify-center ' + (guidanceCopy.tone === 'cyan' ? 'bg-[#0C6B48]/15' : 'bg-[#8A4B06]/15')}>
-                    <Navigation size={20} className={guidanceCopy.tone === 'cyan' ? 'text-[#0C6B48]' : 'text-[#8A4B06]'}
-                      style={{ transform: `rotate(${bearingTo(sim.pos, stationRef.current)}deg)` }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={'font-display text-sm font-bold tracking-wide truncate ' + (guidanceCopy.tone === 'cyan' ? 'text-[#0C6B48]' : 'text-[#8A4B06]')}>{guidanceCopy.title}</p>
-                    {guidanceCopy.sub && <p className="text-xs text-[#55655F] mt-0.5 leading-snug">{guidanceCopy.sub}</p>}
-                  </div>
-                </div>
-                <div className="px-3.5 py-2 bg-[#FFFFFF] border-t border-[#E2DCC9] min-w-0">
-                  <p className="text-[8.5px] tracking-[.12em] font-mono text-[#55655F]">TO STATION</p>
-                  <p className="font-mono tnum text-base font-bold text-[#0C6B48] mt-0.5 truncate">{dStation.toFixed(1)} m</p>
-                </div>
-              </Glass>
+        {/* The refill trip, kept to one slim line so it doesn't cover the map:
+            the way to the station while heading there, a short note at the
+            station, and nothing on the walk back to the lane (the owner: the
+            big card hid the field just when they went to carry on). */}
+        {phase === 'running' && guidanceCopy && (() => {
+          if (dStation < 10) reachedStationRef.current = true;
+          const reached = reachedStationRef.current;
+          if (reached && dStation >= 15) return null;
+          return (
+            <div className="shrink-0 px-3 pb-2 flex justify-center">
+              <div className="pointer-events-auto">
+                <Glass className="px-3 py-1.5 flex items-center gap-2 border-[#0C6B48]/40">
+                  {reached
+                    ? <Droplet size={15} className="text-[#0C6B48] shrink-0" />
+                    : <Navigation size={15} className="text-[#0C6B48] shrink-0" style={{ transform: `rotate(${bearingTo(sim.pos, stationRef.current)}deg)` }} />}
+                  <span className="text-[12px] font-mono font-bold text-[#0C6B48] whitespace-nowrap">
+                    {reached ? 'At the station · refill, then tap REFILLED' : `To station · ${dStation.toFixed(0)} m`}
+                  </span>
+                </Glass>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ---------- BOTTOM INFO ROW — area sprayed + legend ----------
             Its own row too: guaranteed above the dock, guaranteed below the

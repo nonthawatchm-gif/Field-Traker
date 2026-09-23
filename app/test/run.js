@@ -183,9 +183,9 @@ async function crashRecovery() {
   await tap(page, 'RESUME', { wait: 1200 });
   const after = num(await stat(page, 'AREA SPRAYED'));
   check('coverage survives the reload', after === before, `${before} -> ${after} m²`);
-  const toSt = num(await stat(page, 'TO STATION'));
+  const toSt = num(((await txt(page)).match(/To station · (\d+) m/) || [])[1]);
   const refillBtn = (await page.locator('text="REFILLED · START SPRAYING"').locator('visible=true').count()) > 0;
-  check('the refill trip survives the reload', refillBtn && Math.abs(toSt - 64) < 3, `button ${refillBtn}, TO STATION ${toSt} m (expected ~64)`);
+  check('the refill trip survives the reload', refillBtn && Math.abs(toSt - 64) < 3, `button ${refillBtn}, to station ${toSt} m (expected ~64)`);
   await browser.close();
 }
 
@@ -365,7 +365,7 @@ async function refillFlow() {
   await startSpray(page, 1200);
   await walk(ctx, page, [40, 40], [40, 60], 2, 100);
   await tap(page, 'TANK EMPTY', { wait: 900 });
-  check('TANK EMPTY puts REFILLED · START SPRAYING on the dock', /REFILLED · START SPRAYING/.test(await txt(page)) && /REFILL — NOT RECORDING/.test(await txt(page)));
+  check('TANK EMPTY puts REFILLED · START SPRAYING on the dock', /REFILLED · START SPRAYING/.test(await txt(page)) && /REFILL · NOT RECORDING/.test(await txt(page)) && /To station · \d+ m/.test(await txt(page)));
   const areaA = num(await stat(page, 'AREA SPRAYED'));
   await walk(ctx, page, [40, 60], [60, 20], 3, 100);          // nowhere near the station
   const areaB = num(await stat(page, 'AREA SPRAYED'));
