@@ -145,6 +145,8 @@ const Star         = (p) => <Svg {...p}><polygon points="12 2 15.09 8.26 22 9.27
 const Check        = (p) => <Svg {...p}><polyline points="20 6 9 17 4 12"/></Svg>;
 const Plus         = (p) => <Svg {...p}><path d="M12 5v14M5 12h14"/></Svg>;
 const RouteIcon = (p) => <Svg {...p}><path d="M5 20V6a2 2 0 0 1 4 0v12a2 2 0 0 0 4 0V6a2 2 0 0 1 4 0v14"/><circle cx="5" cy="20" r="1.5"/><path d="M15 17l2 3 2-3"/></Svg>;
+const Leaf         = (p) => <Svg {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></Svg>;
+const Camera       = (p) => <Svg {...p}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></Svg>;
 const OverviewIcon = (p) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></Svg>;
 const Lock         = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
 const CloudOff     = (p) => <Svg {...p}><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5 2 2"/><path d="m2 2 20 20"/><path d="M4.51 9.51A5 5 0 0 0 6 19h12"/></Svg>;
@@ -937,20 +939,22 @@ function weatherLine(w, note) {
   return parts.length ? parts.join(' · ') : 'ไม่มีข้อมูล';
 }
 /** Rounds of one field for the report, newest first, each with its sessions. */
-function buildFieldReport(field, missions) {
+function buildFieldReport(field, missions, checks = []) {
   const mine = missions.filter((m) => (m.fieldId != null ? m.fieldId === field.id : m.fieldName === field.name) && m.round);
+  const checksOf = (n) => checks.filter((c) => c.fieldId === field.id && (c.round || 1) === n).sort((a, b) => a.ts - b.ts);
   const sessionsOf = (n) => mine.filter((m) => m.round === n).map((m) => ({
     start: m.startedTs || (m.ts - (m.elapsed || 0) * 1000), end: m.ts, rai: m.raiDec,
     weather: m.weatherStart || m.weatherApi || null, note: m.weather || '', operator: m.operator || '',
   })).sort((a, b) => a.start - b.start);
   const rounds = (field.rounds || []).map((r) => {
     const ss = sessionsOf(r.n);
-    return { n: r.n, done: true, start: r.startedTs || (ss[0] && ss[0].start) || null, end: r.finishedTs, rai: r.rai, chemicals: r.chemicals || null, sessions: ss };
+    return { n: r.n, done: true, start: r.startedTs || (ss[0] && ss[0].start) || null, end: r.finishedTs, rai: r.rai, chemicals: r.chemicals || null, sessions: ss, checks: checksOf(r.n) };
   });
   const openN = field.round || 1, openSs = sessionsOf(openN), meta = field.roundMeta || {};
-  if (meta.startedTs || openSs.length || (meta.chemicals && meta.chemicals.length)) {
+  const openChecks = checksOf(openN);
+  if (meta.startedTs || openSs.length || (meta.chemicals && meta.chemicals.length) || openChecks.length) {
     rounds.push({ n: openN, done: false, start: meta.startedTs || (openSs[0] && openSs[0].start) || null, end: null,
-      rai: field.cov ? (field.cov.sprayedCells * CELL * CELL) / 1600 : 0, chemicals: meta.chemicals || null, sessions: openSs });
+      rai: field.cov ? (field.cov.sprayedCells * CELL * CELL) / 1600 : 0, chemicals: meta.chemicals || null, sessions: openSs, checks: openChecks });
   }
   return rounds.reverse();
 }
@@ -968,9 +972,151 @@ function fieldReportText(field, rounds) {
       L.push('สภาพอากาศแต่ละรอบ:');
       r.sessions.forEach((x) => L.push(`  • ${thDate(x.start)} ${thTime(x.start)}–${thTime(x.end)}${x.operator ? ` (${x.operator})` : ''}: ${weatherLine(x.weather, x.note)}`));
     }
+    if (r.checks && r.checks.length) {
+      L.push('ตรวจสุขภาพพืช:');
+      r.checks.forEach((c) => L.push(`  • ${thDate(c.ts)} ${thTime(c.ts)} ${checkTitle(c)} — ${checkDetail(c)}`));
+    }
     L.push('');
   });
   return L.join('\n').trim();
+}
+
+/* ============================================================== *
+ *  CROP CHECKS — a photo pinned where it was taken, a status and   *
+ *  a note; with the owner's own Anthropic API key (Settings), an   *
+ *  AI diagnosis too. Records live in localStorage; photos are      *
+ *  files in DATA/checks/ (localStorage in the web preview). A      *
+ *  diagnosis asked for offline waits in the queue until online.    *
+ * ============================================================== */
+const CHECKS_KEY = 'agras-tracker-checks';
+const AI_KEY_STORE = 'agras_ai_key';
+const CHECK_MODEL = 'claude-sonnet-5';     // the owner's pick: cheap per photo, good enough to read a leaf
+const CHECK_CROPS = ['ถั่ว', 'ข้าวโพด', 'มะกรูด'];
+const CHECK_STATUS_TH = { problem: 'มีปัญหา', healthy: 'ปกติ', unsure: 'ไม่แน่ใจ' };
+const CHECK_CONF_TH = { high: 'สูง', medium: 'ปานกลาง', low: 'ต่ำ' };
+function loadChecks() {
+  try {
+    const v = JSON.parse(localStorage.getItem(CHECKS_KEY) || '[]');
+    // a diagnosis cut off by the app closing goes back in the queue
+    return Array.isArray(v) ? v.map((c) => (c.aiState === 'running' ? { ...c, aiState: 'queued' } : c)) : [];
+  } catch (e) { return []; }
+}
+function persistChecks(list) {
+  try { localStorage.setItem(CHECKS_KEY, JSON.stringify(list)); }
+  catch (e) { try { AgrasLog.add('ERR', 'checks save failed: ' + ((e && e.name) || e)); } catch (e2) { /* ignore */ } }
+}
+const checkTitle = (c) => (c.ai && c.ai.name) || (c.status === 'healthy' ? 'ปกติ ไม่พบปัญหา' : c.status === 'unsure' ? 'ไม่แน่ใจ' : 'พบปัญหา');
+const checkDetail = (c) => [c.crop, CHECK_STATUS_TH[c.status] || '',
+  c.ai && c.ai.actives && c.ai.actives.length ? `สาร: ${c.ai.actives.join(', ')}` : '', c.note ? `โน้ต: ${c.note}` : ''].filter(Boolean).join(' · ');
+const checkWaiting = (c) => c.aiState === 'queued' || c.aiState === 'running';
+const checkColor = (c) => (checkWaiting(c) ? '#E8890C' : c.status === 'healthy' ? '#0C6B48' : c.status === 'unsure' ? '#8A5A00' : '#A5201A');
+const checkGlyph = (c) => (checkWaiting(c) || c.status === 'unsure' ? '?' : c.status === 'healthy' ? '✓' : '!');
+
+const __photoMem = new Map();
+const photoPath = (id) => `checks/${id}.jpg`;
+async function storePhoto(id, dataUrl) {
+  __photoMem.set(id, dataUrl);
+  const fs = nativePlugin('Filesystem');
+  if (fs) await Promise.resolve(fs.writeFile({ path: photoPath(id), directory: 'DATA', data: dataUrl.split(',')[1], recursive: true }));
+  else { try { localStorage.setItem('agras_chk_img_' + id, dataUrl); } catch (e) { /* web preview only */ } }
+}
+async function readPhoto(id) {
+  if (__photoMem.has(id)) return __photoMem.get(id);
+  const fs = nativePlugin('Filesystem');
+  let url = null;
+  if (fs) { try { const r = await Promise.resolve(fs.readFile({ path: photoPath(id), directory: 'DATA' })); if (r && r.data) url = 'data:image/jpeg;base64,' + r.data; } catch (e) { /* no file */ } }
+  else { try { url = localStorage.getItem('agras_chk_img_' + id); } catch (e) { /* ignore */ } }
+  if (url) __photoMem.set(id, url);
+  return url;
+}
+async function dropPhoto(id) {
+  __photoMem.delete(id);
+  const fs = nativePlugin('Filesystem');
+  if (fs) { try { await Promise.resolve(fs.deleteFile({ path: photoPath(id), directory: 'DATA' })); } catch (e) { /* already gone */ } }
+  else { try { localStorage.removeItem('agras_chk_img_' + id); } catch (e) { /* ignore */ } }
+}
+/** A camera photo shrunk to 1280 px on the long side as JPEG: ~150 KB to keep, and to send. */
+function shrinkPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u); resolve(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(u); reject(new Error('not an image')); };
+    img.src = u;
+  });
+}
+
+const CHECK_SYSTEM = `You help a Thai smallholder farmer who sprays with a backpack sprayer check crop health from one photo taken in the field. The crop is named in the message; the farmer may add a note.
+
+Diagnose what the photo shows: a disease, insect or mite damage, a nutrient deficiency, water or heat stress, herbicide injury, or a healthy plant. Judge only from what is visible, and say so plainly when the photo cannot settle it.
+
+Write every string in Thai, in the everyday words a Thai farmer uses.
+- status: "problem" when something needs attention, "healthy" when the plant looks fine, "unsure" when the photo is blurry, too far away, or the signs fit several causes.
+- name: the most likely problem by its common Thai name, with the English or scientific name in brackets when that helps; "ปกติ ไม่พบปัญหา" when healthy.
+- confidence: how sure you are.
+- seen: one or two sentences on the visible signs that led to this.
+- actives: active ingredient names (Thai common names as printed on Thai labels) registered or commonly used in Thailand against this problem on this crop. No brand names, no rates. Leave it empty when the plant is healthy, when you are unsure, or when the fix is not a pesticide (water, fertiliser, drainage) — put that in todo instead.
+- todo: one to three short, practical next steps. When unsure, the first step says what photo would settle it (closer, underside of the leaf, the whole plant).`;
+const CHECK_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  required: ['status', 'name', 'confidence', 'seen', 'actives', 'todo'],
+  properties: {
+    status: { type: 'string', enum: ['problem', 'healthy', 'unsure'] },
+    name: { type: 'string' },
+    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+    seen: { type: 'string' },
+    actives: { type: 'array', items: { type: 'string' } },
+    todo: { type: 'array', items: { type: 'string' } },
+  },
+};
+/** Ask Claude about one photo. Plain fetch, not the SDK: the app is a single
+ *  file with no bundler. Throws an Error; err.retry means "try again later"
+ *  (offline, rate limit, overload) rather than a problem to show. */
+async function diagnoseCheck(key, dataUrl, crop, note) {
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: CHECK_MODEL, max_tokens: 8000, system: CHECK_SYSTEM,
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: CHECK_SCHEMA } },
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: dataUrl.split(',')[1] } },
+          { type: 'text', text: `พืช: ${crop || 'ไม่ระบุ'}${note ? `\nโน้ตจากเกษตรกร: ${note}` : ''}` },
+        ] }],
+      }),
+    });
+  } catch (e) { const err = new Error('ไม่มีสัญญาณเน็ต'); err.retry = true; throw err; }
+  if (!res.ok) {
+    let msg = ''; try { const j = await res.json(); msg = (j && j.error && j.error.message) || ''; } catch (e) { /* ignore */ }
+    const err = new Error(res.status === 401 ? 'API key ไม่ถูกต้อง — ตรวจในตั้งค่า'
+      : /credit/i.test(msg) ? 'เงินใน API key หมด — เติมที่ console.anthropic.com'
+      : `AI ตอบไม่ได้ (${res.status})${msg ? ': ' + msg : ''}`);
+    err.retry = res.status === 429 || res.status >= 500;
+    throw err;
+  }
+  const j = await res.json();
+  if (j.stop_reason === 'refusal') throw new Error('AI ไม่วิเคราะห์รูปนี้');
+  const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  let o; try { o = JSON.parse(text); } catch (e) { throw new Error(j.stop_reason === 'max_tokens' ? 'คำตอบของ AI ยาวเกิน' : 'อ่านคำตอบของ AI ไม่ได้'); }
+  const arr = (a) => (Array.isArray(a) ? a.map(String).filter(Boolean) : []);
+  return {
+    status: ['problem', 'healthy', 'unsure'].includes(o.status) ? o.status : 'unsure',
+    name: String(o.name || ''), confidence: CHECK_CONF_TH[o.confidence] ? o.confidence : 'low',
+    seen: String(o.seen || ''), actives: arr(o.actives), todo: arr(o.todo), model: j.model || CHECK_MODEL, ts: Date.now(),
+  };
+}
+/** A check's photo, read from wherever it is stored. */
+function CheckPhoto({ id, className }) {
+  const [url, setUrl] = useState(() => __photoMem.get(id) || null);
+  useEffect(() => { let live = true; if (!url) readPhoto(id).then((u) => { if (live) setUrl(u); }); return () => { live = false; }; }, [id]);
+  return url ? <img src={url} alt="" className={className + ' object-cover'} /> : <div className={className + ' bg-[#E2DCC9]'} />;
 }
 
 /** Extra state stamped into every autosaved session (kept current by the App each render). */
@@ -1811,6 +1957,25 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
     ctx.beginPath(); ctx.arc(lx, ly, 11 * k, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#8A4B06'; ctx.beginPath(); ctx.arc(lx, ly, 5 * k, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
+  }
+  // Crop checks: a teardrop pin per photo (tip on the spot), coloured by what
+  // was found, kept upright however the map is turned.
+  if (opts.checks) {
+    const k = Math.min(2, window.devicePixelRatio || 1);
+    opts.checks.forEach((c) => {
+      ctx.save(); ctx.translate(X_(v, c.x), Y_(v, c.y)); ctx.rotate(v.angle || 0);
+      ctx.beginPath(); ctx.moveTo(0, 0);
+      ctx.bezierCurveTo(-3 * k, -5 * k, -9 * k, -9 * k, -9 * k, -15 * k);
+      ctx.arc(0, -15 * k, 9 * k, Math.PI, 0);
+      ctx.bezierCurveTo(9 * k, -9 * k, 3 * k, -5 * k, 0, 0);
+      ctx.closePath();
+      ctx.lineJoin = 'round'; ctx.lineWidth = 4 * k; ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.stroke();
+      ctx.fillStyle = c.color; ctx.fill();
+      ctx.lineWidth = 2 * k; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+      ctx.fillStyle = '#FFFFFF'; ctx.font = `bold ${11 * k}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(c.glyph, 0, -14.5 * k);
+      ctx.restore();
+    });
   }
   if (opts.you) {
     const k = Math.min(2, window.devicePixelRatio || 1);
@@ -2842,6 +3007,92 @@ function App() {
     if (plan) { plan.tankArea = areaPerTank(); setRoutePlan(plan); AgrasLog.add('ROUTE', `suggested ${plan.variants.map((r) => `${r.along ? 'along' : 'across'} ${r.lanes} lanes empty ${Math.round(r.empty)}m`).join(' / ')}`); }
   };
   useEffect(() => { setRoutePlan(null); }, [activeFieldId, swath, edgeGap, tankCapacity]);
+
+  /* ---- crop checks ---- */
+  const [checks, setChecks] = useState(() => loadChecks());
+  const checksRef = useRef(checks); checksRef.current = checks;
+  const [aiKey, setAiKey] = useState(() => { try { return localStorage.getItem(AI_KEY_STORE) || ''; } catch (e) { return ''; } });
+  const [aiKeyDraft, setAiKeyDraft] = useState('');
+  const [showChecks, setShowChecks] = useState(false);
+  const [openCheckId, setOpenCheckId] = useState(null);
+  const [checkMsg, setCheckMsg] = useState('');
+  const [confirmDeleteCheck, setConfirmDeleteCheck] = useState(false);
+  const [aiTick, setAiTick] = useState(0);
+  const photoInputRef = useRef(null);
+  const checkPosRef = useRef(null);       // where the operator stood when they tapped TAKE PHOTO
+  const checkPinsRef = useRef(null);      // { key, list } for drawScene, set each render
+  const aiBusyRef = useRef(false);
+  const aiRetryAtRef = useRef(0);
+  const updateChecks = (fn) => setChecks((prev) => { const next = fn(prev); persistChecks(next); return next; });
+  const patchCheck = (id, patch) => updateChecks((l) => l.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const takeCheckPhoto = () => {
+    const gl = gpsLiveRef.current;
+    checkPosRef.current = gl.lat != null ? { lat: gl.lat, lng: gl.lng, acc: gl.accuracy } : null;
+    setCheckMsg('');
+    if (photoInputRef.current) photoInputRef.current.click();
+  };
+  const onCheckPhoto = async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    const f = fieldLibrary.find((x) => x.id === activeFieldIdRef.current);
+    if (!file || !f) return;
+    const id = Date.now(), pos = checkPosRef.current;
+    setCheckMsg('กำลังบันทึกรูป…');
+    try {
+      await storePhoto(id, await shrinkPhoto(file));
+      const prev = checksRef.current.find((c) => c.fieldId === f.id);
+      const rec = { id, ts: id, fieldId: f.id, fieldName: f.name, round: f.round || 1,
+        lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, acc: pos ? pos.acc : null,
+        crop: prev ? prev.crop : CHECK_CROPS[0], note: '', status: 'problem', aiState: 'none', ai: null, aiError: null };
+      updateChecks((l) => [rec, ...l]);
+      setOpenCheckId(id); setConfirmDeleteCheck(false); setCheckMsg('');
+      AgrasLog.add('CHECK', `photo ${id} field ${f.id} round ${rec.round}${pos ? ` at ±${Math.round(pos.acc || 0)} m` : ' (no GPS)'}`);
+    } catch (err) {
+      setCheckMsg('บันทึกรูปไม่สำเร็จ: ' + ((err && err.message) || err));
+      AgrasLog.add('ERR', 'check photo failed: ' + ((err && err.message) || err));
+    }
+  };
+  const askAi = (id) => { aiRetryAtRef.current = 0; patchCheck(id, { aiState: 'queued', aiError: null }); };
+  const deleteCheck = (id) => { updateChecks((l) => l.filter((c) => c.id !== id)); dropPhoto(id); setOpenCheckId(null); setConfirmDeleteCheck(false); AgrasLog.add('CHECK', `deleted ${id}`); };
+  const saveAiKey = () => {
+    const k = aiKeyDraft.trim();
+    if (!k) return;
+    try { localStorage.setItem(AI_KEY_STORE, k); } catch (e) { /* ignore */ }
+    setAiKey(k); setAiKeyDraft(''); aiRetryAtRef.current = 0;
+  };
+  const removeAiKey = () => { try { localStorage.removeItem(AI_KEY_STORE); } catch (e) { /* ignore */ } setAiKey(''); };
+  // Wake the queue when the phone comes back online, and once a minute.
+  useEffect(() => {
+    const wake = () => setAiTick((n) => n + 1);
+    const online = () => { aiRetryAtRef.current = 0; wake(); };
+    window.addEventListener('online', online);
+    const t = setInterval(wake, 60000);
+    return () => { window.removeEventListener('online', online); clearInterval(t); };
+  }, []);
+  // One diagnosis at a time, oldest queued first.
+  useEffect(() => {
+    if (aiBusyRef.current || !aiKey || Date.now() < aiRetryAtRef.current || navigator.onLine === false) return;
+    const next = [...checks].reverse().find((c) => c.aiState === 'queued');
+    if (!next) return;
+    aiBusyRef.current = true;
+    patchCheck(next.id, { aiState: 'running', aiError: null });
+    (async () => {
+      try {
+        const url = await readPhoto(next.id);
+        if (!url) throw new Error('ไม่พบรูป');
+        const ai = await diagnoseCheck(aiKey, url, next.crop, next.note);
+        patchCheck(next.id, { aiState: 'done', ai, status: ai.status });
+        AgrasLog.add('CHECK', `AI ${next.id}: ${ai.status} · ${ai.name} (${ai.confidence})`);
+      } catch (err) {
+        const m = (err && err.message) || String(err);
+        if (err && err.retry) aiRetryAtRef.current = Date.now() + 60000;
+        patchCheck(next.id, err && err.retry ? { aiState: 'queued', aiError: m } : { aiState: 'error', aiError: m });
+        AgrasLog.add('CHECK', `AI ${next.id} failed: ${m}`);
+      } finally {
+        aiBusyRef.current = false; setAiTick((n) => n + 1);
+      }
+    })();
+  }, [checks, aiKey, aiTick]);
   useEffect(() => { if (phase === 'done' || phase === 'boundary' || phase === 'station') setRoutePlan(null); }, [phase]);
   const driveTo = (target, onDone) => {
     const sim = simRef.current;
@@ -3080,6 +3331,7 @@ function App() {
         const route = rp && (ph === 'ready' || ph === 'running' || ph === 'paused') ? { ...rp.variants[rp.idx], faint: ph !== 'ready', swath: swathRef.current } : null;
         const gl = gpsLiveRef.current;
         const you = ph === 'ready' && gl.lat != null ? { x: gl.x, y: gl.y } : null;
+        const pins = ph === 'ready' ? checkPinsRef.current : null;
         if (lastStop && you) navLine = { from: you, to: lastStop, color: 'rgba(255,255,255,.9)' };
 
         const vv = viewRef.current, lv = gpsLiveRef.current;
@@ -3092,14 +3344,14 @@ function App() {
              oobRef.current, om, field.area, field.poly.length, stationRef.current.x, stationRef.current.y,
              sim.pos.x, sim.pos.y, sim.heading, sim.fixes.length, sim.sprayedCells, sim.overlapCells, sim.done,
              bp ? bp.x : '', bp ? bp.y : '', gridVersionRef.current, satelliteOnRef.current, tileVersion,
-             satelliteOnRef.current && zoomCeilingRef.current, lastStop ? lastStop.x + ',' + lastStop.y : '', route ? rp.idx + ':' + route.segs.length + ':' + route.faint : ''].join('|');
+             satelliteOnRef.current && zoomCeilingRef.current, lastStop ? lastStop.x + ',' + lastStop.y : '', route ? rp.idx + ':' + route.segs.length + ':' + route.faint : '', pins ? pins.key : ''].join('|');
         if (sig !== null && sig === lastSigRef.current) return;
         lastSigRef.current = sig || '';
         drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, stationRef.current, {
           plotting: ph === 'boundary', drafting: draftRef.current,
           live: ph === 'boundary' && sm === 'gps' && gpsLiveRef.current.lat != null ? gpsLiveRef.current : null,
           static: ph === 'ready' || ph === 'boundary',
-          oob: oobRef.current, navLine, hideStation: ph === 'boundary', lastStop, you, route,
+          oob: oobRef.current, navLine, hideStation: ph === 'boundary', lastStop, you, route, checks: pins ? pins.list : null,
           accuracyRadius: sm === 'gps' && missionActive ? gpsLiveRef.current.accuracy : null,
           satellite: satelliteOnRef.current && unprojectRef.current
             ? { unproject: unprojectRef.current, tileCache: tileCacheRef.current, cacheStore: mapCacheRef.current, zoomCeilingRef }
@@ -3942,6 +4194,12 @@ function App() {
   // the saved-library entry (if any) backing the field currently loaded —
   // drives the prominent Field Selector card on the pre-mission setup screen
   const activeFieldEntry = activeFieldId ? fieldLibrary.find((f) => f.id === activeFieldId) : null;
+  const fieldChecks = activeFieldEntry ? checks.filter((c) => c.fieldId === activeFieldEntry.id && (c.round || 1) === (activeFieldEntry.round || 1)) : [];
+  checkPinsRef.current = (() => {
+    const pj = projectorRef.current;
+    const list = pj ? fieldChecks.filter((c) => c.lat != null).map((c) => { const p = pj(c.lat, c.lng); return { x: p.x, y: p.y, color: checkColor(c), glyph: checkGlyph(c) }; }) : [];
+    return list.length ? { key: list.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)},${p.glyph}${p.color}`).join(';'), list } : null;
+  })();
   // whole-mission liquid total (every refill included) — counts overlap
   // passes as real re-application, same basis the live tank gauge uses below
   const totalPassArea = (sim.sprayedCells + sim.overlapCells) * CELL * CELL;
@@ -4288,6 +4546,12 @@ function App() {
                     <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">ROUTE</span>
                   </div>
                 )}
+                {phase === 'ready' && activeFieldId && (
+                  <div className="flex flex-col items-center gap-0.5">
+                    <MapCtrlBtn icon={Leaf} active={showChecks} onClick={() => { setOpenCheckId(null); setCheckMsg(''); setShowChecks(true); }} title="Crop check" />
+                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">CHECK</span>
+                  </div>
+                )}
                 {/* compass: only when the map has been rotated; tap = north up */}
                 {panRef.current && Math.abs(panRef.current.a || 0) > 0.03 && (phase !== 'running' && phase !== 'paused' || camMode === 'free') && (
                   <MapCtrlBtn icon={(p) => <NorthArrow size={p.size} style={{ transform: `rotate(${-(panRef.current.a || 0)}rad)` }} />}
@@ -4475,9 +4739,12 @@ function App() {
                           {' · '}{activeFieldEntry.lastSprayedTs ? `sprayed ${fmtDate(activeFieldEntry.lastSprayedTs)}` : `created ${fmtDate(activeFieldEntry.ts)}`}
                         </p>
                         <p className="text-[10px] font-mono text-[#0A5238] truncate">
-                          Round {activeFieldEntry.round || 1}{activeFieldEntry.cov && activeFieldEntry.cov.sprayedCells > 0
+                          Round {activeFieldEntry.round || 1}
+                          {fieldChecks.some((c) => c.status === 'problem' && !checkWaiting(c)) && <span className="text-[#A5201A]"> · {fieldChecks.filter((c) => c.status === 'problem' && !checkWaiting(c)).length} need action</span>}
+                          {activeFieldEntry.cov && activeFieldEntry.cov.sprayedCells > 0
                             ? ` · ${Math.min(100, (activeFieldEntry.cov.sprayedCells * CELL * CELL) / (activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600) * 100).toFixed(0)}% sprayed`
                             : ' · not started'}
+                          {fieldChecks.length > 0 && ` · ${fieldChecks.length} check${fieldChecks.length === 1 ? '' : 's'}`}
                         </p>
                       </>
                     ) : (
@@ -4576,10 +4843,141 @@ function App() {
         );
       })()}
 
+      {showChecks && activeFieldEntry && (() => {
+        const f = activeFieldEntry;
+        const c = openCheckId != null ? checks.find((x) => x.id === openCheckId) : null;
+        const chip = 'px-2.5 py-1 rounded-full text-[12px] font-semibold border ';
+        const box = 'mt-3 rounded-xl border border-[#E2DCC9] bg-[#FFFFFF] p-3';
+        const label = 'text-[9.5px] tracking-[.14em] uppercase font-mono text-[#55655F] font-bold';
+        return (
+          <div className="absolute inset-0 z-40 bg-[#F4F1E7] flex flex-col">
+            <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onCheckPhoto} data-check-input />
+            <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-[#E2DCC9]" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
+              <div className="min-w-0 flex items-center gap-2">
+                {c && <button onClick={() => { setOpenCheckId(null); setConfirmDeleteCheck(false); }} aria-label="Back to checks" className="text-[#55655F] p-1 -ml-1"><ChevronLeft size={20} /></button>}
+                <div className="min-w-0">
+                  <p className="font-display text-[15px] font-bold tracking-wide">CROP CHECK</p>
+                  <p className="text-[11px] text-[#55655F] truncate">{f.name} · ครั้งที่ {f.round || 1}</p>
+                </div>
+              </div>
+              <button onClick={() => { setShowChecks(false); setOpenCheckId(null); }} aria-label="Close checks" className="text-[#55655F] p-2"><X size={20} /></button>
+            </div>
+            {checkMsg && <p className="px-4 pt-2 text-[11px] font-mono text-[#8A5A00]">{checkMsg}</p>}
+            {!c ? (
+              <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
+                {fieldChecks.length === 0 && (
+                  <p className="text-[12px] text-[#55655F] text-center mt-8 leading-relaxed">ยังไม่มีการตรวจในรอบนี้<br />เดินไปที่ต้นที่ดูแปลก ๆ แล้วกดถ่ายรูป<br />แอปจะปักหมุดตรงที่คุณยืน</p>
+                )}
+                {fieldChecks.map((x) => (
+                  <button key={x.id} data-check-row onClick={() => { setOpenCheckId(x.id); setConfirmDeleteCheck(false); }}
+                    className={'flex items-center gap-3 rounded-xl border p-2.5 text-left ' + (checkWaiting(x) ? 'border-[#E8890C] bg-[#FDF3E3]' : 'border-[#E2DCC9] bg-[#FFFFFF]')}>
+                    <CheckPhoto id={x.id} className="w-12 h-12 rounded-lg shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-[#14201C] truncate">{checkWaiting(x) ? (x.aiState === 'running' ? 'AI กำลังดูรูป…' : 'รอสัญญาณเน็ต') : checkTitle(x)}</span>
+                      <span className="block text-[10px] font-mono truncate" style={{ color: checkColor(x) }}>
+                        {checkWaiting(x) ? 'WAITING FOR AI' : (CHECK_STATUS_TH[x.status] || '')} · {thTime(x.ts)} · {x.crop}{x.lat == null ? ' · no GPS' : ''}
+                      </span>
+                    </span>
+                    <span className="text-[#55655F]">›</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto px-4 py-3">
+                <CheckPhoto id={c.id} className="w-full aspect-[4/3] rounded-xl" />
+                <p className="mt-3 text-[10px] font-mono font-bold tracking-[.14em]" style={{ color: checkColor(c) }}>
+                  {checkWaiting(c) ? 'WAITING FOR AI' : (c.status === 'healthy' ? 'HEALTHY' : c.status === 'unsure' ? 'UNSURE' : 'NEEDS ACTION')} · {c.crop}
+                </p>
+                <p className="font-display text-[19px] font-bold leading-tight text-[#14201C]">{checkTitle(c)}</p>
+                <p className="text-[10.5px] font-mono text-[#55655F] mt-0.5">{thDateTime(c.ts)}{c.lat != null ? ` · GPS ±${Math.round(c.acc || 0)} m` : ' · ไม่มีตำแหน่ง GPS'}</p>
+                {c.ai && c.ai.confidence && <p className="text-[12px] text-[#55655F] mt-1">AI มั่นใจ: <b className="text-[#14201C]">{CHECK_CONF_TH[c.ai.confidence]}</b></p>}
+
+                <p className={label + ' mt-4'}>พืช</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {CHECK_CROPS.map((k) => (
+                    <button key={k} onClick={() => patchCheck(c.id, { crop: k })}
+                      className={chip + (c.crop === k ? 'bg-[#0C6B48] border-[#0C6B48] text-[#FFFFFF]' : 'bg-[#FFFFFF] border-[#C6C0AC] text-[#24322C]')}>{k}</button>
+                  ))}
+                </div>
+
+                {c.aiState === 'running' && <div className="mt-3 rounded-xl border border-[#E8890C] bg-[#FDF3E3] p-3 text-[12.5px]">AI กำลังดูรูป…</div>}
+                {c.aiState === 'queued' && (
+                  <div className="mt-3 rounded-xl border border-[#E8890C] bg-[#FDF3E3] p-3 text-[12.5px] leading-relaxed">
+                    รอสัญญาณเน็ต — AI จะดูให้เองเมื่อมีเน็ต{c.aiError ? <span className="block text-[11px] text-[#8A5A00] mt-0.5">{c.aiError}</span> : null}
+                  </div>
+                )}
+                {c.aiState === 'error' && (
+                  <div className="mt-3 rounded-xl border border-[#A5201A]/50 bg-[#FBECEA] p-3 text-[12.5px] leading-relaxed">
+                    {c.aiError || 'AI ดูรูปไม่สำเร็จ'}
+                  </div>
+                )}
+                {c.ai && (
+                  <>
+                    {c.ai.seen && <div className={box.replace('bg-[#FFFFFF]', 'bg-[#F9F7F0]')}><p className={label}>ที่เห็นในรูป</p><p className="text-[13px] mt-1 leading-relaxed">{c.ai.seen}</p></div>}
+                    {c.ai.actives.length > 0 && (
+                      <div className={box}>
+                        <p className={label}>สารสำคัญที่ใช้ได้</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {c.ai.actives.map((a, i) => <span key={i} className="px-2.5 py-1 rounded-full bg-[#E3F1E9] text-[#0A5238] text-[12px] font-semibold">{a}</span>)}
+                        </div>
+                        <p className="text-[11px] text-[#8A5A00] mt-2">⚠ อ่านฉลากก่อนใช้ทุกครั้ง · ผลจาก AI อาจผิดได้</p>
+                      </div>
+                    )}
+                    {c.ai.todo.length > 0 && <div className={box}><p className={label}>ควรทำ</p>{c.ai.todo.map((t, i) => <p key={i} className="text-[13px] mt-1 leading-relaxed">• {t}</p>)}</div>}
+                  </>
+                )}
+                {!c.ai && !checkWaiting(c) && (
+                  <>
+                    <p className={label + ' mt-4'}>ที่พบ</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {['problem', 'unsure', 'healthy'].map((k) => (
+                        <button key={k} onClick={() => patchCheck(c.id, { status: k })}
+                          className={chip + (c.status === k ? 'text-[#FFFFFF]' : 'bg-[#FFFFFF] border-[#C6C0AC] text-[#24322C]')}
+                          style={c.status === k ? { background: checkColor({ status: k }), borderColor: checkColor({ status: k }) } : null}>{CHECK_STATUS_TH[k]}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <p className={label + ' mt-4'}>โน้ต</p>
+                <textarea key={c.id} defaultValue={c.note} rows={2} placeholder="เช่น เจอเป็นหย่อม ๆ ฝั่งติดคลอง (ไม่บังคับ)"
+                  onBlur={(e) => { if (e.target.value !== c.note) patchCheck(c.id, { note: e.target.value.trim() }); }}
+                  className="mt-1.5 w-full rounded-lg border border-[#C6C0AC] bg-[#FFFFFF] px-3 py-2 text-[13px]" />
+
+                {!c.ai && !checkWaiting(c) && (
+                  aiKey
+                    ? <button onClick={() => askAi(c.id)} className="mt-3 w-full min-h-[46px] rounded-xl bg-[#0C6B48] text-[#FFFFFF] text-[12px] font-mono font-bold tracking-[.06em] flex items-center justify-center gap-2"><Leaf size={16} />{c.aiState === 'error' ? 'ASK AI AGAIN' : 'ANALYSE WITH AI'}</button>
+                    : <p className="mt-3 text-[11px] text-[#55655F] leading-relaxed">อยากให้ AI ช่วยดูรูป: ใส่ Anthropic API key ในหน้าตั้งค่า (SETTINGS → AI crop check)</p>
+                )}
+                {c.ai && <p className="mt-3 text-[10px] font-mono text-[#8A8F86]">AI · {c.ai.model} · {thDateTime(c.ai.ts)}</p>}
+
+                <div className="mt-4 mb-2 flex gap-2">
+                  <button onClick={() => (confirmDeleteCheck ? deleteCheck(c.id) : setConfirmDeleteCheck(true))}
+                    className={'flex-1 min-h-[44px] rounded-xl border text-[11px] font-mono font-bold ' + (confirmDeleteCheck ? 'border-[#A5201A] bg-[#A5201A] text-[#FFFFFF]' : 'border-[#C6C0AC] text-[#55655F]')}>
+                    {confirmDeleteCheck ? 'TAP AGAIN TO DELETE' : 'DELETE'}
+                  </button>
+                  <button onClick={() => { setOpenCheckId(null); setConfirmDeleteCheck(false); }} className="flex-[2] min-h-[44px] rounded-xl bg-[#0A5238] text-[#FFFFFF] text-[12px] font-mono font-bold">DONE</button>
+                </div>
+              </div>
+            )}
+            {!c && (
+              <div className="px-4 pt-2 pb-4 border-t border-[#E2DCC9] bg-[#FFFFFF]" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
+                <button onClick={takeCheckPhoto} className="w-full min-h-[50px] rounded-xl bg-[#0A5238] text-[#FFFFFF] text-[13px] font-mono font-bold tracking-[.06em] flex items-center justify-center gap-2">
+                  <Camera size={18} /> TAKE PHOTO HERE
+                </button>
+                <p className="mt-1.5 text-[10px] font-mono text-[#55655F] text-center">
+                  {gpsInfo ? `pinned where you stand · GPS ±${Math.round(gpsInfo.accuracy || 0)} m` : 'no GPS yet — the photo is kept without a pin'}{aiKey ? ' · AI on' : ''}
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {reportFieldId != null && (() => {
         const f = fieldLibrary.find((x) => x.id === reportFieldId);
         if (!f) return null;
-        const rounds = buildFieldReport(f, missions);
+        const rounds = buildFieldReport(f, missions, checks);
         const share = () => {
           const text = fieldReportText(f, rounds);
           const SH = nativePlugin('Share');
@@ -4625,6 +5023,20 @@ function App() {
                           <span className="font-medium text-[#14201C]">{thDate(x.start)} {thTime(x.start)}–{thTime(x.end)}</span>{x.operator ? ` · ${x.operator}` : ''}<br />
                           <span className="text-[#55655F]">{weatherLine(x.weather, x.note)}</span>
                         </p>
+                      ))}
+                    </div>
+                  )}
+                  {r.checks && r.checks.length > 0 && (
+                    <div className="mt-2.5 pt-2.5 border-t border-[#E2DCC9]">
+                      <p className="text-[10px] text-[#55655F] mb-1">ตรวจสุขภาพพืช</p>
+                      {r.checks.map((c) => (
+                        <div key={c.id} className="flex gap-2 items-start mb-1.5">
+                          <CheckPhoto id={c.id} className="w-10 h-10 rounded-md shrink-0" />
+                          <p className="text-[11px] leading-snug min-w-0">
+                            <span className="font-medium text-[#14201C]">{thDate(c.ts)} {thTime(c.ts)} · {checkTitle(c)}</span><br />
+                            <span className="text-[#55655F]">{checkDetail(c)}</span>
+                          </p>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -5094,6 +5506,17 @@ function App() {
                 </span>
                 {missions.length > 0 && <span className="text-[#0A5238] shrink-0">{missions.reduce((a, m) => a + m.raiDec, 0).toFixed(2)} rai total →</span>}
               </button>
+              <div className="text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg px-3.5 py-2.5 flex flex-col gap-1.5">
+                <span className="flex items-center gap-2"><Leaf size={13} className="text-[#0C6B48] shrink-0" />
+                  <span className="truncate">AI crop check · {aiKey ? `key sk-…${aiKey.slice(-4)} · this phone only` : 'no API key (photos and pins still work)'}</span>
+                </span>
+                <span className="flex gap-1.5">
+                  <input type="password" value={aiKeyDraft} onChange={(e) => setAiKeyDraft(e.target.value)} placeholder={aiKey ? 'replace key…' : 'paste Anthropic API key (sk-ant-…)'}
+                    autoComplete="off" className="flex-1 min-w-0 min-h-[36px] rounded-md border border-[#C6C0AC] bg-[#FFFFFF] px-2 text-[11px] text-[#14201C]" />
+                  <button onClick={saveAiKey} aria-label="Save API key" disabled={!aiKeyDraft.trim()} className="min-h-[36px] px-2.5 rounded-md bg-[#0C6B48] text-[#FFFFFF] font-bold disabled:opacity-40">SAVE</button>
+                  {aiKey && <button onClick={removeAiKey} className="min-h-[36px] px-2 rounded-md border border-[#C6C0AC] text-[#55655F]">REMOVE</button>}
+                </span>
+              </div>
               {!IS_PROD && <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg pl-3.5 pr-1.5 min-h-[44px]">
                 <span className="truncate">{logMsg || `Test log · ${AgrasLog.lines().length} lines`}</span>
                 <span className="flex gap-1 shrink-0">

@@ -11,7 +11,7 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (100 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
+`app/test/run.js` (105 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
 phone: the field app updated in place, and the test app alongside it.
 
 ## Start here
@@ -20,11 +20,11 @@ phone: the field app updated in place, and the test app alongside it.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 100 checks, ~20 min, expect 100/100
+node test/run.js                     # 105 checks, ~20 min, expect 105/105
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 100/100 on a clean checkout, something in the fixes below
+If `test/run.js` is not 105/105 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -615,6 +615,44 @@ Android product flavours, installed side by side with **separate data**:
 - Download URLs: `.../releases/download/build-N/app-prod.apk` and
   `.../app-test.apk`. Releases up to build-73 carry the single `app-debug.apk`.
 - Test: `appVariants` (2 checks; an init script presets `AGRAS_VARIANT`).
+
+### Crop check (ตรวจสุขภาพพืช)
+
+The owner's choices: photo of a leaf with AI diagnosis; the app works free
+without it (photo, pin, status, note, report), and the AI is an optional
+extra with the owner's own Anthropic API key; offline photos wait and are
+diagnosed when back online; the AI names active ingredients only; crops ถั่ว,
+ข้าวโพด, มะกรูด. They asked "is there a free way" — the answer given: fully free
+on-device models don't cover beans or kaffir lime and do badly on field
+photos; asking a chat app by hand is free but manual.
+
+- **Where.** A round **CHECK** button (leaf) under ROUTE on the home screen
+  opens CROP CHECK for the active field's open round. **TAKE PHOTO HERE**
+  opens the camera (a WebView `<input type=file capture>`: the manifest now
+  declares `CAMERA` and queries `IMAGE_CAPTURE`) and pins the photo where the
+  operator stood when they tapped (`checkPosRef`, from `gpsLiveRef`).
+- **Records.** `agras-tracker-checks` in localStorage: `{ id, ts, fieldId,
+  round, lat, lng, acc, crop, note, status: problem|unsure|healthy,
+  aiState: none|queued|running|done|error, ai, aiError }`. Photos are
+  1280 px JPEGs in `DATA/checks/<id>.jpg` (Filesystem), or localStorage
+  `agras_chk_img_<id>` in the web preview. **Back up both** before phone tests.
+- **Map.** Teardrop pins for the open round: red `!` needs action, green `✓`
+  healthy, brown `?` unsure, orange `?` waiting for the AI. The field card
+  shows `N need action` and `N checks`.
+- **AI.** `diagnoseCheck()` calls the Messages API with plain `fetch` (no
+  bundler for the SDK), header `anthropic-dangerous-direct-browser-access`,
+  model `claude-sonnet-5` (the owner's pick for cost), `effort: low`,
+  structured output (`CHECK_SCHEMA`). Answers are in Thai. The key is
+  `agras_ai_key` in localStorage, set in Settings → AI crop check; it never
+  leaves the phone except to api.anthropic.com. One request at a time, oldest
+  queued first; a network error, 429 or 5xx puts it back in the queue with a
+  60 s back-off, and the `online` event retries at once. 401 and "credit"
+  errors show in Thai and wait for ASK AI AGAIN.
+- **Report.** `buildFieldReport(field, missions, checks)` gives each round its
+  checks; the report screen and the shared text list them.
+- Test: `cropChecks` (5 checks; the API is mocked with `page.route`).
+- **Not yet verified on the phone:** the camera intent, the CAMERA permission
+  prompt, and a real API call (the owner has no key yet).
 
 ## Verified on the phone, and what wasn't
 

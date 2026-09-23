@@ -61,6 +61,7 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | SIM: tank runs out per area, walks to the station and back without painting, covers the field, stops at FINISH | SIM walks the route |
 | SIM → GPS mid-mission: the SIM walk stops, no auto-REFILLED, the record is tagged `src: 'sim'` | SIM→GPS switch |
 | Field app (`prod`): no DEV even with the old flag, 7-tap ignored, no test-log row; test app: DEV on, TEST tag | two apps |
+| Crop check: photo pinned at the operator, field card counts it, AI (mocked) queued offline and done online with Sonnet 5 + JSON schema + the key, listed in the report | crop check |
 
 ## Writing more
 

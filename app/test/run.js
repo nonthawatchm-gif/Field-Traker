@@ -857,10 +857,72 @@ async function appVariants() {
   }
 }
 
+/** Crop checks: a photo is kept and pinned where the operator stood, marked
+ *  "needs action" on the field card, diagnosed by the (mocked) Claude API with
+ *  the saved key, queued while offline and finished when back online, and
+ *  listed in the round's spray report. */
+async function cropChecks() {
+  const { browser, ctx, page } = await boot();
+  await makeField(ctx, page, [[0, 0], [60, 0], [60, 140], [0, 140]], [-8, -6]);
+  await page.reload(); await page.waitForTimeout(2500);
+  await moveTo(ctx, page, 30, 70, 1500);
+  const photo = await page.screenshot({ type: 'jpeg', quality: 60 });
+  await page.locator('[aria-label="Crop check"]').locator('visible=true').first().click({ force: true });
+  await page.waitForTimeout(500);
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), tap(page, 'TAKE PHOTO HERE', { wait: 0 })]);
+  await chooser.setFiles({ name: 'leaf.jpg', mimeType: 'image/jpeg', buffer: photo });
+  await page.waitForTimeout(1500);
+  let rec = await page.evaluate(() => JSON.parse(localStorage.getItem('agras-tracker-checks'))[0]);
+  const t0 = await txt(page);
+  check('a photo is saved as a check pinned at the operator, marked needs action, no key = no AI button',
+    rec && rec.lat != null && Math.abs(rec.lat - require('./harness').toLL(30, 70).latitude) < 1e-5 && rec.status === 'problem' && /NEEDS ACTION/.test(t0) && /ใส่ Anthropic API key/.test(t0) && !/ANALYSE WITH AI/.test(t0),
+    JSON.stringify(rec && { lat: rec.lat, status: rec.status }));
+  await tap(page, 'DONE', { wait: 300 });
+  await page.locator('[aria-label="Close checks"]').click({ force: true }); await page.waitForTimeout(400);
+  { const t = await txt(page); check('the field card counts the check and the one needing action', /Round 1 · 1 need action/.test(t) && / · 1 check( |$)/m.test(t), (t.match(/Round 1.*/) || [''])[0]); }
+
+  // the key, saved in Settings
+  await openSettings(page);
+  await page.locator('input[type=password]').fill('sk-ant-test-1234');
+  await page.locator('[aria-label="Save API key"]').dispatchEvent('click'); await page.waitForTimeout(300);   // it sits under the sticky DONE bar
+  const keyOk = await page.evaluate(() => localStorage.getItem('agras_ai_key') === 'sk-ant-test-1234');
+  await tap(page, 'DONE', { wait: 400 });
+
+  // offline first: the request fails, the check waits in the queue
+  let online = false, req = null;
+  await page.route('https://api.anthropic.com/**', (route) => {
+    if (!online) return route.abort();
+    req = { headers: route.request().headers(), body: JSON.parse(route.request().postData()) };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-sonnet-5', stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ status: 'problem', name: 'โรคใบจุดตากบ', confidence: 'high', seen: 'จุดกลมสีน้ำตาลบนใบล่าง', actives: ['แมนโคเซบ', 'คาร์เบนดาซิม'], todo: ['ดูต้นรอบ ๆ'] }) }] }) });
+  });
+  await page.locator('[aria-label="Crop check"]').locator('visible=true').first().click({ force: true });
+  await page.waitForTimeout(400);
+  await page.locator('[data-check-row]').first().click({ force: true });
+  await page.waitForTimeout(300);
+  await tap(page, 'ANALYSE WITH AI', { wait: 1500 });
+  rec = await page.evaluate(() => JSON.parse(localStorage.getItem('agras-tracker-checks'))[0]);
+  check('offline: the diagnosis waits in the queue', keyOk && rec.aiState === 'queued' && /รอสัญญาณเน็ต/.test(await txt(page)), `key ${keyOk} state ${rec.aiState}`);
+  online = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await page.waitForTimeout(2000);
+  rec = await page.evaluate(() => JSON.parse(localStorage.getItem('agras-tracker-checks'))[0]);
+  const t1 = await txt(page);
+  const img = req && req.body.messages[0].content[0];
+  check('back online: Claude is asked (Sonnet 5, the photo, JSON schema, the key) and the answer shows',
+    rec.aiState === 'done' && rec.ai.name === 'โรคใบจุดตากบ' && /แมนโคเซบ/.test(t1) && /อ่านฉลากก่อนใช้/.test(t1)
+      && req.body.model === 'claude-sonnet-5' && img.type === 'image' && img.source.media_type === 'image/jpeg' && img.source.data.length > 1000
+      && req.body.output_config.format.type === 'json_schema' && req.headers['x-api-key'] === 'sk-ant-test-1234',
+    `state ${rec.aiState} model ${req && req.body.model}`);
+  const report = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('agras-tracker-field-library'))[0]; return fieldReportText(f, buildFieldReport(f, [], loadChecks())); });
+  check('the spray report lists the check under its round', /ตรวจสุขภาพพืช:/.test(report) && /โรคใบจุดตากบ/.test(report) && /แมนโคเซบ/.test(report), report.split('\n').slice(-3).join(' | '));
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
