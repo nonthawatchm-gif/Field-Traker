@@ -62,6 +62,7 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | SIM → GPS mid-mission: the SIM walk stops, no auto-REFILLED, the record is tagged `src: 'sim'` | SIM→GPS switch |
 | Field app (`prod`): no DEV even with the old flag, 7-tap ignored, no test-log row; test app: DEV on, TEST tag | two apps |
 | Crop check: photo pinned at the operator, field card counts it, AI (mocked) queued offline and done online with Sonnet 5 + JSON schema + the key, listed in the report | crop check |
+| a fetched Esri tile is really in Cache Storage; the in-memory tile cache drops the least recently drawn tile and revokes its blob; `buildField()` matches per-sample `pointInPoly()`; the missed-cell counter matches the grid; GPS pace is steady at a steady walk | the CPU/RAM pass: offline map never stored, blob leak, scanline rewrite, pace spikes |
 
 ## Writing more
 
