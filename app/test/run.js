@@ -927,16 +927,28 @@ async function cropChecks() {
  *     grid; and GPS pace is a steady reading, not a spike per fix. */
 async function perfFixes() {
   const { browser, ctx, page } = await boot();
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-  await page.route('https://server.arcgisonline.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: png, headers: { 'access-control-allow-origin': '*' } }));
+  // a textured tile stands in for imagery; a flat one for Esri's "no data" placeholder
+  const [photo, flat] = (await page.evaluate(() => [true, false].map((noisy) => {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d');
+    for (let y = 0; y < 64; y += 4) for (let x = 0; x < 64; x += 4) { const v = noisy ? (x * 7 + y * 13) % 200 : 200; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, y, 4, 4); }
+    return c.toDataURL('image/png').split(',')[1];
+  }))).map((b) => Buffer.from(b, 'base64'));
+  await page.route('https://server.arcgisonline.com/**', (r) => {
+    const z = +r.request().url().match(/\/tile\/(\d+)\//)[1];
+    r.fulfill({ status: 200, contentType: 'image/png', body: z >= 19 ? flat : photo, headers: { 'access-control-allow-origin': '*' } });
+  });
   const tiles = await page.evaluate(async () => {
     const store = await caches.open('agras-test-tiles');
-    const u1 = esriTileUrl(18, 1, 1), u2 = esriTileUrl(18, 1, 2);
+    const u1 = esriTileUrl(18, 1, 1), u2 = esriTileUrl(18, 1, 2), u3 = esriTileUrl(19, 1, 1), u4 = esriTileUrl(19, 1, 2);
     const blob = await fetchTileBlob(u1, store);
-    await cacheTile(u2, store);
-    return { blob: blob.size, stored1: !!(await store.match(u1)), stored2: !!(await store.match(u2)) };
+    const r2 = await cacheTile(u2, store);
+    await store.put(u4, await fetch(u4));           // a placeholder an older build stored
+    const r3 = await cacheTile(u3, store), r4 = await cacheTile(u4, store);
+    return { blob: blob.size, stored1: !!(await store.match(u1)), stored2: !!(await store.match(u2)), r2, r3, r4, stored3: !!(await store.match(u3)), stored4: !!(await store.match(u4)) };
   });
-  check('a fetched satellite tile is stored for offline use', tiles.blob > 0 && tiles.stored1 && tiles.stored2, JSON.stringify(tiles));
+  check('a fetched satellite tile is stored for offline use', tiles.blob > 0 && tiles.stored1 && tiles.stored2 && tiles.r2 === 'real', JSON.stringify(tiles));
+  check('offline download skips "no data" tiles and drops ones already stored', tiles.r3 === 'nodata' && tiles.r4 === 'nodata' && !tiles.stored3 && !tiles.stored4, JSON.stringify(tiles));
 
   const lru = await page.evaluate(async () => {
     const cache = new Map();

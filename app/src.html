@@ -1635,13 +1635,26 @@ async function fetchTileBlob(url, cacheStore) {
   if (copy) { try { await cacheStore.put(url, copy); } catch (e) { /* quota/private-mode — imagery still renders this session */ } }
   return blob;
 }
-/** Offline download: make sure a tile is in Cache Storage without reading it
- *  back — a tile that is already there costs one lookup, not a blob read. */
+/** Offline download: make sure a real tile is in Cache Storage. Returns
+ *  'real' or 'nodata'. Esri answers a tile it has no imagery for with a
+ *  normal 200 placeholder (see looksLikeNoDataTile), and on the phone every
+ *  z19–z20 tile over the owner's field was one — 125 of 138 stored tiles.
+ *  Those are not stored, and one already in the store (the live map used to
+ *  cache them too) is deleted. */
 async function cacheTile(url, cacheStore) {
-  try { if (await cacheStore.match(url)) return; } catch (e) { /* fall through to the network */ }
+  let hit = null;
+  try { hit = await cacheStore.match(url); } catch (e) { /* fall through to the network */ }
+  if (hit) {
+    if (!(await blobLooksLikeNoData(await hit.blob()))) return 'real';
+    try { await cacheStore.delete(url); } catch (e) { /* it just stays */ }
+    return 'nodata';
+  }
   const resp = await fetch(url, { mode: 'cors' });
   if (!resp.ok) throw new Error('tile HTTP ' + resp.status);
-  await cacheStore.put(url, resp);
+  const copy = resp.clone();
+  if (await blobLooksLikeNoData(await resp.blob())) return 'nodata';
+  await cacheStore.put(url, copy);
+  return 'real';
 }
 
 /** THE actual cause of the literal "Map data not yet available" tiles the
@@ -1689,6 +1702,13 @@ function looksLikeNoDataTile(img) {
     return false; // can't read pixels (tainted canvas, decode error) — assume it's a real tile rather than discard it
   }
 }
+/** The same check on a tile that hasn't been drawn anywhere — the offline
+ *  download decides whether to store it. */
+async function blobLooksLikeNoData(blob) {
+  let bmp;
+  try { bmp = await createImageBitmap(blob); } catch (e) { return false; }
+  try { return looksLikeNoDataTile(bmp); } finally { bmp.close(); }
+}
 
 /** Load one tile with a three-provider fallback chain: Esri first (fetched
  *  through Cache Storage, so it's the provider that actually persists
@@ -1723,6 +1743,8 @@ function loadTileEntry(entry, z, tx, ty, cacheStore) {
     entry.objUrl = objUrl;
     entry.img.onload = () => {
       if (looksLikeNoDataTile(entry.img)) {
+        // don't keep it for offline: it would be all the store holds at this zoom
+        if (cacheStore) cacheStore.delete(esriTileUrl(z, tx, ty)).catch(() => {});
         URL.revokeObjectURL(objUrl);
         if (entry.objUrl === objUrl) entry.objUrl = null;
         tryGoogleHybrid();
@@ -3751,30 +3773,45 @@ function App() {
       const originNow = unprojectRef.current(0, 0);
       const curScale = panRef.current ? panRef.current.s : viewRef.current.s;
       const curZoom = Math.max(MIN_MAP_ZOOM, Math.min(MAX_NATIVE_ZOOM, Math.round(zoomForScale(curScale, originNow.lat))));
-      const zooms = [...new Set([curZoom, 17, 18, MAX_NATIVE_ZOOM])].filter((z) => z >= MIN_MAP_ZOOM && z <= MAX_NATIVE_ZOOM);
-      const jobs = [];
-      zooms.forEach((z) => {
-        const r = fieldTileRange(field, z);
+      // shallow to deep, one zoom at a time: once a whole zoom comes back as
+      // "no data" placeholders, every deeper one will too, so it is skipped
+      const zooms = [...new Set([curZoom, 17, 18, MAX_NATIVE_ZOOM])].filter((z) => z >= MIN_MAP_ZOOM && z <= MAX_NATIVE_ZOOM).sort((a, b) => a - b);
+      const levels = zooms.map((z) => {
+        const r = fieldTileRange(field, z), jobs = [];
         for (let ty = r.ty0; ty <= r.ty1; ty++) for (let tx = r.tx0; tx <= r.tx1; tx++) jobs.push({ z, tx, ty });
+        return jobs;
       });
-      setDownloadState({ done: 0, total: jobs.length });
-      let done = 0, idx = 0, lastProgressT = 0;
-      const worker = async () => {
-        while (idx < jobs.length) {
-          if (downloadAbortRef.current) return;
-          const job = jobs[idx++];
-          try { await cacheTile(esriTileUrl(job.z, job.tx, job.ty), mapCacheRef.current); } catch (e) { /* one missing tile doesn't fail the download */ }
-          done++;
-          // a progress re-render per tile re-rendered the whole app hundreds
-          // of times (it also runs in the background after a field is saved)
-          const now = performance.now();
-          if (done === jobs.length || now - lastProgressT > 250) { lastProgressT = now; setDownloadState({ done, total: jobs.length }); }
+      let total = levels.reduce((n, jobs) => n + jobs.length, 0);
+      setDownloadState({ done: 0, total });
+      let done = 0, lastProgressT = 0, stored = 0, empty = 0;
+      for (let li = 0; li < levels.length; li++) {
+        const jobs = levels[li];
+        let idx = 0, real = 0, none = 0;
+        const worker = async () => {
+          while (idx < jobs.length) {
+            if (downloadAbortRef.current) return;
+            const job = jobs[idx++];
+            try { if ((await cacheTile(esriTileUrl(job.z, job.tx, job.ty), mapCacheRef.current)) === 'real') real++; else none++; } catch (e) { /* one missing tile doesn't fail the download */ }
+            done++;
+            // a progress re-render per tile re-rendered the whole app hundreds
+            // of times (it also runs in the background after a field is saved)
+            const now = performance.now();
+            if (done === total || now - lastProgressT > 250) { lastProgressT = now; setDownloadState({ done, total }); }
+          }
+        };
+        await Promise.all(Array.from({ length: 6 }, worker));
+        if (downloadAbortRef.current) break;
+        stored += real; empty += none;
+        if (real === 0 && none > 0) {
+          total = done;
+          setDownloadState({ done, total });
+          AgrasLog.add('MAP', `no imagery at zoom ${jobs[0].z}: deeper zooms skipped`);
+          break;
         }
-      };
-      await Promise.all(Array.from({ length: 6 }, worker));
+      }
       if (!downloadAbortRef.current) {
         refreshCacheInfo();
-        AgrasLog.add('MAP', `offline map downloaded: ${jobs.length} tiles`);
+        AgrasLog.add('MAP', `offline map downloaded: ${stored} tiles (${empty} no-data skipped)`);
         // done — leave the Offline map screen by itself, as if back was
         // pressed, after a beat so the bar is seen reaching 100 %
         setTimeout(() => { setShowOfflineMap(false); setDownloadState(null); }, 900);
