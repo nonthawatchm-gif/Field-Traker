@@ -11,7 +11,7 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (110 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
+`app/test/run.js` (111 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
 phone: the field app updated in place, and the test app alongside it.
 
 ## Start here
@@ -20,11 +20,11 @@ phone: the field app updated in place, and the test app alongside it.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 110 checks, ~20 min, expect 110/110
+node test/run.js                     # 111 checks, ~20 min, expect 111/111
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 110/110 on a clean checkout, something in the fixes below
+If `test/run.js` is not 111/111 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -49,7 +49,10 @@ Two notes on running it:
   are the workflow run number, and a docs-only push makes a build too — build-39
   turned out to be the docs commit, not the UI change it was assumed to be, and
   went onto the phone as "the update". `git ls-remote --tags origin build-N`
-  gives the commit.
+  gives the commit — **but only for builds of `main`**: the release step tags
+  the default branch, so a build of any other branch carries `main`'s commit
+  on its tag (build-80 and build-81 did). For those, check the APK itself:
+  `unzip -p app-test.apk assets/public/app.js | grep <something from the change>`.
 - Phone data (2026-09-23): แปลงถั่ว 1 (5.0 rai) is empty — round 1, not
   started, its test history deleted at the owner's request. แปลงถั่ว 2
   (5.26 rai) is round 1 at 2.89 rai with 3 real GPS mission records. No mission
@@ -712,8 +715,29 @@ The owner asked for CPU and RAM optimisation and a bug hunt. Found and fixed:
   opened (~200 KB of base64 each).
 - The previous coverage canvas is released when a new grid is built.
 
-Test `perfFixes` (5 checks) covers the tile store, the tile LRU, `buildField()`
+Test `perfFixes` (6 checks now) covers the tile store, the tile LRU, `buildField()`
 against brute force, the missed counter and steady GPS pace.
+
+**Verified on the phone (build-79, test app, 2026-09-26):** DOWNLOAD FIELD MAP
+fills the tile store (it stayed empty before); airplane mode + reload still
+shows the field on imagery; with the screen off in a GPS mission,
+`DATA/active-session.json` was rewritten every 15–30 s for 2 minutes.
+
+### Offline map skips "no data" tiles (2026-09-26)
+
+Found on the phone with build-79: 125 of the 138 tiles DOWNLOAD FIELD MAP
+stored for แปลงถั่ว 2 were Esri's 2,521-byte "Map data not yet available"
+placeholder — every z19 and z20 tile. `cacheTile()` now pixel-checks each
+tile (`blobLooksLikeNoData()`, the same luminance test as
+`looksLikeNoDataTile()`) and returns `'real'` or `'nodata'`; placeholders
+are not stored and ones already in the store are deleted. The download runs
+zoom by zoom, shallow to deep; once a whole zoom comes back as placeholders,
+the deeper zooms are skipped and their stored placeholders deleted. The live
+map also deletes a placeholder from the store when it detects one. On the
+phone (build-81): 13 real tiles kept, 0 placeholders left over the field,
+the map still full in airplane mode. (Offline, the deepest zooms there come
+from stretching z18 — Google tiles, which the live map uses at z19+, can't
+be stored: no CORS.) Test: `perfFixes` gained one check (111 in all).
 
 ## Verified on the phone, and what wasn't
 
