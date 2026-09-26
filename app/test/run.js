@@ -919,10 +919,80 @@ async function cropChecks() {
   await browser.close();
 }
 
+/* 29. CPU / RAM pass (2026-09-26). Satellite tiles are really stored for
+ *     offline use (a clone-after-read threw and nothing was ever cached); the
+ *     in-memory tile cache drops the least recently drawn tile and revokes its
+ *     blob: URL; the scanline buildField() agrees with the per-sample
+ *     pointInPoly() test it replaced; the running missed-cell count matches the
+ *     grid; and GPS pace is a steady reading, not a spike per fix. */
+async function perfFixes() {
+  const { browser, ctx, page } = await boot();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  await page.route('https://server.arcgisonline.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: png, headers: { 'access-control-allow-origin': '*' } }));
+  const tiles = await page.evaluate(async () => {
+    const store = await caches.open('agras-test-tiles');
+    const u1 = esriTileUrl(18, 1, 1), u2 = esriTileUrl(18, 1, 2);
+    const blob = await fetchTileBlob(u1, store);
+    await cacheTile(u2, store);
+    return { blob: blob.size, stored1: !!(await store.match(u1)), stored2: !!(await store.match(u2)) };
+  });
+  check('a fetched satellite tile is stored for offline use', tiles.blob > 0 && tiles.stored1 && tiles.stored2, JSON.stringify(tiles));
+
+  const lru = await page.evaluate(async () => {
+    const cache = new Map();
+    for (let k = 0; k < TILE_CACHE_MAX; k++) cache.set(`19/${k}/0`, { img: new Image(), loaded: true, failed: false, objUrl: null });
+    const second = cache.get('19/1/0');
+    const url = second.objUrl = URL.createObjectURL(new Blob(['tile']));
+    ensureTileEntry(cache, 19, 0, 0, null);        // tile 0 drawn again: now the most recent
+    ensureTileEntry(cache, 19, 99999, 0, null);    // a new tile: evicts the least recent, tile 1
+    let revoked = false;
+    try { await fetch(url); } catch (e) { revoked = true; }
+    return { size: cache.size, kept0: cache.has('19/0/0'), dropped1: !cache.has('19/1/0'), revoked };
+  });
+  check('the tile cache evicts the least recently drawn tile and frees its blob', lru.size === 420 && lru.kept0 && lru.dropped1 && lru.revoked, JSON.stringify(lru));
+
+  const unit = await page.evaluate(() => {
+    const poly = [{ x: 0, y: 0 }, { x: 30, y: 4 }, { x: 26, y: 25 }, { x: 9, y: 31 }, { x: -3, y: 14 }, { x: 8, y: 12 }];
+    const f = buildField(poly, true, 6);
+    let bad = 0, n = 0;
+    for (let j = 0; j < f.GH; j += 3) for (let i = 0; i < f.GW; i += 3) {
+      const px = f.gbbox.minX + (i + 0.5) * CELL, py = f.gbbox.minY + (j + 0.5) * CELL;
+      let hits = 0;
+      for (let sj = 0; sj < 3; sj++) for (let si = 0; si < 3; si++) if (pointInPoly({ x: px - CELL / 2 + (si + 0.5) * (CELL / 3), y: py - CELL / 2 + (sj + 0.5) * (CELL / 3) }, poly)) hits++;
+      const idx = j * f.GW + i, credit = hits > 0 || nearestEdgePoint({ x: px, y: py }, poly).d <= 3;
+      n++;
+      if (f.insideRatio[idx] !== Math.fround(hits / 9) || f.inside[idx] !== (hits ? 1 : 0) || f.credit[idx] !== (credit ? 1 : 0)) bad++;
+    }
+    const sim = makeSim(f, 6);
+    f.__ctx = { GW: f.GW, GH: f.GH, gbbox: f.gbbox, credit: f.credit, insideRatio: f.insideRatio, lastPass: sim.lastPass };
+    markMissed(sim, f, { x: 5, y: 10 }, { x: 25, y: 10 }, 3, () => {});
+    const flagged = sim.missedCells;
+    stamp(sim, f, { x: 10, y: 10 }, { x: 18, y: 10 }, 3, 1, () => {});
+    let sum = 0; for (let k = 0; k < sim.missed.length; k++) sum += sim.missed[k];
+    return { bad, n, flagged, counted: sim.missedCells, sum };
+  });
+  check('buildField() matches the per-sample point-in-polygon test', unit.bad === 0 && unit.n > 1000, `${unit.bad} of ${unit.n} sampled cells differ`);
+  check('the running missed-cell count matches the grid after spray clears some', unit.flagged > 0 && unit.counted === unit.sum && unit.counted < unit.flagged, `flagged ${unit.flagged}, now ${unit.counted}, grid ${unit.sum}`);
+
+  // pace: 1 m every ~0.75 s is ~4-5 km/h; the old per-frame average swung
+  // from ~20 km/h just after a fix to ~0.2 just before the next
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await startSpray(page, 1200);
+  await page.locator('[aria-label="Show stats"]').first().click({ force: true });
+  const reads = [];
+  for (let k = 1; k <= 14; k++) {
+    await moveTo(ctx, page, 40, 10 + k, 700);
+    if (k > 5) reads.push(num(await stat(page, 'PACE')));
+  }
+  check('GPS pace reads steadily while walking at a steady pace', reads.every((v) => v >= 1.5 && v <= 10), reads.join(' '));
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

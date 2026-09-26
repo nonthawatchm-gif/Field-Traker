@@ -430,33 +430,68 @@ function buildField(poly, gpsAnchored, swath) {
   const inside = new Uint8Array(GW * GH);
   const insideRatio = new Float32Array(GW * GH);
   const SUB = 3;
+  // Scanline form of 9 pointInPoly() tests per cell, with the same crossing
+  // arithmetic so every sample lands on the same side as before: for each
+  // sub-row, the polygon's crossings are found once, and a sample is inside
+  // when an odd number of crossings lie to its right. The old per-sample test
+  // walked every edge for every one of the 9 samples of every cell — seconds
+  // on a phone for a big field, on each field load and startup restore.
+  const hits = new Uint8Array(GW);
+  const xs = [];
+  const n = poly.length;
   for (let j = 0; j < GH; j++) {
     const py = gbbox.minY + (j + 0.5) * CELL;
-    for (let i = 0; i < GW; i++) {
-      const px = gbbox.minX + (i + 0.5) * CELL;
-      const idx = j * GW + i;
-      let hits = 0;
-      for (let sj = 0; sj < SUB; sj++) {
-        const sy = py - CELL / 2 + (sj + 0.5) * (CELL / SUB);
+    hits.fill(0);
+    for (let sj = 0; sj < SUB; sj++) {
+      const sy = py - CELL / 2 + (sj + 0.5) * (CELL / SUB);
+      xs.length = 0;
+      for (let i = 0, k = n - 1; i < n; k = i++) {
+        const pi = poly[i], pj = poly[k];
+        if ((pi.y > sy) !== (pj.y > sy)) xs.push((pj.x - pi.x) * (sy - pi.y) / (pj.y - pi.y) + pi.x);
+      }
+      if (!xs.length) continue;
+      xs.sort((a, b) => a - b);
+      let right = 0;   // index of the first crossing strictly right of the sample
+      for (let i = 0; i < GW; i++) {
+        const px = gbbox.minX + (i + 0.5) * CELL;
         for (let si = 0; si < SUB; si++) {
           const sx = px - CELL / 2 + (si + 0.5) * (CELL / SUB);
-          if (pointInPoly({ x: sx, y: sy }, poly)) hits++;
+          while (right < xs.length && !(sx < xs[right])) right++;
+          if ((xs.length - right) & 1) hits[i]++;
         }
       }
-      const ratio = hits / (SUB * SUB);
-      insideRatio[idx] = ratio;
-      if (ratio > 0) inside[idx] = 1;
+    }
+    for (let i = 0; i < GW; i++) {
+      if (!hits[i]) continue;
+      const idx = j * GW + i;
+      insideRatio[idx] = hits[i] / (SUB * SUB);
+      inside[idx] = 1;
     }
   }
+  // Credit band: an outside cell within tol of any edge (same distance as
+  // nearestEdgePoint(), minus its per-call centroid and normals, and stopping
+  // at the first edge close enough; edges whose box is further than tol away
+  // are skipped without the projection).
   const tol = 0.5 * (swath || 0);
   const credit = new Uint8Array(GW * GH);
+  const edges = [];
+  for (let e = 0; e < n; e++) {
+    const a = poly[e], b = poly[(e + 1) % n];
+    const vx = b.x - a.x, vy = b.y - a.y;
+    edges.push({ a, vx, vy, len2: vx * vx + vy * vy || 1e-9,
+      minX: Math.min(a.x, b.x) - tol, maxX: Math.max(a.x, b.x) + tol, minY: Math.min(a.y, b.y) - tol, maxY: Math.max(a.y, b.y) + tol });
+  }
   for (let idx = 0; idx < GW * GH; idx++) {
     if (inside[idx]) { credit[idx] = 1; continue; }
     if (tol <= 0) continue;
     const i = idx % GW, j = Math.floor(idx / GW);
     const px = gbbox.minX + (i + 0.5) * CELL, py = gbbox.minY + (j + 0.5) * CELL;
-    const edge = nearestEdgePoint({ x: px, y: py }, poly);
-    if (edge.d <= tol) credit[idx] = 1;
+    for (let e = 0; e < n; e++) {
+      const E = edges[e];
+      if (px < E.minX || px > E.maxX || py < E.minY || py > E.maxY) continue;
+      const t = clamp01(((px - E.a.x) * E.vx + (py - E.a.y) * E.vy) / E.len2);
+      if (Math.hypot(px - (E.a.x + E.vx * t), py - (E.a.y + E.vy * t)) <= tol) { credit[idx] = 1; break; }
+    }
   }
   return { poly, bbox, gbbox, GW, GH, inside, insideRatio, credit, area: polyArea(poly), gpsAnchored: !!gpsAnchored };
 }
@@ -1012,21 +1047,29 @@ const checkWaiting = (c) => c.aiState === 'queued' || c.aiState === 'running';
 const checkColor = (c) => (checkWaiting(c) ? '#E8890C' : c.status === 'healthy' ? '#0C6B48' : c.status === 'unsure' ? '#8A5A00' : '#A5201A');
 const checkGlyph = (c) => (checkWaiting(c) || c.status === 'unsure' ? '?' : c.status === 'healthy' ? '✓' : '!');
 
+// Photos read back as ~200 KB base64 strings; keep only the most recently
+// used few in memory (the files are the real copy) rather than every photo
+// ever opened, which grew for the life of the app.
 const __photoMem = new Map();
+const PHOTO_MEM_MAX = 24;
+function photoMemPut(id, url) {
+  __photoMem.delete(id); __photoMem.set(id, url);
+  while (__photoMem.size > PHOTO_MEM_MAX) __photoMem.delete(__photoMem.keys().next().value);
+}
 const photoPath = (id) => `checks/${id}.jpg`;
 async function storePhoto(id, dataUrl) {
-  __photoMem.set(id, dataUrl);
+  photoMemPut(id, dataUrl);
   const fs = nativePlugin('Filesystem');
   if (fs) await Promise.resolve(fs.writeFile({ path: photoPath(id), directory: 'DATA', data: dataUrl.split(',')[1], recursive: true }));
   else { try { localStorage.setItem('agras_chk_img_' + id, dataUrl); } catch (e) { /* web preview only */ } }
 }
 async function readPhoto(id) {
-  if (__photoMem.has(id)) return __photoMem.get(id);
+  if (__photoMem.has(id)) { const hit = __photoMem.get(id); photoMemPut(id, hit); return hit; }
   const fs = nativePlugin('Filesystem');
   let url = null;
   if (fs) { try { const r = await Promise.resolve(fs.readFile({ path: photoPath(id), directory: 'DATA' })); if (r && r.data) url = 'data:image/jpeg;base64,' + r.data; } catch (e) { /* no file */ } }
   else { try { url = localStorage.getItem('agras_chk_img_' + id); } catch (e) { /* ignore */ } }
-  if (url) __photoMem.set(id, url);
+  if (url) photoMemPut(id, url);
   return url;
 }
 async function dropPhoto(id) {
@@ -1255,9 +1298,13 @@ function makeSim(field, swath) {
     // cleared the moment a real stamp lands on that cell.
     passes: new Uint8Array(field.GW * field.GH),
     missed: new Uint8Array(field.GW * field.GH),
-    sprayedCells: 0, overlapCells: 0, epoch: 0, passHeading: null,
-    track: [{ ...route[0] }], fixes: [{ ...route[0] }],
-    distance: 0, sprayDistance: 0, elapsed: 0, sampleAcc: 0, trackAcc: 0,
+    // missedCells: running count of the 1s in `missed`, kept by stamp() and
+    // markMissed() so the HUD never has to sum the whole grid (a million
+    // cells on a big field) on every render. recountMissed() after replacing
+    // `missed` wholesale (restore).
+    sprayedCells: 0, overlapCells: 0, missedCells: 0, epoch: 0, passHeading: null,
+    fixes: [{ ...route[0] }],
+    distance: 0, sprayDistance: 0, elapsed: 0, sampleAcc: 0,
     done: route.length < 2, breakpoint: null
   };
 }
@@ -1285,11 +1332,18 @@ function stamp(sim, field, a, b, r, passId, paint) {
       const dx = px - (a.x + t * vx), dy = py - (a.y + t * vy);
       if (dx * dx + dy * dy > r2) continue;
       const prev = lastPass[idx];
-      missed[idx] = 0;
+      if (missed[idx]) { missed[idx] = 0; sim.missedCells--; }
       if (prev === -1) { sim.sprayedCells++; lastPass[idx] = passId; passes[idx] = 1; paint(i, j, 1); }
       else if (prev !== passId) { sim.overlapCells++; lastPass[idx] = passId; passes[idx] = Math.min(255, passes[idx] + 1); paint(i, j, passes[idx]); }
     }
   }
+}
+
+function recountMissed(sim) {
+  let n = 0;
+  const m = sim.missed;
+  for (let k = 0; k < m.length; k++) if (m[k]) n++;
+  sim.missedCells = n;
 }
 
 /** Lane tracking for real-GPS spraying. The sim route-follower gets its pass
@@ -1350,7 +1404,7 @@ function markMissed(sim, field, a, b, r, paint) {
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const dx = px - (a.x + t * vx), dy = py - (a.y + t * vy);
       if (dx * dx + dy * dy > r2) continue;
-      missed[idx] = 1;
+      missed[idx] = 1; sim.missedCells++;
       paint(i, j, -1);
     }
   }
@@ -1376,8 +1430,6 @@ function advance(sim, field, sdt, swath, paint, armed) {
       if (armed) stamp(sim, field, from, sim.pos, swath / 2, target.passId, paint);
       else markMissed(sim, field, from, sim.pos, swath / 2, paint);
     }
-    sim.trackAcc += step;
-    if (sim.trackAcc >= 0.35) { sim.track.push({ ...sim.pos }); sim.trackAcc = 0; }
     budget -= step;
     if (step >= d - 1e-6) sim.wp++;
   }
@@ -1388,7 +1440,6 @@ function advance(sim, field, sdt, swath, paint, armed) {
     sim.distance += dist(fix, sim.fixes[sim.fixes.length - 1]);
     sim.fixes.push(fix);
   }
-  if (sim.done) sim.track.push({ ...sim.pos });
 }
 
 /* ============================================================== *
@@ -1399,6 +1450,7 @@ function advance(sim, field, sdt, swath, paint, armed) {
  *  (lines are also console.log'd with an AGRASLOG prefix).          *
  * ============================================================== */
 const APP_BUILD = '__BUILD__';
+const HIDDEN_AUTOSAVE_MS = 30000;   // session save cadence while the screen is off (driven by GPS fixes)
 /** Which app this is, set by variant.js (each Android flavour ships its own
  *  copy, app/android/app/src/{prod,beta}/assets/public/variant.js):
  *  'prod' — the field app: no DEV panel, no SIM, no test-log row;
@@ -1456,6 +1508,7 @@ async function shareTestLog() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   return 'Downloaded ' + name;
 }
 
@@ -1574,9 +1627,21 @@ async function fetchTileBlob(url, cacheStore) {
   }
   const resp = await fetch(url, { mode: 'cors' });
   if (!resp.ok) throw new Error('tile HTTP ' + resp.status);
+  // Clone BEFORE reading the body: a Response whose body has been read can't
+  // be cloned (clone() throws), and that throw used to land in the catch
+  // below, so no tile was ever stored and the offline map was always empty.
+  const copy = cacheStore ? resp.clone() : null;
   const blob = await resp.blob();
-  if (cacheStore) { try { await cacheStore.put(url, resp.clone()); } catch (e) { /* quota/private-mode — imagery still renders this session */ } }
+  if (copy) { try { await cacheStore.put(url, copy); } catch (e) { /* quota/private-mode — imagery still renders this session */ } }
   return blob;
+}
+/** Offline download: make sure a tile is in Cache Storage without reading it
+ *  back — a tile that is already there costs one lookup, not a blob read. */
+async function cacheTile(url, cacheStore) {
+  try { if (await cacheStore.match(url)) return; } catch (e) { /* fall through to the network */ }
+  const resp = await fetch(url, { mode: 'cors' });
+  if (!resp.ok) throw new Error('tile HTTP ' + resp.status);
+  await cacheStore.put(url, resp);
 }
 
 /** THE actual cause of the literal "Map data not yet available" tiles the
@@ -1653,6 +1718,7 @@ function loadTileEntry(entry, z, tx, ty, cacheStore) {
     entry.img.src = googleHybridTileUrl(z, tx, ty);
   };
   fetchTileBlob(esriTileUrl(z, tx, ty), cacheStore).then((blob) => {
+    if (entry.evicted) return;   // dropped from the cache while it was loading
     const objUrl = URL.createObjectURL(blob);
     entry.objUrl = objUrl;
     entry.img.onload = () => {
@@ -1669,6 +1735,19 @@ function loadTileEntry(entry, z, tx, ty, cacheStore) {
   }).catch(tryGoogleHybrid);
 }
 
+/** Let go of one tile: its blob: URL keeps the downloaded image alive until it
+ *  is revoked, so a dropped entry that isn't revoked leaks its blob. */
+function releaseTileEntry(entry) {
+  entry.evicted = true;
+  entry.img.onload = entry.img.onerror = null;
+  if (entry.objUrl) { URL.revokeObjectURL(entry.objUrl); entry.objUrl = null; }
+  entry.img.removeAttribute('src');
+}
+function clearTileCache(tileCache) {
+  tileCache.forEach(releaseTileEntry);
+  tileCache.clear();
+}
+const TILE_CACHE_MAX = 420;
 /** Get-or-create the cache entry for one z/x/y tile and kick off its load
  *  if it's new — the network side of drawSatelliteTiles, split out for
  *  clarity. Once an entry is loaded or failed it never re-fetches; a
@@ -1680,10 +1759,14 @@ function ensureTileEntry(tileCache, z, tx, ty, cacheStore) {
   const key = `${z}/${tx}/${ty}`;
   let entry = tileCache.get(key);
   if (!entry) {
-    if (tileCache.size > 420) { const oldest = tileCache.keys().next().value; tileCache.delete(oldest); }
-    entry = { img: new Image(), loaded: false, failed: false, objUrl: null, provider: 'esri' };
+    // least recently drawn goes first (the Map is kept in use order below),
+    // so the tiles on screen are never the ones evicted
+    if (tileCache.size >= TILE_CACHE_MAX) { const oldest = tileCache.keys().next().value; releaseTileEntry(tileCache.get(oldest)); tileCache.delete(oldest); }
+    entry = { img: new Image(), loaded: false, failed: false, objUrl: null, provider: 'esri', evicted: false };
     tileCache.set(key, entry);
     loadTileEntry(entry, z, tx, ty, cacheStore);
+  } else {
+    tileCache.delete(key); tileCache.set(key, entry);   // mark as recently used
   }
   return entry;
 }
@@ -1864,9 +1947,17 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
 
   const f = sim.fixes;
   if (f.length > 1) {
+    // the track grows by one point per fix for the whole mission; points
+    // closer than ~1.5 px on screen add nothing to a 1 px line, so skip them
     ctx.strokeStyle = 'rgba(211,222,220,.4)'; ctx.lineWidth = 1; ctx.beginPath();
-    ctx.moveTo(X_(v, f[0].x), Y_(v, f[0].y));
-    for (let i = 1; i < f.length; i++) ctx.lineTo(X_(v, f[i].x), Y_(v, f[i].y));
+    let lx = X_(v, f[0].x), ly = Y_(v, f[0].y);
+    ctx.moveTo(lx, ly);
+    const last = f.length - 1;
+    for (let i = 1; i <= last; i++) {
+      const x = X_(v, f[i].x), y = Y_(v, f[i].y), dx = x - lx, dy = y - ly;
+      if (i < last && dx * dx + dy * dy < 2.25) continue;
+      ctx.lineTo(x, y); lx = x; ly = y;
+    }
     ctx.stroke();
   }
 
@@ -2320,6 +2411,8 @@ function App() {
   const downloadAbortRef = useRef(false);  // set true to cancel an in-flight "Download Field Map" prefetch
   const gpsExtraRef = useRef({ speed: null, heading: null, altitude: null }); // latest raw coords beyond lat/lng/accuracy
   const autosaveTimerRef = useRef(null);
+  const saveSessionRef = useRef(null);     // the current saveSessionNow, for the main loop (created once)
+  const lastSessionSaveRef = useRef(0);    // Date.now() of the last session save
   const speedEmaRef = useRef(0);           // smoothed live walking speed, m/s — feeds the Pace/Flow-Rate widget
   const prevPosForSpeedRef = useRef(null);
   const restoredRef = useRef(false);       // true once a resumed session has been applied — gates the startup check
@@ -2374,6 +2467,10 @@ function App() {
   }, []);
 
   const initGrid = useCallback((field) => {
+    // free the previous raster's backing store now rather than whenever the
+    // GC gets round to it (up to ~4 MB for a big field, on every reset/load)
+    const prev = gridCanvasRef.current;
+    if (prev) { prev.width = 0; prev.height = 0; }
     const gc = document.createElement('canvas');
     gc.width = field.GW; gc.height = field.GH; lastSigRef.current = '';
     const ctx = gc.getContext('2d');
@@ -2522,7 +2619,7 @@ function App() {
     if (!cov || cov.len !== f.GW * f.GH) return;
     try {
       const passes = rleDecode(cov.passes, cov.len), missed = rleDecode(cov.missed, cov.len);
-      sim.passes = passes; sim.missed = missed;
+      sim.passes = passes; sim.missed = missed; recountMissed(sim);
       let sprayed = 0, overlap = 0;
       for (let k = 0; k < cov.len; k++) {
         const p = passes[k], i = k % f.GW, j = (k / f.GW) | 0;
@@ -2536,13 +2633,15 @@ function App() {
       AgrasLog.add('COVER', `restored ${sprayed} sprayed cells (${(sprayed * CELL * CELL / 1600).toFixed(2)} rai) for "${entry.name}"`);
     } catch (e) { AgrasLog.add('ERR', 'coverage restore failed: ' + (e && e.message)); }
   };
-  /** Save what has been sprayed on the active field into its library entry (autosave + mission end). */
-  const persistCoverage = (id, final) => {
+  /** Save what has been sprayed on the active field into its library entry (autosave + mission end).
+   *  enc: the same arrays already run-length encoded ({ passes, missed }) by
+   *  the session snapshot taken a moment before, so an autosave encodes once. */
+  const persistCoverage = (id, final, enc) => {
     if (!id) return;
     const sim = simRef.current, f = fieldRef.current;
     const len = f.GW * f.GH;
     if (!sim.passes || sim.passes.length !== len) return;
-    const cov = { v: 1, len, passes: rleEncode(sim.passes), missed: rleEncode(sim.missed), sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, ts: Date.now() };
+    const cov = { v: 1, len, passes: enc ? enc.passes : rleEncode(sim.passes), missed: enc ? enc.missed : rleEncode(sim.missed), sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, ts: Date.now() };
     const cb = coverageBaseRef.current;
     const tanksNow = tanksUsedCount(), elapsed = sim.elapsed, distance = sim.distance;
     updateLibrary((list) => list.map((e) => {
@@ -3106,13 +3205,12 @@ function App() {
 
   /* main loop */
   useEffect(() => {
-    let raf, last = performance.now(), lastTickT = 0, lastStatT = 0, nHeadless = 0, nFrames = 0;
+    let raf, last = performance.now(), lastTickT = 0, lastStatT = 0, nHeadless = 0, nFrames = 0, lastSpeedFixT = 0;
     // `frame` is the whole per-frame simulation + (optionally) the paint. It runs from
     // requestAnimationFrame while the screen is on, and headlessly straight from each GPS fix
     // while the screen is off / the app is backgrounded (rAF and timers are suspended then).
     const frame = (t, headless) => {
       headless ? nHeadless++ : nFrames++;
-      window.__agrasDbg = { pan: panRef.current, view: viewRef.current, ph: phaseRef.current, mode: camModeRef.current, draft: draftRef.current };
       const rawDt = (t - last) / 1000;
       const dt = Math.min(document.hidden ? 5 : 0.1, rawDt); last = t;
       const sim = simRef.current, field = fieldRef.current;
@@ -3137,15 +3235,23 @@ function App() {
       // mode-agnostic (sim.pos is the single source of truth either way) so
       // it reads real walking speed from GPS fixes and the sim route-follower
       // identically. Decays to 0 at rest, exactly what the Pace widget wants.
-      if (missionActive) {
+      //
+      // Except in GPS mode: there the position only moves when a fix lands
+      // (about once a second), so a per-frame EMA saw one ~30 m/s spike per
+      // fix and near-zero in between, and the HUD read anything from ~20 to
+      // ~0.2 km/h depending on when it sampled. GPS pace is measured per fix
+      // in the fix branch below; here it only fades once the fixes stop.
+      if (missionActive && sm === 'gps') {
+        if (t - lastSpeedFixT > 3000) speedEmaRef.current *= 0.9;
+      } else if (missionActive) {
         const prevP = prevPosForSpeedRef.current || sim.pos;
         const frameDist = dist(sim.pos, prevP);
         const instMs = dt > 0 ? frameDist / (dt * (sm === 'sim' ? multRef.current : 1)) : 0;
         speedEmaRef.current = speedEmaRef.current * 0.85 + instMs * 0.15;
       } else {
-        speedEmaRef.current = 0;
+        speedEmaRef.current = 0; lastSpeedFixT = 0;
       }
-      prevPosForSpeedRef.current = { ...sim.pos };
+      prevPosForSpeedRef.current = sim.pos;
 
       // live view while walking a GPS boundary — track the operator as they go
       if (ph === 'boundary') {
@@ -3231,7 +3337,8 @@ function App() {
           appliedSeqRef.current = live.seq;
           const from = { ...sim.pos };
           const newPos = { x: live.x, y: live.y };
-          sim.heading = Math.atan2(newPos.y - from.y, newPos.x - from.x) || sim.heading;
+          // (was `atan2(...) || sim.heading`, which also threw away 0 — walking due east)
+          if (newPos.x !== from.x || newPos.y !== from.y) sim.heading = Math.atan2(newPos.y - from.y, newPos.x - from.x);
           const spraying = ph === 'running' && opModeRef.current === 'spray';
           /* A PAUSED mission is still on a spray lane — the operator stopped
              mid-field, they did not head for the tank. Ground crossed while
@@ -3243,6 +3350,15 @@ function App() {
           const onSprayLane = missionActive && opModeRef.current === 'spray';
           // first fix after start/resume, or a GPS jump: reposition only, never paint a line from the stale position
           const teleport = !lastLatLngRef.current || dist(from, newPos) > 30;
+          // live pace, one reading per fix: the phone's own (Doppler) speed when
+          // it gives one, else distance over the time since the previous fix
+          {
+            const fixDt = lastSpeedFixT ? (t - lastSpeedFixT) / 1000 : 0;
+            lastSpeedFixT = t;
+            const gs = gpsExtraRef.current.speed;
+            const inst = gs != null && isFinite(gs) && gs >= 0 ? gs : (fixDt > 0 && !teleport ? dist(from, newPos) / fixDt : null);
+            if (inst != null) speedEmaRef.current = speedEmaRef.current * 0.6 + inst * 0.4;
+          }
           const armed = spraying && !oobRef.current && !teleport && pointInPoly(newPos, field.poly);
           if (teleport) { AgrasLog.add('FIXAPPLY', `re-anchor, no paint (jump ${Math.round(dist(from, newPos))}m)`); }
           else if (armed) { stamp(sim, field, from, newPos, swathRef.current / 2, gpsPassId(sim, from, newPos), paintCell); sim.lastSprayPos = { x: newPos.x, y: newPos.y }; }
@@ -3270,7 +3386,7 @@ function App() {
             }
           } else if (opModeRef.current === 'spray') unrecordedRef.current.walked = 0;
           sim.pos = newPos;
-          sim.track.push({ ...newPos }); sim.fixes.push({ ...newPos });
+          sim.fixes.push({ ...newPos });
           if (lastLatLngRef.current && !teleport && ph === 'running') {
             const d = haversine(lastLatLngRef.current.lat, lastLatLngRef.current.lng, live.lat, live.lng);
             sim.distance += d;
@@ -3319,6 +3435,11 @@ function App() {
 
       const tickEvery = document.hidden ? 1000 : (ph === 'running' ? 500 : 1000);
       if (t - lastTickT >= tickEvery) { lastTickT = t; setTick((n) => n + 1); }
+      // Screen off: the 5 s autosave interval does not run (timers are
+      // suspended), so the only saves were the one on hiding and the key
+      // events. Everything sprayed after the screen went off lived in memory
+      // only, and a kill by Android lost all of it. Save from the fixes.
+      if (document.hidden && missionActive && Date.now() - lastSessionSaveRef.current >= HIDDEN_AUTOSAVE_MS && saveSessionRef.current) saveSessionRef.current();
       if (headless || document.hidden) return;
 
       const cv = canvasRef.current;
@@ -3377,6 +3498,9 @@ function App() {
       frame(t, false); raf = requestAnimationFrame(step);
     };
     headlessFrameRef.current = () => frame(performance.now(), true);
+    // test/debug hook, read on demand (it used to be rebuilt every frame)
+    Object.defineProperty(window, '__agrasDbg', { configurable: true,
+      get: () => ({ pan: panRef.current, view: viewRef.current, ph: phaseRef.current, mode: camModeRef.current, draft: draftRef.current }) });
     raf = requestAnimationFrame(step);
     return () => { cancelAnimationFrame(raf); headlessFrameRef.current = null; };
   }, [paintCell]);
@@ -3634,14 +3758,17 @@ function App() {
         for (let ty = r.ty0; ty <= r.ty1; ty++) for (let tx = r.tx0; tx <= r.tx1; tx++) jobs.push({ z, tx, ty });
       });
       setDownloadState({ done: 0, total: jobs.length });
-      let done = 0, idx = 0;
+      let done = 0, idx = 0, lastProgressT = 0;
       const worker = async () => {
         while (idx < jobs.length) {
           if (downloadAbortRef.current) return;
           const job = jobs[idx++];
-          try { await fetchTileBlob(esriTileUrl(job.z, job.tx, job.ty), mapCacheRef.current); } catch (e) { /* one missing tile doesn't fail the download */ }
+          try { await cacheTile(esriTileUrl(job.z, job.tx, job.ty), mapCacheRef.current); } catch (e) { /* one missing tile doesn't fail the download */ }
           done++;
-          setDownloadState({ done, total: jobs.length });
+          // a progress re-render per tile re-rendered the whole app hundreds
+          // of times (it also runs in the background after a field is saved)
+          const now = performance.now();
+          if (done === jobs.length || now - lastProgressT > 250) { lastProgressT = now; setDownloadState({ done, total: jobs.length }); }
         }
       };
       await Promise.all(Array.from({ length: 6 }, worker));
@@ -3695,7 +3822,7 @@ function App() {
     try {
       const keys = await mapCacheRef.current.keys();
       await Promise.all(keys.map((k) => mapCacheRef.current.delete(k)));
-      tileCacheRef.current.clear();
+      clearTileCache(tileCacheRef.current);
       setCacheInfo({ tiles: 0, bytes: 0 });
     } catch (e) { /* best-effort */ }
   };
@@ -3751,7 +3878,6 @@ function App() {
     const start = stationRef.current || plan.segs[0].a;
     sim.route = simWaypointsFromPlan(plan, start, isSprayed);
     sim.wp = 1; sim.pos = { x: start.x, y: start.y }; sim.done = sim.route.length < 2;
-    sim.track.push({ ...sim.pos });
     simTankAreaRef.current = tankArea;
     simRefillRef.current = null;
     AgrasLog.add('SIM', `walking the ${plan.along ? 'along' : 'across'} route: ${sim.route.length} waypoints, ${Math.round(tankArea)} m² per tank`);
@@ -3907,17 +4033,20 @@ function App() {
    *  refs, so it's always safe to call regardless of which render defined it. */
   const saveSessionNow = () => {
     const saveT0 = performance.now();
+    lastSessionSaveRef.current = Date.now();
     try {
-      saveActiveSession(buildSessionSnapshot({
+      const snap = buildSessionSnapshot({
         field: fieldRef.current, sim: simRef.current, station: stationRef.current,
         phase: phaseRef.current, opMode: opModeRef.current, swath: swathRef.current,
         tankCapacity: tankCapacityRef.current, rateLRai: rateLRaiRef.current,
         tankBaselineArea: tankBaselineAreaRef.current, imgData: imgDataRef.current,
         originLatLng: originLatLngRef.current,
-      }));
-      if (phaseRef.current === 'running' || phaseRef.current === 'paused') { persistCoverage(activeFieldIdRef.current); AgrasLog.add('SAVE', `autosave ${Math.round(performance.now() - saveT0)}ms`); }
+      });
+      saveActiveSession(snap);
+      if (phaseRef.current === 'running' || phaseRef.current === 'paused') { persistCoverage(activeFieldIdRef.current, false, { passes: snap.passes, missed: snap.missed }); AgrasLog.add('SAVE', `autosave ${Math.round(performance.now() - saveT0)}ms`); }
     } catch (e) { AgrasLog.add('ERR', 'autosave failed: ' + (e && e.message)); }
   };
+  saveSessionRef.current = saveSessionNow;
 
   /** Restore a saved session record — see the ordering note above initGrid:
    *  sim.lastPass must be the decoded array BEFORE initGrid runs (it reads
@@ -3951,7 +4080,8 @@ function App() {
     sim.overlapCells = saved.overlapCells || 0;
     sim.epoch = saved.epoch || 0;
     sim.wp = saved.wp || 1;
-    sim.track = [{ ...sim.pos }]; sim.fixes = [{ ...sim.pos }];
+    sim.fixes = [{ ...sim.pos }];
+    recountMissed(sim);
 
     simRef.current = sim;
     fieldRef.current = field;
@@ -4087,8 +4217,7 @@ function App() {
     // ground genuinely uses chemical a second time.
     const tanksUsedNow = tanksUsedCount();
     const litresNow = tanksUsedNow * tankCapacity; // approximate: whole tanks emptied
-    let missedCellsNow = 0;
-    for (let mi = 0; mi < s.missed.length; mi++) missedCellsNow += s.missed[mi];
+    const missedCellsNow = s.missedCells;
     const missedRaiNow = (missedCellsNow * CELL * CELL) / 1600;
     const overlapRaiNow = (mOverlap * CELL * CELL) / 1600;
 
@@ -4182,8 +4311,7 @@ function App() {
   // Mission Summary "physical quantity" metrics (Spec §4D): convert the
   // overlap and missed-spot COUNTS into Rai and a wasted-litres figure
   // instead of leaving them as bare percentages.
-  let missedCellsCount = 0;
-  for (let mi = 0; mi < sim.missed.length; mi++) missedCellsCount += sim.missed[mi];
+  const missedCellsCount = sim.missedCells;
   const missedRai = (missedCellsCount * CELL * CELL) / 1600;
   const overlapRai = (sim.overlapCells * CELL * CELL) / 1600;
   const cbase = coverageBaseRef.current; // what the field already had sprayed before this mission started

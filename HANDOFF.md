@@ -654,6 +654,64 @@ photos; asking a chat app by hand is free but manual.
 - **Not yet verified on the phone:** the camera intent, the CAMERA permission
   prompt, and a real API call (the owner has no key yet).
 
+### CPU / RAM pass (2026-09-26)
+
+The owner asked for CPU and RAM optimisation and a bug hunt. Found and fixed:
+
+**Bugs**
+- **The offline map never stored a tile.** `fetchTileBlob()` read the response
+  body and only then called `resp.clone()` for Cache Storage. Cloning a read
+  Response throws, the `catch` swallowed it, and so nothing was ever cached:
+  DOWNLOAD FIELD MAP reported N tiles while the store stayed empty. It now
+  clones before reading. Existing installs have an empty tile store, so each
+  field needs one online visit (or DOWNLOAD) before it works offline.
+- **GPS pace was noise.** The pace EMA ran once per animation frame. In GPS
+  mode the position only moves when a fix lands, so each fix was one ~30 m/s
+  spike and near zero between fixes. A steady walk read 0.7–5.9 km/h (measured,
+  old build), flipping between TOO SLOW / IDEAL / TOO FAST. GPS pace is now
+  one reading per fix: the phone's own speed when it reports one, else
+  distance ÷ time since the last fix. The same walk reads 4.8–5.1. SIM keeps
+  the per-frame average. The same value gates the heading-up camera turning.
+- **Nothing was saved while the screen was off.** The 5 s autosave is a
+  timer, and with the screen off the app runs only from GPS fixes (the main
+  loop's own note: rAF and timers are suspended). So after the save on
+  hiding, all spraying lived only in memory until the screen came back. A kill
+  by Android in that window lost it. The headless (per-fix) frame now saves
+  every 30 s (`HIDDEN_AUTOSAVE_MS`). **Not verified on the phone.**
+- Walking due east kept the previous heading (`atan2(...) || sim.heading`
+  treats a heading of 0 as missing).
+
+**CPU**
+- `buildField()` ran 9 `pointInPoly()` tests on every cell, and
+  `nearestEdgePoint()` (centroid included) on every outside cell. It is now a
+  scanline pass with the same arithmetic. Output is identical on 40 random
+  fields; a 26-rai field builds in 45 ms instead of 810 ms (desktop). It runs
+  on every field load and on the startup restore.
+- The HUD summed the whole `missed` grid (up to ~1 M cells) on every render,
+  twice a second while spraying. `sim.missedCells` is now kept by `stamp()`
+  and `markMissed()`; `recountMissed()` after a restore.
+- An autosave run-length-encoded the coverage twice (session snapshot, then
+  the field's `cov`); it now encodes once.
+- Offline download: one progress re-render every 250 ms instead of one per
+  tile (it also runs in the background after a field is saved). Tiles already
+  in the store are checked with a lookup, not read back as blobs.
+- The GPS track line skips points under ~1.5 px apart on screen.
+  `window.__agrasDbg` is a getter instead of an object rebuilt every frame.
+
+**RAM**
+- `sim.track` was written on every fix (and every 0.35 m in SIM) and never
+  read. It is gone.
+- Evicted satellite tiles never revoked their `blob:` URL, so their blobs
+  stayed alive for the whole session. They are revoked now, including on
+  CLEAR MAP CACHE. Eviction is least-recently-drawn (it was first-loaded, which
+  could evict the tiles on screen).
+- The crop-photo memory cache keeps the last 24 photos, not every photo ever
+  opened (~200 KB of base64 each).
+- The previous coverage canvas is released when a new grid is built.
+
+Test `perfFixes` (5 checks) covers the tile store, the tile LRU, `buildField()`
+against brute force, the missed counter and steady GPS pace.
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against
