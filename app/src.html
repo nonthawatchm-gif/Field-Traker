@@ -3803,6 +3803,8 @@ function App() {
         if (downloadAbortRef.current) break;
         stored += real; empty += none;
         if (real === 0 && none > 0) {
+          // an older build stored the deeper placeholders too: clear them out
+          for (const deeper of levels.slice(li + 1)) for (const job of deeper) await mapCacheRef.current.delete(esriTileUrl(job.z, job.tx, job.ty)).catch(() => {});
           total = done;
           setDownloadState({ done, total });
           AgrasLog.add('MAP', `no imagery at zoom ${jobs[0].z}: deeper zooms skipped`);
