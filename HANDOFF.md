@@ -40,13 +40,14 @@ Two notes on running it:
 
 ## Where things stand
 
-- State on 2026-10-01: the test app has `build-84` (`c622b3f`: the three
-  fixes, the CPU/RAM pass, UV index) with a copy of the field app's data
-  taken that day; the field app is still on `05d537f` and waits for the
-  owner's word. Two later commits (the AI retry race, the test harness) are
-  on local `main` only. **Standing rule from the owner: whenever a build goes
-  on the test app, copy the field app's data into it first.** CI keeps only
-  the 3 newest releases.
+- State on 2026-10-01 (night): the test app has `build-87` (`a4f5e8e`: next
+  lane after a refill, plus the AI retry race and the harness fix on top of
+  build-84's work), installed with the field app's data copied in (backups of both
+  apps taken first, in `%TEMP%gras-tools\*_b87pre.*`). The field app is still on
+  `05d537f` and waits for the owner's word. **Standing rule from the owner:
+  whenever a build goes on the test app, copy the field app's data into it
+  first.** CI keeps only the 3 newest releases. Next lane is not yet tried on the
+  phone.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
   turned out to be the docs commit, not the UI change it was assumed to be, and
