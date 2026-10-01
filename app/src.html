@@ -1042,6 +1042,7 @@ function weatherLine(w, note) {
     else if (w.rainSoonProb != null) parts.push(`โอกาสฝน ${Math.round(w.rainSoonProb)}%`);
     if (w.tempC != null) parts.push(`${Math.round(w.tempC)}°C`);
     if (w.humidity != null) parts.push(`ความชื้น ${Math.round(w.humidity)}%`);
+    if (w.uvIndex != null) parts.push(`UV ${Math.round(w.uvIndex)}${w.uvIndex >= SPRAY_WEATHER_UV_WARN ? ' (สูงมาก)' : ''}`);
   }
   if (note) parts.push(`หมายเหตุ: ${note}`);
   return parts.length ? parts.join(' · ') : 'ไม่มีข้อมูล';
@@ -4008,7 +4009,7 @@ function App() {
     missionStartTsRef.current = Date.now();
     weatherStartRef.current = sprayWeather ? {
       windKmh: sprayWeather.windKmh, gustKmh: sprayWeather.gustKmh, rainNowMm: sprayWeather.rainNowMm,
-      rainSoonProb: sprayWeather.rainSoonProb, tempC: sprayWeather.tempC, humidity: sprayWeather.humidity, fetchedAt: sprayWeather.fetchedAt,
+      rainSoonProb: sprayWeather.rainSoonProb, tempC: sprayWeather.tempC, humidity: sprayWeather.humidity, uvIndex: sprayWeather.uvIndex ?? null, fetchedAt: sprayWeather.fetchedAt,
     } : null;
     const id = activeFieldIdRef.current;
     if (id) updateLibrary((list) => list.map((f) => (f.id === id && !(f.roundMeta && f.roundMeta.startedTs)
@@ -4450,7 +4451,7 @@ function App() {
       weatherApi: sprayWeather ? {
         windKmh: sprayWeather.windKmh, gustKmh: sprayWeather.gustKmh,
         rainNowMm: sprayWeather.rainNowMm, rainSoonProb: sprayWeather.rainSoonProb,
-        tempC: sprayWeather.tempC, humidity: sprayWeather.humidity, fetchedAt: sprayWeather.fetchedAt,
+        tempC: sprayWeather.tempC, humidity: sprayWeather.humidity, uvIndex: sprayWeather.uvIndex ?? null, fetchedAt: sprayWeather.fetchedAt,
       } : null,
     };
     setMissions((prev) => {
@@ -5534,6 +5535,7 @@ function App() {
                         <p className="text-[10.5px] font-mono text-[#4A564F] mt-1">
                           Live reading: {selected.weatherApi.windKmh != null ? `${Math.round(selected.weatherApi.windKmh)} km/h wind` : 'wind —'}
                           {selected.weatherApi.rainSoonProb != null ? `, ${Math.round(selected.weatherApi.rainSoonProb)}% rain (3h)` : ''}
+                          {selected.weatherApi.uvIndex != null ? `, UV ${Math.round(selected.weatherApi.uvIndex)}` : ''}
                           {' '}(Open-Meteo)
                         </p>
                       )}

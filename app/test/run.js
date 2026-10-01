@@ -1147,6 +1147,17 @@ async function uvIndex() {
     const home = await txt(page);
     await openSettings(page);
     const set = await txt(page);
+    if (uv > 8) {
+      // and it goes into the spray record and the report
+      await tap(page, 'DONE', { wait: 500 });
+      await moveTo(ctx, page, 40, 10, 900);
+      await startSpray(page, 1200);
+      await walk(ctx, page, [40, 10], [40, 30], 2, 100);
+      await tap(page, 'SAVE & PAUSE', { wait: 900 });
+      await finishAs(page, false);
+      const rep = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('agras-tracker-field-library'))[0]; return fieldReportText(f, buildFieldReport(f, JSON.parse(localStorage.getItem('agras-tracker-missions')), [])); });
+      check('the UV at the start of spraying is in the report', rep.includes('UV 9 (สูงมาก)'), (rep.split('\n').find((l) => l.includes('ลม')) || ''));
+    }
     if (uv > 8) check('UV 9: asked for, an amber chip on home, UV 9 beside wind/rain with advice',
       /uv_index/.test(asked) && /UV 9 · very high/.test(home) && /UV 9\b/.test(set) && /cover up, drink water/.test(set),
       `chip ${/UV 9 · very high/.test(home)} row ${/UV 9/.test(set)}`);
