@@ -123,7 +123,8 @@ async function tankCount() {
   // a double tap: the second lands where TANK EMPTY reappears and must be ignored
   const btn = page.locator('text="REFILLED · START SPRAYING"').locator('visible=true').first();
   await btn.click({ force: true }); await page.waitForTimeout(250);
-  await page.locator('text="TANK EMPTY"').locator('visible=true').first().click({ force: true }).catch(() => {});
+  // at once, on whatever button now sits there (it reads "TANK EMPTY · N", greyed out)
+  await page.locator('button:has-text("TANK EMPTY")').locator('visible=true').first().click({ force: true, timeout: 1000 }).catch(() => {});
   await page.waitForTimeout(900);
   check('a double tap on REFILLED · START SPRAYING leaves spraying on', await sessionOpMode(page) === 'spray', `opMode ${await sessionOpMode(page)}`);
   await walk(ctx, page, [-10, -10], [40, 58], 4, 90);
@@ -973,7 +974,7 @@ async function perfFixes() {
       for (let sj = 0; sj < 3; sj++) for (let si = 0; si < 3; si++) if (pointInPoly({ x: px - CELL / 2 + (si + 0.5) * (CELL / 3), y: py - CELL / 2 + (sj + 0.5) * (CELL / 3) }, poly)) hits++;
       const idx = j * f.GW + i, credit = hits > 0 || nearestEdgePoint({ x: px, y: py }, poly).d <= 3;
       n++;
-      if (f.insideRatio[idx] !== Math.fround(hits / 9) || f.inside[idx] !== (hits ? 1 : 0) || f.credit[idx] !== (credit ? 1 : 0)) bad++;
+      if (f.insideRatio[idx] !== hits || f.inside[idx] !== (hits ? 1 : 0) || f.credit[idx] !== (credit ? 1 : 0)) bad++;
     }
     const sim = makeSim(f, 6);
     f.__ctx = { GW: f.GW, GH: f.GH, gbbox: f.gbbox, credit: f.credit, insideRatio: f.insideRatio, lastPass: sim.lastPass };
@@ -1001,10 +1002,137 @@ async function perfFixes() {
   await browser.close();
 }
 
+/* The owner's three fixes of 2026-10-01. Grey cells are counted straight off
+ * the coverage raster (window.__agrasDbg), in the app's own frame. */
+const greyReach = (page) => page.evaluate(() => {
+  const { field: f, img } = window.__agrasDbg, C = 0.3, b = f.bbox;
+  const r = { w: 0, e: 0, n: 0, s: 0, cells: 0 };
+  for (let j = 0; j < f.GH; j++) for (let i = 0; i < f.GW; i++) {
+    const k = (j * f.GW + i) * 4;
+    if (!(img.data[k] === 150 && img.data[k + 1] === 160 && img.data[k + 3] === 150)) continue;
+    r.cells++;
+    const x = f.gbbox.minX + (i + 0.5) * C, y = f.gbbox.minY + (j + 0.5) * C;
+    r.w = Math.max(r.w, b.minX - x); r.e = Math.max(r.e, x - b.maxX); r.n = Math.max(r.n, b.minY - y); r.s = Math.max(r.s, y - b.maxY);
+  }
+  return r;
+});
+
+/** 1. Redrawing the boundary after spraying keeps the round's spraying: what
+ *  is inside the new line counts as sprayed, what fell outside is kept (grey,
+ *  counted apart), the field's area is the new one, and it all survives a
+ *  reload. */
+async function boundaryKeepsSpray() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);                                    // 80 x 80 m
+  await moveTo(ctx, page, 40, 10, 900);
+  await startSpray(page, 1200);
+  await walk(ctx, page, [40, 10], [40, 70], 2, 100);
+  await walk(ctx, page, [40, 70], [70, 70], 2, 100);
+  await walk(ctx, page, [70, 70], [70, 10], 2, 100);
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  await finishAs(page, false);
+  await tap(page, 'START NEW', { wait: 1500 });
+  const c0 = (await library(page))[0].cov;
+  const total0 = c0.sprayedCells + (c0.outsideCells || 0);
+  await openSettings(page);
+  await tap(page, 'EDIT BOUNDARY', { wait: 900 });
+  for (const [x, y] of [[0, 0], [55, 0], [55, 80], [0, 80]]) {   // the x = 70 lane is now 15 m past the line
+    await moveTo(ctx, page, x, y, 600);
+    await page.locator('[aria-label="Center on my location"]').click({ force: true });
+    await page.waitForTimeout(350);
+    await tap(page, 'ADD AT CROSSHAIR');
+  }
+  await tap(page, 'CLOSE FIELD', { wait: 1500 });
+  const e = (await library(page))[0], c = e.cov || {};
+  check('a redrawn boundary keeps the round\'s spraying (nothing lost)', c.sprayedCells > 0 && Math.abs(c.sprayedCells + c.outsideCells - total0) / total0 < 0.03,
+    `before ${total0} cells, after ${c.sprayedCells} in + ${c.outsideCells} out`);
+  const g = await greyReach(page);
+  check('what fell outside the new line is counted apart and drawn grey; the area is the new one',
+    c.outsideCells > total0 * 0.3 && c.sprayedCells < total0 * 0.75 && g.cells > c.outsideCells * 0.9 && Math.abs(e.areaSqm - 4400) < 60,
+    `in ${c.sprayedCells} out ${c.outsideCells} grey ${g.cells} area ${Math.round(e.areaSqm)}`);
+  await page.reload(); await page.waitForTimeout(3000);
+  const sim = await page.evaluate(() => { const s = window.__agrasDbg.sim; return { in: s.sprayedCells, out: s.outsideCells }; });
+  check('and it is the same after a reload', sim.in === c.sprayedCells && sim.out === c.outsideCells, JSON.stringify(sim));
+  await browser.close();
+}
+
+/** 2. Spray that goes past the line is grey on every side, as far as the
+ *  half swath reaches. With a 6 m swath, walking 0.5 m inside each edge sprays
+ *  2.5 m past it; the old 2 m grid margin cut that short on straight sides. */
+async function oversprayEverySide() {
+  const { browser, ctx, page } = await boot();
+  await page.evaluate(() => localStorage.setItem('agras-tracker-last-settings', JSON.stringify({ swath: 6, tankCapacity: 20 })));
+  await page.reload(); await page.waitForTimeout(1500);
+  await makeField(ctx, page);                                    // 80 x 80 m
+  await moveTo(ctx, page, 0.5, 0.5, 900);
+  await startSpray(page, 1200);
+  const loop = [[0.5, 0.5], [79.5, 0.5], [79.5, 79.5], [0.5, 79.5], [0.5, 0.5]];
+  for (let i = 1; i < loop.length; i++) await walk(ctx, page, loop[i - 1], loop[i], 2, 90);
+  await page.waitForTimeout(800);
+  const g = await greyReach(page);
+  const sides = [g.w, g.e, g.n, g.s];
+  check('overspray is grey on all four sides, 2.5 m deep', sides.every((d) => d > 2.2), sides.map((d) => d.toFixed(1)).join(' / ') + ' m');
+  await browser.close();
+}
+
+/** 3. TANK EMPTY and REFILLED lock each other for 30 s, greyed out with a
+ *  countdown, and work again when it runs out. */
+async function modeLock() {
+  const { browser, ctx, page } = await boot();
+  await ctx.addInitScript(() => { window.AGRAS_MODE_LOCK_MS = 30000; });
+  await page.reload(); await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await startSpray(page, 1200);
+  await walk(ctx, page, [40, 10], [40, 30], 2, 100);
+  await tap(page, 'TANK EMPTY', { wait: 1200 });
+  let t = await txt(page);
+  const m = t.match(/REFILLED · START SPRAYING · (\d+)/);
+  const btn = page.locator('button:has-text("REFILLED · START SPRAYING")').first();
+  const dis = await btn.isDisabled();
+  await btn.click({ force: true }); await page.waitForTimeout(600);
+  check('after TANK EMPTY, REFILLED is greyed out with a 30 s countdown and ignores a tap',
+    m && +m[1] >= 27 && +m[1] <= 30 && dis && await sessionOpMode(page) === 'toStation', `countdown ${m && m[1]} disabled ${dis}`);
+  await page.waitForTimeout(2200);
+  const m2 = (await txt(page)).match(/REFILLED · START SPRAYING · (\d+)/);
+  check('the countdown runs', m2 && +m2[1] < +m[1], `${m && m[1]} -> ${m2 && m2[1]}`);
+  await page.evaluate(() => { window.AGRAS_MODE_LOCK_MS = 0; });   // as if the 30 s were up
+  await page.waitForTimeout(1200);
+  await tap(page, 'REFILLED · START SPRAYING', { wait: 900 });
+  await page.evaluate(() => { window.AGRAS_MODE_LOCK_MS = 30000; });
+  await page.waitForTimeout(1200);
+  t = await txt(page);
+  check('when it is up REFILLED works, and TANK EMPTY is locked in turn', await sessionOpMode(page) === 'spray' && /TANK EMPTY · \d+/.test(t), (t.match(/TANK EMPTY[^\n]*/) || [''])[0]);
+  await browser.close();
+}
+
+/** CPU: a paused mission is not re-encoded and rewritten every 5 s; spraying
+ *  still saves on the 5 s tick. */
+async function idleAutosave() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);
+  await moveTo(ctx, page, 40, 10, 900);
+  await startSpray(page, 1200);
+  await walk(ctx, page, [40, 10], [40, 40], 2, 100);
+  const saves = async () => ((await appLog(page)).match(/SAVE autosave/g) || []).length;
+  await page.waitForTimeout(5500);
+  const s0 = await saves();
+  await walk(ctx, page, [40, 40], [40, 60], 2, 300);   // ~6 s of spraying
+  const s1 = await saves();
+  await tap(page, 'SAVE & PAUSE', { wait: 900 });
+  const s2 = await saves();
+  await page.waitForTimeout(16000);                      // three ticks while paused
+  const s3 = await saves();
+  check('spraying saves on the tick; a paused mission with nothing new does not', s1 > s0 && s3 - s2 <= 1, `spraying +${s1 - s0}, paused 16 s +${s3 - s2}`);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

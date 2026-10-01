@@ -169,7 +169,14 @@ const CloudRain     = (p) => <Svg {...p}><path d="M16 13v8"/><path d="M8 13v8"/>
  *    simulated walk and a real phone's GPS.                        *
  * ============================================================== */
 const CELL = 0.3;
-const PAD_G = 2;
+// Grid margin past the field's box, the same on every side: room to keep and
+// show (grey) spray that went over the line. It was 2 m, and stamp() only
+// painted within half a swath of an edge, so overspray showed on some sides
+// and was cut off on others.
+const PAD_G = 6;
+/** How long TANK EMPTY / REFILLED stay locked after the other was tapped. The
+ *  test harness shortens it (window.AGRAS_MODE_LOCK_MS). */
+const modeLockMs = () => (typeof window !== 'undefined' && typeof window.AGRAS_MODE_LOCK_MS === 'number' ? window.AGRAS_MODE_LOCK_MS : 30000);
 const BOUND_FRAME = { minX: 0, minY: 0, maxX: 100, maxY: 130 };
 /* The refill trip is two taps and no GPS geometry: TANK EMPTY switches
  * recording off and points at the station; REFILLED · START SPRAYING switches
@@ -410,7 +417,9 @@ function computeFitView(pxW, pxH, poly, pad, extra) {
 }
 
 /** GridCell.insideRatio (Spec §1/§3C) — fraction of each cell's area that
- *  actually lies inside the boundary polygon, via a 3x3 sub-sample per cell
+ *  actually lies inside the boundary polygon, kept as ninths (0-9) in one byte
+ *  per cell (it was a Float32: 3 more bytes on every cell of the grid), via a
+ *  3x3 sub-sample per cell
  *  (9 point-in-polygon tests instead of 1). Interior cells resolve to 1.0
  *  cheaply (all 9 hits); only boundary-straddling cells pay the full 9x
  *  cost, and this only runs once per field build, never per frame.
@@ -422,13 +431,21 @@ function computeFitView(pxW, pxH, poly, pad, extra) {
  *  fraction regardless of credit, which is what lets the missed-spot flag
  *  (Spec: "cells with insideRatio < 0.5 MUST NOT be flagged as missed")
  *  suppress itself correctly even inside the tolerance band. */
-function buildField(poly, gpsAnchored, swath) {
+/** extra: a world box the grid must also cover — sprayed cells kept from
+ *  before the boundary was redrawn (see applyCoverage). */
+function buildField(poly, gpsAnchored, swath, extra = null) {
   const bbox = polyBBox(poly);
-  const gbbox = { minX: bbox.minX - PAD_G, minY: bbox.minY - PAD_G, maxX: bbox.maxX + PAD_G, maxY: bbox.maxY + PAD_G };
+  let minX = bbox.minX - PAD_G, minY = bbox.minY - PAD_G, maxX = bbox.maxX + PAD_G, maxY = bbox.maxY + PAD_G;
+  if (extra) { minX = Math.min(minX, extra.minX - 1); minY = Math.min(minY, extra.minY - 1); maxX = Math.max(maxX, extra.maxX + 1); maxY = Math.max(maxY, extra.maxY + 1); }
+  // snapped to the CELL lattice of the field's frame, so two grids of the same
+  // field line up cell for cell when coverage moves from one to the other
+  minX = Math.floor(minX / CELL) * CELL; minY = Math.floor(minY / CELL) * CELL;
+  maxX = Math.ceil(maxX / CELL) * CELL; maxY = Math.ceil(maxY / CELL) * CELL;
+  const gbbox = { minX, minY, maxX, maxY };
   const GW = Math.max(1, Math.round((gbbox.maxX - gbbox.minX) / CELL));
   const GH = Math.max(1, Math.round((gbbox.maxY - gbbox.minY) / CELL));
   const inside = new Uint8Array(GW * GH);
-  const insideRatio = new Float32Array(GW * GH);
+  const insideRatio = new Uint8Array(GW * GH);   // ninths: 9 = wholly inside
   const SUB = 3;
   // Scanline form of 9 pointInPoly() tests per cell, with the same crossing
   // arithmetic so every sample lands on the same side as before: for each
@@ -464,7 +481,7 @@ function buildField(poly, gpsAnchored, swath) {
     for (let i = 0; i < GW; i++) {
       if (!hits[i]) continue;
       const idx = j * GW + i;
-      insideRatio[idx] = hits[i] / (SUB * SUB);
+      insideRatio[idx] = hits[i];
       inside[idx] = 1;
     }
   }
@@ -494,6 +511,57 @@ function buildField(poly, gpsAnchored, swath) {
     }
   }
   return { poly, bbox, gbbox, GW, GH, inside, insideRatio, credit, area: polyArea(poly), gpsAnchored: !!gpsAnchored };
+}
+/* ---- coverage that outlives its grid ----
+ * Saved coverage remembers the grid it was laid on ({ minX, minY, GW, GH }),
+ * so its cells can be carried onto another grid: a redrawn boundary, or the
+ * wider margin of a newer build. Coverage saved before that has no layout
+ * stored; it was laid on the field's box ± 2 m, unsnapped. */
+const gridGeom = (f) => ({ minX: f.gbbox.minX, minY: f.gbbox.minY, GW: f.GW, GH: f.GH });
+function legacyGridGeom(poly) {
+  const b = polyBBox(poly), minX = b.minX - 2, minY = b.minY - 2;
+  return { minX, minY, GW: Math.max(1, Math.round((b.maxX + 2 - minX) / CELL)), GH: Math.max(1, Math.round((b.maxY + 2 - minY) / CELL)) };
+}
+const sameGeom = (a, b) => a.GW === b.GW && a.GH === b.GH && Math.abs(a.minX - b.minX) < 1e-6 && Math.abs(a.minY - b.minY) < 1e-6;
+/** World box of the cells set in arr (laid out on g), or null when none are. */
+function cellsBox(arr, g) {
+  let i0 = Infinity, i1 = -1, j0 = Infinity, j1 = -1;
+  for (let k = 0; k < arr.length; k++) {
+    if (!arr[k]) continue;
+    const i = k % g.GW, j = (k / g.GW) | 0;
+    if (i < i0) i0 = i; if (i > i1) i1 = i; if (j < j0) j0 = j; if (j > j1) j1 = j;
+  }
+  return i1 < 0 ? null : { minX: g.minX + i0 * CELL, minY: g.minY + j0 * CELL, maxX: g.minX + (i1 + 1) * CELL, maxY: g.minY + (j1 + 1) * CELL };
+}
+/** Carry per-cell values from grid g onto grid h, cell centre to cell; where
+ *  two land on one cell the larger wins; cells off h are dropped. */
+function remapCells(arr, g, h) {
+  const out = new Uint8Array(h.GW * h.GH);
+  for (let k = 0; k < arr.length; k++) {
+    const v = arr[k];
+    if (!v) continue;
+    const i = Math.floor((g.minX + (k % g.GW + 0.5) * CELL - h.minX) / CELL);
+    const j = Math.floor((g.minY + (((k / g.GW) | 0) + 0.5) * CELL - h.minY) / CELL);
+    if (i < 0 || j < 0 || i >= h.GW || j >= h.GH) continue;
+    const d = j * h.GW + i;
+    if (v > out[d]) out[d] = v;
+  }
+  return out;
+}
+/** Field coverage counts only cells that belong to the field (inside, or the
+ *  half-swath edge band); spray past that is kept and shown, as `outside`. */
+function countCoverage(passes, credit) {
+  let sprayed = 0, overlap = 0, outside = 0;
+  for (let k = 0; k < passes.length; k++) {
+    const p = passes[k];
+    if (!p) continue;
+    if (credit[k]) { sprayed++; overlap += p - 1; } else outside++;
+  }
+  return { sprayed, overlap, outside };
+}
+/** Missed flags only mean something on field cells that were not sprayed. */
+function cleanMissed(missed, passes, f) {
+  for (let k = 0; k < missed.length; k++) if (missed[k] && (passes[k] || !f.credit[k] || f.insideRatio[k] < 5)) missed[k] = 0;   // under half inside (ninths)
 }
 function defaultStation(bbox) {
   return { x: bbox.minX - 3, y: bbox.minY + Math.min(6, bbox.h * 0.2) };
@@ -1182,14 +1250,14 @@ function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankC
     gpsAnchored: field.gpsAnchored,
     originLat: originLatLng ? originLatLng.lat : null,
     originLng: originLatLng ? originLatLng.lng : null,
-    gridW: field.GW, gridH: field.GH,
+    gridW: field.GW, gridH: field.GH, gridMinX: field.gbbox.minX, gridMinY: field.gbbox.minY,
     station, phase, opMode, swath, tankCapacity, rateLRai, tankBaselineArea,
     breakpoint: sim.breakpoint, wp: sim.wp,
     simPos: sim.pos, simHeading: sim.heading,
     fieldId: __sessionExtras.fieldId, covBase: __sessionExtras.covBase, tankAreas: __sessionExtras.tankAreas, tankOpen: __sessionExtras.tankOpen,
     recordId: __sessionExtras.recordId, startTs: __sessionExtras.startTs, weatherStart: __sessionExtras.weatherStart,
     distance: sim.distance, sprayDistance: sim.sprayDistance || 0, elapsed: sim.elapsed,
-    sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, epoch: sim.epoch,
+    sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, outsideCells: sim.outsideCells || 0, epoch: sim.epoch,
     cells: sim.passes.length,
     passes: rleEncode(sim.passes),
     missed: rleEncode(sim.missed),
@@ -1290,7 +1358,10 @@ function makeSim(field, swath) {
   const route = buildRoute(field.poly, swath);
   return {
     route, wp: 1, pos: { ...route[0] }, heading: 0,
-    lastPass: new Int32Array(field.GW * field.GH).fill(-1),
+    // pass ids: -1 never sprayed, -2 sprayed before a restore, else the lane
+    // id (sim.epoch, one per turn or refill: a mission never gets near
+    // 32 767), so two bytes a cell rather than four
+    lastPass: new Int16Array(field.GW * field.GH).fill(-1),
     // GridCell.passes (Spec §1) — real per-cell integer pass count, NEVER a
     // boolean: 0 = unsprayed, 1 = optimal, 2+ = overlapped (opacity scales
     // with this in paintCell). `missed` flags cells the spray line crossed
@@ -1302,7 +1373,7 @@ function makeSim(field, swath) {
     // markMissed() so the HUD never has to sum the whole grid (a million
     // cells on a big field) on every render. recountMissed() after replacing
     // `missed` wholesale (restore).
-    sprayedCells: 0, overlapCells: 0, missedCells: 0, epoch: 0, passHeading: null,
+    sprayedCells: 0, overlapCells: 0, missedCells: 0, outsideCells: 0, box: null, epoch: 0, passHeading: null,
     fixes: [{ ...route[0] }],
     distance: 0, sprayDistance: 0, elapsed: 0, sampleAcc: 0,
     done: route.length < 2, breakpoint: null
@@ -1325,20 +1396,40 @@ function stamp(sim, field, a, b, r, passId, paint) {
     const py = gbbox.minY + (j + 0.5) * CELL;
     for (let i = i0; i <= i1; i++) {
       const idx = j * GW + i;
-      if (!credit[idx]) continue;
       const px = gbbox.minX + (i + 0.5) * CELL;
       let t = ((px - a.x) * vx + (py - a.y) * vy) / len2;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const dx = px - (a.x + t * vx), dy = py - (a.y + t * vy);
       if (dx * dx + dy * dy > r2) continue;
       const prev = lastPass[idx];
+      if (!credit[idx]) {
+        // past the edge band: not field coverage, but kept and drawn grey
+        if (prev === -1) { sim.outsideCells++; lastPass[idx] = passId; passes[idx] = 1; growBox(sim, i, j); paint(i, j, 1); }
+        else if (prev !== passId) { lastPass[idx] = passId; passes[idx] = Math.min(255, passes[idx] + 1); paint(i, j, passes[idx]); }
+        continue;
+      }
       if (missed[idx]) { missed[idx] = 0; sim.missedCells--; }
-      if (prev === -1) { sim.sprayedCells++; lastPass[idx] = passId; passes[idx] = 1; paint(i, j, 1); }
+      if (prev === -1) { sim.sprayedCells++; lastPass[idx] = passId; passes[idx] = 1; growBox(sim, i, j); paint(i, j, 1); }
       else if (prev !== passId) { sim.overlapCells++; lastPass[idx] = passId; passes[idx] = Math.min(255, passes[idx] + 1); paint(i, j, passes[idx]); }
     }
   }
 }
 
+/** sim.box: the cell range painted so far ({ i0, i1, j0, j1 } or null), grown
+ *  in stamp(), so a save doesn't scan the whole grid for it. */
+function growBox(sim, i, j) {
+  const b = sim.box;
+  if (!b) { sim.box = { i0: i, i1: i, j0: j, j1: j }; return; }
+  if (i < b.i0) b.i0 = i; else if (i > b.i1) b.i1 = i;
+  if (j < b.j0) b.j0 = j; else if (j > b.j1) b.j1 = j;
+}
+/** The same, found by scanning: after a restore replaced sim.passes. */
+function rescanBox(sim, GW) {
+  sim.box = null;
+  const p = sim.passes;
+  for (let k = 0; k < p.length; k++) if (p[k]) growBox(sim, k % GW, (k / GW) | 0);
+}
+const boxToWorld = (b, g) => (b ? { minX: g.minX + b.i0 * CELL, minY: g.minY + b.j0 * CELL, maxX: g.minX + (b.i1 + 1) * CELL, maxY: g.minY + (b.j1 + 1) * CELL } : null);
 function recountMissed(sim) {
   let n = 0;
   const m = sim.missed;
@@ -1397,7 +1488,7 @@ function markMissed(sim, field, a, b, r, paint) {
     const py = gbbox.minY + (j + 0.5) * CELL;
     for (let i = i0; i <= i1; i++) {
       const idx = j * GW + i;
-      if (!credit[idx] || insideRatio[idx] < 0.5) continue;
+      if (!credit[idx] || insideRatio[idx] < 5) continue;   // under half inside (ninths)
       if (lastPass[idx] !== -1 || missed[idx]) continue;
       const px = gbbox.minX + (i + 0.5) * CELL;
       let t = ((px - a.x) * vx + (py - a.y) * vy) / len2;
@@ -2184,7 +2275,7 @@ const Tile = ({ icon: Icon, label, value, unit, accent }) => (
 /** Dedicated Liquid & Tank telemetry widget — a live bar gauge (not just a
  *  number) so remaining solution reads at a glance, plus a one-tap "just
  *  refilled" action for a manual top-off outside the formal breakpoint flow. */
-const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = 'TANK EMPTY' }) => (
+const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = 'TANK EMPTY', disabled }) => (
   <Glass className="pointer-events-auto px-3 py-2 min-w-[104px]">
     <div className="flex items-center gap-1.5 text-[#55655F]">
       <Droplet size={12} strokeWidth={2.25} className="text-[#0C6B48]" />
@@ -2195,7 +2286,7 @@ const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = 'T
       <span className="text-[10px] text-[#55655F]">rai · {capacity}L</span>
     </div>
     <p className="text-[8.5px] text-[#55655F] mt-1 whitespace-nowrap">{avgRai != null ? `avg ${avgRai.toFixed(2)} rai / tank` : 'this tank so far'}</p>
-    <button onClick={onEmpty} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#8A4B06]/60 text-[#8A4B06] text-[10px] font-mono font-bold tracking-wide active:bg-[#8A4B06]/15">{actionLabel}</button>
+    <button onClick={onEmpty} disabled={disabled} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#8A4B06]/60 text-[#8A4B06] text-[10px] font-mono font-bold tracking-wide active:bg-[#8A4B06]/15 disabled:opacity-40">{actionLabel}</button>
   </Glass>
 );
 /** Speed-Based Flow Rate & Pace widget — live km/h against the 2.5–3.5 km/h
@@ -2312,8 +2403,11 @@ function App() {
   const coverageBaseRef = useRef({ sprayed: 0, overlap: 0 }); // cells already sprayed when this mission began (restored from the field's saved coverage)
   // TANK EMPTY and REFILLED · START SPRAYING occupy the same spot on the dock,
   // so a double tap on one would land its second tap on the other and undo it
-  // (and close a phantom zero-area tank). Either switch ignores the other for 2 s.
+  // (and close a phantom zero-area tank). After either switch the other button
+  // is greyed out with a countdown for 30 s (the owner's call: it was 2 s, and
+  // a stray tap still got through). The SIM walk resets it to switch at once.
   const modeSwitchAtRef = useRef(0);
+  const modeLockLeft = () => Math.max(0, modeSwitchAtRef.current + modeLockMs() - Date.now());
   const unrecordedRef = useRef({ walked: 0, startDist: 0, lastAlert: 0 }); // walking in the field while the refill trip has spraying switched off
   const enteredFieldRef = useRef(false);   // out-of-bounds alerts only after the operator has been inside the field once
   const lastFixMsRef = useRef(0);
@@ -2602,7 +2696,7 @@ function App() {
   }, [initGrid]);
 
   /* ---- manual tank tracking: the operator taps TANK EMPTY; the app just records what each tank covered ---- */
-  const totalPassAreaNow = () => { const s0 = simRef.current; return (s0.sprayedCells + s0.overlapCells) * CELL * CELL; };
+  const totalPassAreaNow = () => { const s0 = simRef.current; return (s0.sprayedCells + s0.overlapCells + (s0.outsideCells || 0)) * CELL * CELL; };
   const closeTank = () => {
     if (!tankOpenRef.current) return;
     const a = Math.max(0, totalPassAreaNow() - tankBaselineAreaRef.current);
@@ -2638,19 +2732,30 @@ function App() {
     coverageBaseRef.current = { sprayed: 0, overlap: 0 };
     tankBaselineAreaRef.current = 0;
     const cov = entry && entry.cov;
-    if (!cov || cov.len !== f.GW * f.GH) return;
+    if (!cov) return;
+    const g = cov.geom || legacyGridGeom(entry.poly);
+    if (cov.len !== g.GW * g.GH) return;
     try {
-      const passes = rleDecode(cov.passes, cov.len), missed = rleDecode(cov.missed, cov.len);
-      sim.passes = passes; sim.missed = missed; recountMissed(sim);
-      let sprayed = 0, overlap = 0;
-      for (let k = 0; k < cov.len; k++) {
-        const p = passes[k], i = k % f.GW, j = (k / f.GW) | 0;
-        if (p > 0) { sprayed++; overlap += p - 1; sim.lastPass[k] = -2; paintCell(i, j, p); }
-        else if (missed[k]) paintCell(i, j, -1);
+      let passes = rleDecode(cov.passes, cov.len), missed = rleDecode(cov.missed, cov.len);
+      const h = gridGeom(f);
+      if (!sameGeom(g, h)) {
+        // laid on another grid (the boundary was redrawn, or an older build's
+        // margin): every sprayed cell is carried over, whether it now falls
+        // inside the field or past its line
+        passes = remapCells(passes, g, h); missed = remapCells(missed, g, h);
+        AgrasLog.add('COVER', `coverage carried from a ${g.GW}x${g.GH} grid onto ${h.GW}x${h.GH}`);
       }
-      sim.sprayedCells = sprayed; sim.overlapCells = overlap;
+      cleanMissed(missed, passes, f);
+      sim.passes = passes; sim.missed = missed; recountMissed(sim); rescanBox(sim, f.GW);
+      for (let k = 0; k < passes.length; k++) {
+        const p = passes[k];
+        if (p > 0) { sim.lastPass[k] = -2; paintCell(k % f.GW, (k / f.GW) | 0, p); }
+        else if (missed[k]) paintCell(k % f.GW, (k / f.GW) | 0, -1);
+      }
+      const { sprayed, overlap, outside } = countCoverage(passes, f.credit);
+      sim.sprayedCells = sprayed; sim.overlapCells = overlap; sim.outsideCells = outside;
       coverageBaseRef.current = { sprayed, overlap };
-      tankBaselineAreaRef.current = (sprayed + overlap) * CELL * CELL;
+      tankBaselineAreaRef.current = (sprayed + overlap + outside) * CELL * CELL;
       if (gridCanvasRef.current && imgDataRef.current) { flushGridFull(gridCanvasRef.current, imgDataRef.current); dirtyRef.current = null; gridVersionRef.current++; }
       AgrasLog.add('COVER', `restored ${sprayed} sprayed cells (${(sprayed * CELL * CELL / 1600).toFixed(2)} rai) for "${entry.name}"`);
     } catch (e) { AgrasLog.add('ERR', 'coverage restore failed: ' + (e && e.message)); }
@@ -2663,7 +2768,9 @@ function App() {
     const sim = simRef.current, f = fieldRef.current;
     const len = f.GW * f.GH;
     if (!sim.passes || sim.passes.length !== len) return;
-    const cov = { v: 1, len, passes: enc ? enc.passes : rleEncode(sim.passes), missed: enc ? enc.missed : rleEncode(sim.missed), sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, ts: Date.now() };
+    const geom = gridGeom(f);
+    const cov = { v: 2, len, geom, box: boxToWorld(sim.box, geom), passes: enc ? enc.passes : rleEncode(sim.passes), missed: enc ? enc.missed : rleEncode(sim.missed),
+      sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, outsideCells: sim.outsideCells || 0, ts: Date.now() };
     const cb = coverageBaseRef.current;
     const tanksNow = tanksUsedCount(), elapsed = sim.elapsed, distance = sim.distance;
     updateLibrary((list) => list.map((e) => {
@@ -2716,7 +2823,7 @@ function App() {
       if (entry.settings.swath) { setSwath(entry.settings.swath); swathRef.current = entry.settings.swath; }
       if (entry.settings.tankCapacity) { setTankCapacity(entry.settings.tankCapacity); tankCapacityRef.current = entry.settings.tankCapacity; }
     }
-    const field = buildField(entry.poly, entry.gpsAnchored, w);
+    const field = buildField(entry.poly, entry.gpsAnchored, w, entry.cov && entry.cov.box);
     fieldRef.current = field;
     stationRef.current = entry.station || defaultStation(field.bbox);
     if (entry.originLat != null && entry.originLng != null) {
@@ -2825,7 +2932,14 @@ function App() {
    *  window so it never fires during boundary plotting or the ready screen. */
   useEffect(() => {
     if (phase !== 'running' && phase !== 'paused') return;
-    const id = setInterval(saveSessionNow, 5000);
+    const id = setInterval(() => {
+      const s0 = simRef.current;
+      const sig = [phaseRef.current, opModeRef.current, s0.sprayedCells, s0.overlapCells, s0.outsideCells, s0.missedCells, s0.epoch,
+        Math.round(s0.elapsed), Math.round(s0.distance), s0.pos.x.toFixed(1), s0.pos.y.toFixed(1), tankAreasRef.current.length, tankOpenRef.current].join('|');
+      if (sig === autosaveSigRef.current) return;   // nothing new since the last save
+      autosaveSigRef.current = sig;
+      saveSessionNow({ periodic: true });
+    }, 5000);
     autosaveTimerRef.current = id;
     return () => { clearInterval(id); autosaveTimerRef.current = null; };
   }, [phase]);
@@ -3348,7 +3462,7 @@ function App() {
       } else if (ph === 'running' && sm === 'sim' && autoWalkRef.current && opModeRef.current === 'spray' && !sim.done) {
         advance(sim, field, dt * multRef.current, swathRef.current, paintCell, !oobRef.current);
         // the tank runs out after the measured area per tank, as in the field
-        const inTank = (sim.sprayedCells + sim.overlapCells) * CELL * CELL - tankBaselineAreaRef.current;
+        const inTank = (sim.sprayedCells + sim.overlapCells + (sim.outsideCells || 0)) * CELL * CELL - tankBaselineAreaRef.current;
         if (simTankAreaRef.current > 0 && inTank >= simTankAreaRef.current && !sim.done) { modeSwitchAtRef.current = 0; tankEmptyRef.current(); }
         // end of the route: stop and ask, like an operator would (it used to
         // jump straight to the summary and skip the done / not-done choice)
@@ -3522,7 +3636,7 @@ function App() {
     headlessFrameRef.current = () => frame(performance.now(), true);
     // test/debug hook, read on demand (it used to be rebuilt every frame)
     Object.defineProperty(window, '__agrasDbg', { configurable: true,
-      get: () => ({ pan: panRef.current, view: viewRef.current, ph: phaseRef.current, mode: camModeRef.current, draft: draftRef.current }) });
+      get: () => ({ pan: panRef.current, view: viewRef.current, ph: phaseRef.current, mode: camModeRef.current, draft: draftRef.current, sim: simRef.current, field: fieldRef.current, img: imgDataRef.current }) });
     raf = requestAnimationFrame(step);
     return () => { cancelAnimationFrame(raf); headlessFrameRef.current = null; };
   }, [paintCell]);
@@ -3955,24 +4069,39 @@ function App() {
     panRef.current = null;
     const editing = editingFieldIdRef.current ? fieldLibraryRef.current.find((e) => e.id === editingFieldIdRef.current) : null;
     editingFieldIdRef.current = null;
-    resetField(draft, swath);
     if (editing) {
-      // Redrawing a saved field (the owner's call): it stays the same field —
-      // name, refill station, round number and finished rounds all kept — so
-      // there is no station step. Only the open round's sprayed area goes,
-      // because its cells were laid out on the old boundary.
-      const f = fieldRef.current, origin = originLatLngRef.current;
-      stationRef.current = editing.station || stationRef.current;
+      // Redrawing a saved field: it stays the same field — name, refill
+      // station, round number, finished rounds — so there is no station step.
+      // The open round's spraying is kept too (the owner's call: a field is
+      // often drawn short and fixed later). Its cells were laid on the old
+      // grid, so the saved coverage takes that layout along; loading the
+      // field carries every cell onto the new grid, counts what is inside the
+      // new line as sprayed, and keeps what fell outside it, grey.
+      const origin = originLatLngRef.current;
+      let cov = editing.cov || null;
+      if (cov) {
+        try {
+          const g = cov.geom || legacyGridGeom(editing.poly);
+          cov = { ...cov, geom: g, box: cov.box || cellsBox(rleDecode(cov.passes, cov.len), g) };
+        } catch (e) { cov = null; AgrasLog.add('ERR', 'coverage could not be carried to the new boundary: ' + (e && e.message)); }
+      }
+      const poly = draft.map((p) => ({ x: p.x, y: p.y })), area = polyArea(poly);
+      let updated = null;
       updateLibrary((list) => list.map((e) => {
         if (e.id !== editing.id) return e;
-        const { cov, stats, lastStop, ...rest } = e;
-        return { ...rest, poly: f.poly, gpsAnchored: f.gpsAnchored, areaRai: f.area / 1600, areaSqm: f.area,
-          originLat: origin ? origin.lat : e.originLat, originLng: origin ? origin.lng : e.originLng };
+        const { cov: oldCov, ...rest } = e;
+        updated = { ...rest, poly, gpsAnchored: srcModeRef.current === 'gps', areaRai: area / 1600, areaSqm: area,
+          originLat: origin ? origin.lat : e.originLat, originLng: origin ? origin.lng : e.originLng, ...(cov ? { cov } : {}) };
+        return updated;
       }));
-      activeFieldIdRef.current = editing.id; setActiveFieldId(editing.id);
-      AgrasLog.add('SAVE', `field ${editing.id} boundary redrawn (${(f.area / 1600).toFixed(2)} rai); station and rounds kept`);
+      loadFieldFromLibrary(updated);
+      if (cov) persistCoverage(editing.id, false);   // stored again on the new grid, counted for the new line
+      const s0 = simRef.current;
+      AgrasLog.add('SAVE', `field ${editing.id} boundary redrawn (${(area / 1600).toFixed(2)} rai); station, rounds and spraying kept: `
+        + `${(s0.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai in the field, ${(s0.outsideCells * CELL * CELL).toFixed(0)} m² outside`);
       return;
     }
+    resetField(draft, swath);
     // Saved to the field library right here, under an automatic name the
     // operator can change later (Field setup -> RENAME). It used to stay an
     // unsaved plot until someone tapped SAVE or START SPRAYING, so closing
@@ -4070,7 +4199,10 @@ function App() {
    *  autosave tick, from key events (tank empty, out-of-bounds, app close),
    *  and from the explicit "Save & Pause" dock button. Reads everything off
    *  refs, so it's always safe to call regardless of which render defined it. */
-  const saveSessionNow = () => {
+  const autosaveSigRef = useRef('');
+  const libCovSavedAtRef = useRef(0);
+  const saveSessionNow = (opts) => {
+    const periodic = !!(opts && opts.periodic);
     const saveT0 = performance.now();
     lastSessionSaveRef.current = Date.now();
     try {
@@ -4082,7 +4214,14 @@ function App() {
         originLatLng: originLatLngRef.current,
       });
       saveActiveSession(snap);
-      if (phaseRef.current === 'running' || phaseRef.current === 'paused') { persistCoverage(activeFieldIdRef.current, false, { passes: snap.passes, missed: snap.missed }); AgrasLog.add('SAVE', `autosave ${Math.round(performance.now() - saveT0)}ms`); }
+      // The session snapshot just written is what a resume reads; the field
+      // library's copy (every saved field, JSON-encoded whole) is the backup,
+      // so the periodic tick refreshes it every 30 s, key events every time.
+      if ((phaseRef.current === 'running' || phaseRef.current === 'paused') && (!periodic || Date.now() - libCovSavedAtRef.current >= 30000)) {
+        libCovSavedAtRef.current = Date.now();
+        persistCoverage(activeFieldIdRef.current, false, { passes: snap.passes, missed: snap.missed });
+      }
+      if (phaseRef.current === 'running' || phaseRef.current === 'paused') AgrasLog.add('SAVE', `autosave ${Math.round(performance.now() - saveT0)}ms`);
     } catch (e) { AgrasLog.add('ERR', 'autosave failed: ' + (e && e.message)); }
   };
   saveSessionRef.current = saveSessionNow;
@@ -4093,19 +4232,30 @@ function App() {
    *  buffer is written into imgDataRef.current.data AFTER initGrid (which
    *  allocates a fresh, empty one) — then flushed to the visible canvas. */
   const applySessionSnapshot = (saved) => {
-    const field = buildField(saved.poly, saved.gpsAnchored, saved.swath);
+    // v2 cells are decoded on the grid they were saved on (sessions from
+    // before the grid layout was stored used the field's box ± 2 m) and
+    // carried onto this build's grid when the two differ.
+    const sg = saved.gridMinX != null ? { minX: saved.gridMinX, minY: saved.gridMinY, GW: saved.gridW, GH: saved.gridH } : legacyGridGeom(saved.poly);
+    let sPasses = null, sMissed = null;
+    if (saved.v === 2) {
+      try { sPasses = rleDecode(saved.passes, sg.GW * sg.GH); } catch (e) { /* keep fresh passes */ }
+      try { sMissed = rleDecode(saved.missed, sg.GW * sg.GH); } catch (e) { /* keep fresh missed flags */ }
+    }
+    const field = buildField(saved.poly, saved.gpsAnchored, saved.swath, sPasses && cellsBox(sPasses, sg));
     const sim = makeSim(field, saved.swath);
     const cells = field.GW * field.GH;
     if (saved.v === 2) {
-      try { sim.passes = rleDecode(saved.passes, cells); } catch (e) { /* keep fresh passes */ }
-      try { sim.missed = rleDecode(saved.missed, cells); } catch (e) { /* keep fresh missed flags */ }
+      const h = gridGeom(field), same = sameGeom(sg, h);
+      if (sPasses) sim.passes = same ? sPasses : remapCells(sPasses, sg, h);
+      if (sMissed) sim.missed = same ? sMissed : remapCells(sMissed, sg, h);
+      if (!same) cleanMissed(sim.missed, sim.passes, field);
       // Cells sprayed before the save get the "restored" sentinel, the same
       // one applyCoverage() uses: any stamp after the resume carries an id
       // >= 0, so re-spraying them counts as overlap. The one cost is a
       // sliver of overlap where the resumed lane joins the old one.
       for (let k = 0; k < cells; k++) sim.lastPass[k] = sim.passes[k] > 0 ? -2 : -1;
     } else {
-      try { sim.lastPass = new Int32Array(b64ToU8(saved.lastPass).buffer); } catch (e) { /* keep fresh lastPass */ }
+      try { const lp = new Int32Array(b64ToU8(saved.lastPass).buffer); if (lp.length === sim.lastPass.length) sim.lastPass.set(lp); } catch (e) { /* keep fresh lastPass */ }
       try { if (saved.passes) sim.passes = b64ToU8(saved.passes); } catch (e) { /* keep fresh passes */ }
       try { if (saved.missed) sim.missed = b64ToU8(saved.missed); } catch (e) { /* keep fresh missed flags */ }
     }
@@ -4117,6 +4267,8 @@ function App() {
     sim.elapsed = saved.elapsed || 0;
     sim.sprayedCells = saved.sprayedCells || 0;
     sim.overlapCells = saved.overlapCells || 0;
+    if (saved.v === 2) { const c = countCoverage(sim.passes, field.credit); sim.sprayedCells = c.sprayed; sim.overlapCells = c.overlap; sim.outsideCells = c.outside; }
+    rescanBox(sim, field.GW);
     sim.epoch = saved.epoch || 0;
     sim.wp = saved.wp || 1;
     sim.fixes = [{ ...sim.pos }];
@@ -4175,7 +4327,7 @@ function App() {
    *  REFILLED · START SPRAYING whenever they start spraying again. */
   const tankEmpty = () => {
     if (opMode !== 'spray' || phase !== 'running') return;
-    if (Date.now() - modeSwitchAtRef.current < 2000) return; // see modeSwitchAtRef
+    if (modeLockLeft() > 0) return; // see modeSwitchAtRef
     modeSwitchAtRef.current = Date.now();
     closeTank();
     opModeRef.current = 'toStation'; setOpMode('toStation');
@@ -4198,7 +4350,7 @@ function App() {
    *  operator is standing. The same action from the dock button and from the
    *  tank tile during the trip. */
   const resumeSprayingNow = () => {
-    if (Date.now() - modeSwitchAtRef.current < 2000) return; // see modeSwitchAtRef
+    if (modeLockLeft() > 0) return; // see modeSwitchAtRef
     modeSwitchAtRef.current = Date.now();
     const sim = simRef.current;
     if (!tankOpenRef.current) openTank();
@@ -4331,6 +4483,7 @@ function App() {
   __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current, recordId: missionRecordIdRef.current, startTs: missionStartTsRef.current, weatherStart: weatherStartRef.current };
   const areaSprayed = sim.sprayedCells * CELL * CELL;
   const coveragePct = Math.min(100, (areaSprayed / field.area) * 100) || 0;
+  const modeLockS = Math.ceil(modeLockLeft() / 1000);
   const overlapRate = sim.sprayedCells > 0 ? (sim.overlapCells / sim.sprayedCells) * 100 : 0;
   const speedMs = sim.elapsed > 2 ? (sim.sprayDistance || sim.distance) / sim.elapsed : 0;      // lifetime average — mission summary only
   // ---- Live Speed-Based Flow Rate & Pace Engine -----------------------
@@ -4683,7 +4836,7 @@ function App() {
           <div className={'flex flex-col gap-2 items-end pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2 items-end" style={running && !showStats ? { display: 'none' } : undefined}>
-                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} actionLabel={opMode === 'spray' ? 'TANK EMPTY' : 'REFILLED · SPRAY'} />
+                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} disabled={modeLockS > 0} actionLabel={(opMode === 'spray' ? 'TANK EMPTY' : 'REFILLED · SPRAY') + (modeLockS > 0 ? ` · ${modeLockS}` : '')} />
                 <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#0A5238]" />
                 <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#8A4B06]' : undefined} />
                 {srcMode === 'gps' && gpsInfo && <Tile icon={Satellite} label="GPS" value={gpsInfo.lat.toFixed(4)} unit={gpsInfo.lng.toFixed(4)} accent={gpsColorClass} />}
@@ -4939,8 +5092,8 @@ function App() {
           {(phase === 'running' || phase === 'paused') && (
             <Dock>
               {opMode === 'spray'
-                ? <DockBtn icon={Fuel} label="TANK EMPTY" tone="amber" onClick={tankEmpty} disabled={!!manualPathRef.current} />
-                : <DockBtn icon={Play} label="REFILLED · START SPRAYING" tone="green" onClick={resumeSprayingNow} />}
+                ? <DockBtn icon={Fuel} label={modeLockS > 0 ? `TANK EMPTY · ${modeLockS}` : 'TANK EMPTY'} tone="amber" onClick={tankEmpty} disabled={!!manualPathRef.current || modeLockS > 0} />
+                : <DockBtn icon={Play} label={modeLockS > 0 ? `REFILLED · START SPRAYING · ${modeLockS}` : 'REFILLED · START SPRAYING'} tone="green" onClick={resumeSprayingNow} disabled={modeLockS > 0} />}
               <DockBtn icon={running ? Save : Play} label={running ? 'SAVE & PAUSE' : 'RESUME'} tone="teal"
                 onClick={() => { if (running) saveSessionNow(); setPhase(running ? 'paused' : 'running'); }} />
               {/* Spec §4A Rule 3: End Mission must NOT be reachable from the

@@ -32,6 +32,10 @@ async function boot(opts = {}) {
     const u = route.request().url();
     return u.startsWith(`http://localhost:${PORT}`) ? route.continue() : route.abort();
   });
+  // TANK EMPTY / REFILLED lock each other for 30 s in the app; the suite runs
+  // with the old 2 s so its refill trips don't each wait half a minute
+  // (modeLock sets the real value back to test the countdown itself).
+  await ctx.addInitScript(() => { if (typeof window.AGRAS_MODE_LOCK_MS !== 'number') window.AGRAS_MODE_LOCK_MS = 2000; });
   const page = await ctx.newPage();
   const logs = [];
   page.on('console', (m) => logs.push(m.text()));

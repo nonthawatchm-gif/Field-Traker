@@ -11,7 +11,7 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (111 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
+`app/test/run.js` (119 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
 phone: the field app updated in place, and the test app alongside it.
 
 ## Start here
@@ -20,11 +20,11 @@ phone: the field app updated in place, and the test app alongside it.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 111 checks, ~20 min, expect 111/111
+node test/run.js                     # 119 checks, ~22 min, expect 119/119
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 111/111 on a clean checkout, something in the fixes below
+If `test/run.js` is not 119/119 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -738,6 +738,50 @@ phone (build-81): 13 real tiles kept, 0 placeholders left over the field,
 the map still full in airplane mode. (Offline, the deepest zooms there come
 from stretching z18 — Google tiles, which the live map uses at z19+, can't
 be stored: no CORS.) Test: `perfFixes` gained one check (111 in all).
+
+### The owner's three fixes and a second CPU / RAM pass (2026-10-01)
+
+1. **A redrawn boundary keeps the round's spraying.** (Reverses the earlier
+   call that EDIT BOUNDARY drops the open round's coverage; the owner: a
+   field is often drawn short and fixed after spraying.) Saved coverage now
+   carries the grid it was laid on (`cov.v: 2`, `geom: { minX, minY, GW, GH }`,
+   `box` = world box of the sprayed cells; session snapshots carry
+   `gridMinX/gridMinY`). `applyCoverage()` and the session restore carry the
+   cells onto the current grid (`remapCells`, centre to cell), recount
+   `sprayedCells`/`overlapCells` for the new line (`countCoverage`), and keep
+   what fell outside as `outsideCells`, drawn grey. A field is built big
+   enough for its kept cells (`buildField(…, extra = cov.box)`). Coverage
+   without `geom` (older builds) is read on the old layout, `legacyGridGeom()`
+   = box ± 2 m, and carried over once. Grids are snapped to the 0.3 m lattice.
+2. **Grey overspray on every side.** The grid margin was 2 m and `stamp()`
+   painted only within half a swath of an edge: with a 6 m swath the 3 m of
+   overspray was cut to 2 m on sides that sit on the field's box and showed
+   in full on slanted ones. The margin is now `PAD_G = 6` m on every side, and
+   spray past the edge band is painted grey and counted in `outsideCells` (not
+   field coverage; it does count toward the tank's area, since it is chemical
+   used).
+3. **TANK EMPTY / REFILLED lock each other for 30 s** (was 2 s): the other
+   button is greyed out with a countdown (`TANK EMPTY · 28`), on the dock and
+   the tank tile. `modeLockMs()` reads `window.AGRAS_MODE_LOCK_MS`; the test
+   harness sets 2000 so refill trips in tests don't each wait 30 s. The SIM
+   walk still resets the lock to switch at once.
+
+**CPU / RAM**
+- The 5 s autosave skips when nothing changed (phase, mode, cell counts,
+  epoch, elapsed, distance, position, tanks): a paused mission was
+  re-encoding and rewriting the session and the whole field library every 5 s.
+- On the periodic tick the field library's copy of the coverage is written
+  at most every 30 s (key events still write it every time); the session
+  snapshot, which a resume reads, is still written on every tick.
+- `insideRatio` is ninths in a `Uint8Array` (was `Float32Array`), `lastPass`
+  an `Int16Array` (was `Int32Array`): 5 bytes less per cell, which more than
+  pays for the wider grid margin (about 20 → 15 bytes a cell).
+- The sprayed box is grown in `stamp()` (`growBox`), not scanned for on save.
+
+Tests: `boundaryKeepsSpray` (3), `oversprayEverySide` (1), `modeLock` (3),
+`idleAutosave` (1). `tankCount`'s double tap now taps the greyed button at
+once (an exact-text tap used to wait for the lock to run out).
+**Not verified on the phone yet.**
 
 ## Verified on the phone, and what wasn't
 

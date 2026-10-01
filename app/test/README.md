@@ -63,6 +63,10 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | Field app (`prod`): no DEV even with the old flag, 7-tap ignored, no test-log row; test app: DEV on, TEST tag | two apps |
 | Crop check: photo pinned at the operator, field card counts it, AI (mocked) queued offline and done online with Sonnet 5 + JSON schema + the key, listed in the report | crop check |
 | a fetched Esri tile is really in Cache Storage; the in-memory tile cache drops the least recently drawn tile and revokes its blob; `buildField()` matches per-sample `pointInPoly()`; the missed-cell counter matches the grid; GPS pace is steady at a steady walk | the CPU/RAM pass: offline map never stored, blob leak, scanline rewrite, pace spikes |
+| Redrawn boundary keeps the round's spraying: inside recounted, outside kept grey, survives reload | boundary keeps spray |
+| Overspray is grey on all four sides, as deep as the half swath reaches | grey every side |
+| TANK EMPTY / REFILLED greyed out with a 30 s countdown after the other was tapped | mode lock |
+| A paused mission is not re-saved every 5 s when nothing changed | idle autosave |
 
 ## Writing more
 
