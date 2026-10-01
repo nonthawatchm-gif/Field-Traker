@@ -11,7 +11,7 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (119 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
+`app/test/run.js` (121 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
 phone: the field app updated in place, and the test app alongside it.
 
 ## Start here
@@ -20,11 +20,11 @@ phone: the field app updated in place, and the test app alongside it.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 119 checks, ~22 min, expect 119/119
+node test/run.js                     # 121 checks, ~22 min, expect 121/121
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 119/119 on a clean checkout, something in the fixes below
+If `test/run.js` is not 121/121 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -782,6 +782,16 @@ Tests: `boundaryKeepsSpray` (3), `oversprayEverySide` (1), `modeLock` (3),
 `idleAutosave` (1). `tankCount`'s double tap now taps the greyed button at
 once (an exact-text tap used to wait for the lock to run out).
 **Not verified on the phone yet.**
+
+### UV index (2026-10-01)
+
+The owner asked for the UV index. Open-Meteo's `current=uv_index` is added to
+the existing weather request (`uvIndex`, `uvWarning` at
+`SPRAY_WEATHER_UV_WARN = 8`, WHO "very high", the owner's pick). Shown beside
+wind and rain in Settings (with advice at 8+), and as the home chip
+`UV n · very high` after the rain and wind reasons. Not stored in mission
+records or the report (the owner didn't pick that). Cached readings without
+`uvIndex` are refetched. Test: `uvIndex` (2, Open-Meteo mocked).
 
 ## Verified on the phone, and what wasn't
 

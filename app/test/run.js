@@ -1129,10 +1129,36 @@ async function idleAutosave() {
   await browser.close();
 }
 
+/** UV index from Open-Meteo (mocked): shown beside wind and rain in Settings,
+ *  and at 8 or more an amber "UV n · very high" chip on the home screen. */
+async function uvIndex() {
+  for (const uv of [9.4, 5.2]) {
+    const { browser, ctx, page } = await boot();
+    let asked = '';
+    await page.route('https://api.open-meteo.com/**', (route) => {
+      asked = route.request().url();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        current: { time: '2026-10-01T11:00', wind_speed_10m: 4, wind_gusts_10m: 6, wind_direction_10m: 90, precipitation: 0, temperature_2m: 33, relative_humidity_2m: 60, uv_index: uv },
+        hourly: { time: ['2026-10-01T11:00', '2026-10-01T12:00', '2026-10-01T13:00'], precipitation_probability: [5, 5, 10], precipitation: [0, 0, 0] } }) });
+    });
+    await page.waitForTimeout(1200);
+    await makeField(ctx, page);
+    await page.waitForTimeout(2500);
+    const home = await txt(page);
+    await openSettings(page);
+    const set = await txt(page);
+    if (uv > 8) check('UV 9: asked for, an amber chip on home, UV 9 beside wind/rain with advice',
+      /uv_index/.test(asked) && /UV 9 · very high/.test(home) && /UV 9\b/.test(set) && /cover up, drink water/.test(set),
+      `chip ${/UV 9 · very high/.test(home)} row ${/UV 9/.test(set)}`);
+    else check('UV 5: shown in Settings, no warning chip', /UV 5\b/.test(set) && !/very high/.test(home + set), `row ${/UV 5/.test(set)}`);
+    await browser.close();
+  }
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

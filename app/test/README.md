@@ -67,6 +67,7 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | Overspray is grey on all four sides, as deep as the half swath reaches | grey every side |
 | TANK EMPTY / REFILLED greyed out with a 30 s countdown after the other was tapped | mode lock |
 | A paused mission is not re-saved every 5 s when nothing changed | idle autosave |
+| UV index from Open-Meteo beside wind/rain; at 8+ an amber home chip and advice | UV index |
 
 ## Writing more
 

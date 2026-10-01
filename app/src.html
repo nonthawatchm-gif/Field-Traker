@@ -157,6 +157,7 @@ const Compass      = (p) => <Svg {...p}><circle cx="12" cy="12" r="10"/><polygon
 const ChevronDown  = (p) => <Svg {...p}><path d="m6 9 6 6 6-6"/></Svg>;
 const Move         = (p) => <Svg {...p}><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></Svg>;
 const Wind         = (p) => <Svg {...p}><path d="M12.8 19.2A2 2 0 1 0 14 16H2"/><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2"/><path d="M9.8 4.4A2 2 0 1 1 11 8H2"/></Svg>;
+const Sun          = (p) => <Svg {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></Svg>;
 const CloudRain     = (p) => <Svg {...p}><path d="M16 13v8"/><path d="M8 13v8"/><path d="M12 15v8"/><path d="M20 16.6A5 5 0 0 0 18 7h-1.3A8 8 0 1 0 4 15.5"/></Svg>;
 
 
@@ -894,6 +895,7 @@ const SPRAY_WEATHER_KEY = 'agras-tracker-weather-cache';
 const SPRAY_WEATHER_TTL_MS = 15 * 60 * 1000;
 const SPRAY_WEATHER_WIND_WARN_KMH = 15;   // typical drift-risk threshold for boom/knapsack spraying
 const SPRAY_WEATHER_RAIN_PROB_WARN = 50;  // % chance within the next 3h
+const SPRAY_WEATHER_UV_WARN = 8;          // UV index: WHO "very high" from 8 (the owner's pick) — sun and heat in full PPE
 
 function weatherCacheKey(lat, lon) {
   // round to ~0.01deg (~1km) so small GPS jitter still hits the cache
@@ -906,6 +908,7 @@ function loadCachedWeather(lat, lon) {
     const c = JSON.parse(raw);
     if (c.key !== weatherCacheKey(lat, lon)) return null;
     if (Date.now() - c.fetchedAt > SPRAY_WEATHER_TTL_MS) return null;
+    if (!c.data || !('uvIndex' in c.data)) return null;   // cached by a build before the UV reading
     return c.data;
   } catch (e) { return null; }
 }
@@ -918,7 +921,7 @@ async function fetchSprayWeather(lat, lon) {
   if (cached) return cached;
   const url = 'https://api.open-meteo.com/v1/forecast'
     + `?latitude=${lat}&longitude=${lon}`
-    + '&current=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,temperature_2m,relative_humidity_2m'
+    + '&current=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,temperature_2m,relative_humidity_2m,uv_index'
     + '&hourly=precipitation_probability,precipitation'
     + '&wind_speed_unit=kmh&precipitation_unit=mm&timezone=Asia%2FBangkok&forecast_days=1';
   const res = await fetch(url);
@@ -949,8 +952,10 @@ function evaluateSprayConditions(json) {
   const rainNowMm = typeof cur.precipitation === 'number' ? cur.precipitation : null;
   const tempC = typeof cur.temperature_2m === 'number' ? cur.temperature_2m : null;
   const humidity = typeof cur.relative_humidity_2m === 'number' ? cur.relative_humidity_2m : null;
+  const uvIndex = typeof cur.uv_index === 'number' ? cur.uv_index : null;
   return {
-    windKmh, gustKmh, windDir, rainNowMm, rainSoonProb, tempC, humidity,
+    windKmh, gustKmh, windDir, rainNowMm, rainSoonProb, tempC, humidity, uvIndex,
+    uvWarning: uvIndex != null && uvIndex >= SPRAY_WEATHER_UV_WARN,
     windWarning: windKmh != null && windKmh > SPRAY_WEATHER_WIND_WARN_KMH,
     rainNowWarning: rainNowMm != null && rainNowMm > 0,
     rainSoonWarning: rainSoonProb != null && rainSoonProb >= SPRAY_WEATHER_RAIN_PROB_WARN,
@@ -5014,6 +5019,7 @@ function App() {
                 const reason = wx && wx.rainNowWarning ? 'Raining now'
                   : wx && wx.rainSoonWarning ? `Rain ${wx.rainSoonProb != null ? Math.round(wx.rainSoonProb) + '% ' : ''}in 3 h`
                   : wx && wx.windWarning ? `Wind ${Math.round(wx.windKmh || 0)} km/h`
+                  : wx && wx.uvWarning ? `UV ${Math.round(wx.uvIndex)} · very high`
                   : unchecked > 0 ? `${unchecked} check${unchecked === 1 ? '' : 's'} left` : null;
                 const stop = lastStopOfActiveField(), live = gpsLiveRef.current;
                 const stopDist = stop && live.lat != null ? dist(stop, { x: live.x, y: live.y }) : null;
@@ -5700,12 +5706,13 @@ function App() {
               const checkedCount = items.filter(([k]) => checklist[k]).length;
               const uncheckedCount = items.length - checkedCount;
               const wx = sprayWeather;
-              const wxRisk = !!(wx && (wx.windWarning || wx.rainNowWarning || wx.rainSoonWarning));
+              const wxRisk = !!(wx && (wx.windWarning || wx.rainNowWarning || wx.rainSoonWarning || wx.uvWarning));
               const applyWeatherReading = () => {
                 if (!wx) return;
                 const parts = [];
                 if (wx.windKmh != null) parts.push(`Wind ${Math.round(wx.windKmh)} km/h`);
                 if (wx.rainSoonProb != null) parts.push(`Rain ${Math.round(wx.rainSoonProb)}%`);
+                if (wx.uvIndex != null) parts.push(`UV ${Math.round(wx.uvIndex)}`);
                 setChecklist((c) => {
                   const next = { ...c, wind: true, weather: parts.join(', ') };
                   saveChecklist(next);
@@ -5762,6 +5769,11 @@ function App() {
                           <span className={'text-[11px] font-mono flex-1 min-w-0 truncate ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#9A560A]' : 'text-[#24322C]')}>
                             {wx.rainNowWarning ? 'Raining now' : (wx.rainSoonProb != null ? `${Math.round(wx.rainSoonProb)}% next 3h` : '—')}
                           </span>
+                          {wx.uvIndex != null && (
+                            <span className={'flex items-center gap-1 text-[11px] font-mono shrink-0 ' + (wx.uvWarning ? 'text-[#9A560A] font-bold' : 'text-[#24322C]')}>
+                              <Sun size={14} className={'shrink-0 ' + (wx.uvWarning ? 'text-[#9A560A]' : 'text-[#55655F]')} />UV {Math.round(wx.uvIndex)}
+                            </span>
+                          )}
                           <span className="text-[9px] font-mono text-[#4A564F] shrink-0">TAP TO USE</span>
                         </button>
                       )}
@@ -5769,7 +5781,8 @@ function App() {
                         <p className="mt-1 px-0.5 text-[10.5px] leading-snug text-[#9A560A]">
                           {wx.rainNowWarning ? 'Raining now: the spray will wash off.'
                             : wx.rainSoonWarning ? 'Rain likely within 3 hours: the spray may wash off.'
-                            : 'Strong wind: the spray will drift.'}
+                            : wx.windWarning ? 'Strong wind: the spray will drift.'
+                            : `UV ${Math.round(wx.uvIndex)}, very high: cover up, drink water, rest in the shade.`}
                         </p>
                       )}
 
