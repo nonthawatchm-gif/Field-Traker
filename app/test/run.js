@@ -103,7 +103,10 @@ async function missed() {
     await tap(page, 'SAVE & PAUSE', { wait: 900 });
     await finishAs(page);
     const s = await summary(page);
-    check('the refill round trip flags nothing missed', /MISSED SPOTS \| 0\.00 rai/.test(s), s.match(/MISSED SPOTS \| [^|]+/)?.[0]);
+    // only the tail of the lane the tank ran out on (20 m x 2.5 m = 0.03 rai) is flagged;
+    // the diagonal walk across the field to the station must add nothing
+    const ms = parseFloat((s.match(/MISSED SPOTS \| ([\d.]+) rai/) || [])[1] || '9');
+    check('the refill round trip flags only the tail of the lane left, not the walk', ms > 0 && ms <= 0.05, s.match(/MISSED SPOTS \| [^|]+/)?.[0]);
     await browser.close();
   }
 }
@@ -788,18 +791,28 @@ async function simWalk() {
   const click = async (t) => { const el = page.locator(`text="${t}"`).locator('visible=true').first(); if (await el.count()) { await el.click({ force: true }); await page.waitForTimeout(400); } };
   await click('DEV'); await click('SIM'); await click('60×');
   await startSpray(page, 500);
-  const t0 = Date.now(); let t = '';
-  while (Date.now() - t0 < 180000) { await page.waitForTimeout(2500); t = await txt(page); if (/FINISH · ROUND/.test(t)) break; }
+  const t0 = Date.now(); let t = '', sawChip = false;
+  while (Date.now() - t0 < 180000) {
+    await page.waitForTimeout(1000); t = await txt(page);
+    sawChip = sawChip || /Next lane · \d+ m/.test(t);
+    if (/FINISH · ROUND/.test(t)) break;
+  }
   const log = await page.evaluate(() => AgrasLog.lines().join('\n'));
   const tanks = (log.match(/SIM tank out/g) || []).length;
   check('SIM runs out of liquid per tank and walks to the station', tanks === 3, `${tanks} refill trips for 3.75 rai at 1 rai/tank`);
   check('SIM stops at the FINISH choice when the route is done', /FINISH · ROUND/.test(t) && !/MISSION SUMMARY/.test(t));
   const pct = +((t.match(/(\d+)% sprayed this round/) || [])[1] || 0);
-  check('SIM covers the field', pct >= 95, `${pct}%`);
+  // a SIM tank is used up at the end of the lane it is on (the owner's tank is one lane),
+  // and the next tank starts the next unsprayed lane: the whole field gets done
+  check('SIM carries on with the next lane after each refill', pct >= 95, `${pct}%`);
+  check('after TANK EMPTY the app points at the next lane (SIM resumes at once, so no "at the lane" pause)', sawChip, `chip ${sawChip}`);
+  check('each refill logs the next lane to point at', (log.match(/RESUME next lane starts at/g) || []).length === 3 && !/tail of this lane flagged missed/.test(log));
   await tapRe(page, /NOT DONE · CONTINUE LATER/, { wait: 1800 });
   const s = await summary(page);
   const ov = parseFloat((s.match(/OVERLAPPED \| ([\d.]+) rai/) || [])[1] || '9');
-  check('SIM paints no stripes on the way to and from the station', ov < 0.05 && /MISSED SPOTS \| 0\.00 rai/.test(s), s.match(/OVERLAPPED \| [^|]+ \| [^|]+/)?.[0]);
+  const ms = parseFloat((s.match(/MISSED SPOTS \| ([\d.]+) rai/) || [])[1] || '0');
+  check('SIM paints no stripes on the way to and from the station', ov < 0.05, s.match(/OVERLAPPED \| [^|]+ \| [^|]+/)?.[0]);
+  check('a tank that ends at a lane end leaves no red tail', ms < 0.05, `${ms} rai`);
   await browser.close();
 }
 
@@ -1194,10 +1207,48 @@ async function aiOnlineRace() {
   await browser.close();
 }
 
+/** After TANK EMPTY the walk back is pointed at the START of the next unsprayed
+ *  lane, not at the spot the tank ran out (owner, 2026-10-01: a tank is one long
+ *  lane, so that spot is 160-225 m from where the next tank starts). The chip
+ *  appears once you leave the station; REFILLED far from the lane warns for a
+ *  few seconds but never blocks. */
+async function nextLane() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);                       // 80 x 80, station at -10,-10
+  await moveTo(ctx, page, 1.5, 1.5, 900);
+  await startSpray(page, 1200);
+  await walk(ctx, page, [1.5, 1.5], [60, 1.5], 2, 100);   // one lane along the near edge, ends 60 m out
+  await tap(page, 'TANK EMPTY', { wait: 900 });
+  const log0 = await page.evaluate(() => AgrasLog.lines().join('\n'));
+  check('TANK EMPTY picks the next lane to point at', /RESUME next lane starts at/.test(log0), (log0.match(/RESUME .*/) || [''])[0].slice(0, 90));
+  await walk(ctx, page, [60, 1.5], [-10, -10], 3, 100);   // to the station
+  check('at the station the line still says refill', /At the station · refill, then tap REFILLED/.test(await txt(page)));
+  await walk(ctx, page, [-10, -10], [40, 40], 3, 100);    // away from the station, nowhere near a lane start
+  let t = await txt(page);
+  const m = t.match(/Next lane · (\d+) m/);
+  check('leaving the station: the chip gives the distance to the next lane', !!m && +m[1] > 8, m ? m[0] : t.slice(0, 80));
+  await tap(page, 'REFILLED · START SPRAYING', { wait: 900 });
+  t = await txt(page);
+  check('REFILLED far from the next lane warns but still records', /Still \d+ m from the next lane/.test(t) && /TANK EMPTY/.test(t));
+  // second trip: walk to where a lane starts and the chip says so
+  await page.waitForTimeout(2200);
+  await tap(page, 'TANK EMPTY', { wait: 900 });
+  await walk(ctx, page, [40, 40], [-10, -10], 3, 100);
+  let at = false;
+  for (const [x, y] of [[1.5, 4], [1.5, 6.5], [1.5, 9], [4, 1.5], [1.5, 1.5]]) {
+    await walk(ctx, page, [-10, -10], [x, y], 3, 100);
+    if (/At the next lane · tap REFILLED/.test(await txt(page))) { at = true; break; }
+    await walk(ctx, page, [x, y], [-10, -10], 3, 100);
+  }
+  check('walking to the lane start: the chip says you are there', at);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex, aiOnlineRace }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex, aiOnlineRace, nextLane }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

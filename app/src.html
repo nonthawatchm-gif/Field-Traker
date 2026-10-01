@@ -784,6 +784,58 @@ function planSprayRoute(poly, swath, station, tankArea, gap) {
   return { variants, idx: pick, best: pick, farSaves };
 }
 
+/* ---- Where to spray next after a refill (the owner's call, 2026-10-01) ------
+ * A tank is one long lane, walked one way from the station end, and the empty
+ * walk back is the long part of a refill. So after TANK EMPTY the app points at
+ * the START of the next lane that is still unsprayed, at the end nearer the
+ * station, and not at the spot where the tank ran out (160-225 m away in the
+ * owner's own log). Lanes are the route-follower's own (sim.route: a start
+ * point then a spray point, per lane). A lane that is mostly sprayed counts as
+ * done; the unsprayed tail of the lane the tank ran out on is flagged missed
+ * (markLaneRemainder) so it shows red until it is sprayed. */
+const NEXT_LANE_DONE_FRAC = 0.15;       // a lane with more than this sprayed is not "next"
+const RESUME_NEAR_M = 8;                // within this of the next lane's start = "at the lane"
+const RESUME_REMAINDER_MIN_M = 5;       // a tail shorter than this is not worth a red flag
+/** Share of a lane (a plan segment {a, b}) that already has spray on it. */
+function laneSprayedFrac(sg, field) {
+  const ctx = field.__ctx;
+  if (!ctx) return 0;
+  const { GW, GH, gbbox, lastPass } = ctx;
+  const len = dist(sg.a, sg.b);
+  let n = 0, hit = 0;
+  for (let d = 0; d <= len; d += 1.5) {
+    const t = len ? d / len : 0;
+    const i = Math.floor((sg.a.x + (sg.b.x - sg.a.x) * t - gbbox.minX) / CELL), j = Math.floor((sg.a.y + (sg.b.y - sg.a.y) * t - gbbox.minY) / CELL);
+    if (i < 0 || j < 0 || i >= GW || j >= GH) continue;
+    n++;
+    if (lastPass[j * GW + i] !== -1) hit++;
+  }
+  return n ? hit / n : 0;
+}
+/** The lanes still to spray, in route order, the first turned round when its
+ *  far end is the one nearer the station. segs: a route plan's segments. */
+function pendingLanes(segs, field, station) {
+  const left = segs.filter((sg) => laneSprayedFrac(sg, field) <= NEXT_LANE_DONE_FRAC);
+  if (left.length && station && dist(left[0].b, station) < dist(left[0].a, station)) left[0] = { a: left[0].b, b: left[0].a };
+  return left;
+}
+function nextLaneTarget(segs, field, station) {
+  const left = pendingLanes(segs, field, station);
+  return left.length ? { x: left[0].a.x, y: left[0].a.y, left } : null;
+}
+/** Flag the unsprayed tail of the lane the tank ran out on: from the last
+ *  sprayed point on along the heading to the field edge. */
+function markLaneRemainder(sim, field, swath, paint) {
+  const from = sim.pos;   // where the tank ran out (the last sprayed point, within a second)
+  if (!from || !field.poly) return 0;
+  const ux = Math.cos(sim.heading), uy = Math.sin(sim.heading);
+  let d = 0;
+  while (d < 400 && pointInPoly({ x: from.x + ux * (d + 1), y: from.y + uy * (d + 1) }, field.poly)) d++;
+  if (d < RESUME_REMAINDER_MIN_M) return 0;
+  markMissed(sim, field, from, { x: from.x + ux * d, y: from.y + uy * d }, swath / 2, paint);
+  return d;
+}
+
 const WALK_SPEED = 1.15;
 const SIM_MS_PER_M = 1000 / WALK_SPEED;   // SIM walking pace off the lanes (to the station and back), sim-ms per metre
 const SIM_MIX_MS = 45000;                 // SIM: time at the station mixing a new tank
@@ -2642,7 +2694,7 @@ function App() {
   }, []);
 
   const clearAlerts = () => { oobRef.current = false; setOob(false); };
-  const resetOpMode = () => { opModeRef.current = 'spray'; setOpMode('spray'); };
+  const resetOpMode = () => { opModeRef.current = 'spray'; setOpMode('spray'); resumeTargetRef.current = null; };
 
   /** Pre-flight checklist — non-blocking (Spec §4B): toggling never gates
    *  START SPRAYING. Ppe/mixedRate/nozzle refresh the 4-hour checkedAt
@@ -3473,7 +3525,10 @@ function App() {
         advance(sim, field, dt * multRef.current, swathRef.current, paintCell, !oobRef.current);
         // the tank runs out after the measured area per tank, as in the field
         const inTank = (sim.sprayedCells + sim.overlapCells + (sim.outsideCells || 0)) * CELL * CELL - tankBaselineAreaRef.current;
-        if (simTankAreaRef.current > 0 && inTank >= simTankAreaRef.current && !sim.done) { modeSwitchAtRef.current = 0; tankEmptyRef.current(); }
+        // the owner's tank runs out at the far end of its lane (their log), so a SIM tank
+        // that is used up carries on to the end of the lane it is on before TANK EMPTY
+        const midLane = !!(sim.route[sim.wp] && sim.route[sim.wp].spray);
+        if (simTankAreaRef.current > 0 && inTank >= simTankAreaRef.current && !sim.done && !midLane) { modeSwitchAtRef.current = 0; tankEmptyRef.current(); }
         // end of the route: stop and ask, like an operator would (it used to
         // jump straight to the summary and skip the done / not-done choice)
         if (sim.done) { sim.done = false; sim.wp = sim.route.length; setPhase('paused'); setShowFinishChoice(true); AgrasLog.add('SIM', 'route finished'); }
@@ -3592,8 +3647,9 @@ function App() {
       if (cv) {
         let navLine = null;
         const om = opModeRef.current;
-        if (ph === 'running' && om === 'toStation') navLine = { from: sim.pos, to: stationRef.current, color: 'rgba(10,82,56,.9)' };
-        const lastStop = ph === 'ready' ? lastStopOfActiveField() : null;
+        const rt = ph === 'running' && om === 'toStation' && reachedStationRef.current && dist(sim.pos, stationRef.current) >= 15 ? resumeTargetRef.current : null;
+        if (ph === 'running' && om === 'toStation') navLine = rt ? { from: sim.pos, to: rt, color: 'rgba(255,255,255,.9)' } : { from: sim.pos, to: stationRef.current, color: 'rgba(10,82,56,.9)' };
+        const lastStop = ph === 'ready' ? lastStopOfActiveField() : rt;
         const rp = routePlanRef.current;
         const route = rp && (ph === 'ready' || ph === 'running' || ph === 'paused') ? { ...rp.variants[rp.idx], faint: ph !== 'ready', swath: swathRef.current } : null;
         const gl = gpsLiveRef.current;
@@ -4343,15 +4399,28 @@ function App() {
     opModeRef.current = 'toStation'; setOpMode('toStation');
     unrecordedRef.current = { walked: 0, startDist: 0, lastAlert: unrecordedRef.current.lastAlert };
     reachedStationRef.current = false;
+    // where the next tank starts: the next unsprayed lane, not the spot the tank ran out
+    {
+      const sim = simRef.current, fld = fieldRef.current;
+      // a SIM tank ends at a lane end, between lanes: no tail to flag (the heading is the walk to the next lane)
+      const rem = srcMode === 'sim' ? 0 : markLaneRemainder(sim, fld, swathRef.current, paintCell);
+      const rp = routePlanRef.current;
+      const plan = rp ? rp.variants[rp.idx] : (() => { const pl = planSprayRoute(fld.poly, swathRef.current, stationRef.current, areaPerTank(), edgeGapRef.current); return pl && pl.variants[pl.idx]; })();
+      const tgt = plan ? nextLaneTarget(plan.segs, fld, stationRef.current) : null;
+      resumeTargetRef.current = tgt;
+      setResumeWarn(null);
+      AgrasLog.add('RESUME', (tgt ? `next lane starts at ${tgt.x.toFixed(1)},${tgt.y.toFixed(1)}, ${Math.round(dist(sim.pos, tgt))}m from the stop` : 'no unsprayed lane left to point at')
+        + (rem ? `; tail of this lane flagged missed (${Math.round(rem)}m)` : ''));
+    }
     if (srcMode === 'sim') {
-      const sim = simRef.current, back = { ...sim.pos }, st = stationRef.current;
+      const sim = simRef.current, tgtp = resumeTargetRef.current, back = tgtp ? { x: tgtp.x, y: tgtp.y } : { ...sim.pos }, st = stationRef.current;
       simRefillRef.current = { resumeAt: back };
       manualPathRef.current = { legs: [
-        { to: { ...st }, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },   // walk to the tank
+        { to: { ...st }, dur: Math.max(700, dist(sim.pos, st) * SIM_MS_PER_M) },   // walk to the tank
         { to: { ...st }, dur: SIM_MIX_MS },                                      // mix a new tank
-        { to: back, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },         // walk back to the lane
+        { to: back, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },         // walk to the next lane
       ], idx: 0, prog: 0, from: { ...back }, onDone: () => { if (autoWalkRef.current && srcModeRef.current === 'sim') { modeSwitchAtRef.current = 0; resumeRef.current(); } } };
-      AgrasLog.add('SIM', `tank out at ${back.x.toFixed(1)},${back.y.toFixed(1)}: walking to the station`);
+      AgrasLog.add('SIM', `tank out at ${sim.pos.x.toFixed(1)},${sim.pos.y.toFixed(1)}: walking to the station`);
     }
     saveSessionNow(); // key-event autosave — operator may set the phone down here to walk to the tank
   };
@@ -4365,6 +4434,22 @@ function App() {
     const sim = simRef.current;
     if (!tankOpenRef.current) openTank();
     manualPathRef.current = null; setExcursionActive(false);
+    // REFILLED away from the next lane: say so for a few seconds, never block
+    const tgt = resumeTargetRef.current;
+    if (tgt) {
+      const away = dist(sim.pos, tgt);
+      if (away > RESUME_NEAR_M) {
+        AgrasLog.add('RESUME', `REFILLED ${Math.round(away)}m from the next lane`);
+        setResumeWarn(`Still ${Math.round(away)} m from the next lane`);
+        clearTimeout(resumeWarnTimerRef.current); resumeWarnTimerRef.current = setTimeout(() => setResumeWarn(null), 6000);
+      }
+      // SIM: carry on with the lanes still to do, the next one walked from its near end
+      if (srcMode === 'sim' && away <= RESUME_NEAR_M) {
+        sim.route = simWaypointsFromPlan({ segs: tgt.left }, { x: tgt.x, y: tgt.y });
+        sim.wp = 1; sim.pos = { x: tgt.x, y: tgt.y };
+      }
+    }
+    resumeTargetRef.current = null;
     opModeRef.current = 'spray'; setOpMode('spray');
     sim.epoch += 1; sim.passHeading = null; sim.breakpoint = null;
     lowLiquidWarnedRef.current = false;
@@ -4376,6 +4461,9 @@ function App() {
 
   const resumeRef = useRef(null); resumeRef.current = resumeSprayingNow;
   const reachedStationRef = useRef(false);   // this refill trip has reached the station (see the refill pill)
+  const resumeTargetRef = useRef(null);     // start of the next unsprayed lane while heading back from a refill (nextLaneTarget)
+  const [resumeWarn, setResumeWarn] = useState(null);
+  const resumeWarnTimerRef = useRef(0);
   const simUsedRef = useRef(false);          // this mission ran any SIM walking (see the srcMode effect)
   const tankEmptyRef = useRef(null); tankEmptyRef.current = tankEmpty;
   /** Tank tile button: TANK EMPTY while spraying, REFILLED during the trip. */
@@ -4910,22 +4998,39 @@ function App() {
         {phase === 'running' && guidanceCopy && (() => {
           if (dStation < 10) reachedStationRef.current = true;
           const reached = reachedStationRef.current;
-          if (reached && dStation >= 15) return null;
+          const rt = resumeTargetRef.current;
+          if (reached && dStation >= 15 && !rt) return null;
+          const dNext = reached && dStation >= 15 && rt ? dist(sim.pos, rt) : null;
           return (
             <div className="shrink-0 px-3 pb-2 flex justify-center">
               <div className="pointer-events-auto">
                 <Glass className="px-3 py-1.5 flex items-center gap-2 border-[#0C6B48]/40">
-                  {reached
-                    ? <Droplet size={15} className="text-[#0C6B48] shrink-0" />
-                    : <Navigation size={15} className="text-[#0C6B48] shrink-0" style={{ transform: `rotate(${bearingTo(sim.pos, stationRef.current)}deg)` }} />}
+                  {dNext != null
+                    ? <Navigation size={15} className="text-[#8A4B06] shrink-0" style={{ transform: `rotate(${bearingTo(sim.pos, rt)}deg)` }} />
+                    : reached
+                      ? <Droplet size={15} className="text-[#0C6B48] shrink-0" />
+                      : <Navigation size={15} className="text-[#0C6B48] shrink-0" style={{ transform: `rotate(${bearingTo(sim.pos, stationRef.current)}deg)` }} />}
                   <span className="text-[12px] font-mono font-bold text-[#0C6B48] whitespace-nowrap">
-                    {reached ? 'At the station · refill, then tap REFILLED' : `To station · ${dStation.toFixed(0)} m`}
+                    {dNext != null
+                      ? (dNext <= RESUME_NEAR_M ? 'At the next lane · tap REFILLED' : `Next lane · ${dNext.toFixed(0)} m`)
+                      : reached ? 'At the station · refill, then tap REFILLED' : `To station · ${dStation.toFixed(0)} m`}
                   </span>
                 </Glass>
               </div>
             </div>
           );
         })()}
+
+        {phase === 'running' && opMode === 'spray' && resumeWarn && (
+          <div className="shrink-0 px-3 pb-2 flex justify-center">
+            <div className="pointer-events-auto">
+              <Glass className="px-3 py-1.5 flex items-center gap-2 border-[#8A4B06]/50">
+                <Navigation size={15} className="text-[#8A4B06] shrink-0" />
+                <span className="text-[12px] font-mono font-bold text-[#8A4B06] whitespace-nowrap">{resumeWarn}</span>
+              </Glass>
+            </div>
+          </div>
+        )}
 
         {/* ---------- BOTTOM INFO ROW — area sprayed + legend ----------
             Its own row too: guaranteed above the dock, guaranteed below the

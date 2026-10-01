@@ -801,6 +801,37 @@ spraying session's weather (`weatherStart`/`weatherApi.uvIndex`) and listed in
 the report as `UV 9 (สูงมาก)` (the owner asked for that next). Cached readings without
 `uvIndex` are refetched. Test: `uvIndex` (3, Open-Meteo mocked).
 
+### Next lane after a refill (2026-10-01, built in the test build only, SIM + harness)
+
+The owner asked for a "navigate back to carry on spraying" system. Their own log
+(`ls_field_l.json` backup, 2026-09-30 evening and 2026-10-01 morning) showed how
+they spray: **a tank is one long lane (110-160 m, about 4 minutes) walked one way
+from the station end**, the tank runs out at the far end, and the 225 m walk back
+is empty. Each next tank starts on a fresh lane beside the last, ~70 m from the
+station. So pointing back at the spot the tank ran out is the wrong target.
+The owner chose (all in `docs/PROPOSAL-resume-point.md`): straight dashed line,
+warn-only when REFILLED is far, **next lane near the station, not the stop**, red
+for the tail of the lane left, no vibration.
+
+How it works (`src.html`): `tankEmpty()` calls `markLaneRemainder()` (flags the
+rest of the lane as missed, along the heading to the field edge, if 5 m or more)
+and `nextLaneTarget()` (first lane of the suggested route plan, the same lanes the
+ROUTE button draws, that is at most 15% sprayed, turned round when its far end is
+nearer the station), stored in `resumeTargetRef`. After the station (`reachedStationRef`)
+and 15 m out, the map line, the pin (`opts.lastStop`) and a chip `Next lane · N m`
+point at it, `At the next lane · tap REFILLED` within 8 m. `resumeSprayingNow()`
+warns `Still N m from the next lane` for 6 s when pressed further out, never blocks.
+In SIM the walk goes station -> next lane and the route is rebuilt from the lanes
+still to do. A SIM tank that is used up carries on to the end of its lane before
+TANK EMPTY (the owner's tanks end at a lane end), so SIM leaves no red tail; the
+tail flag only fires from real GPS stops mid-lane.
+Tests: `nextLane` (GPS) and the changed `simWalk`.
+
+Not verified on a phone. Unexplained in the log: on 2026-10-01 08:29-08:33 the
+TANK EMPTY button did not respond for about 4 minutes (the owner's memory, the log
+shows the app running normally). No cause found; the tap is not logged, so a next
+occurrence cannot be diagnosed. Logging each tap with its outcome is still open.
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against

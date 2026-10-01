@@ -58,7 +58,8 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | the clock stops for the refill trip and runs again after REFILLED; summary says SPRAY TIME | spray time only |
 | the field remembers where spraying stopped; home shows the distance and frames the whole field; a closed round forgets it | carrying on with a field |
 | ROUTE: lanes one swath apart, tanks per rai, start nearest the station, direction switch, back closes, Edge gap | suggested route |
-| SIM: tank runs out per area, walks to the station and back without painting, covers the field, stops at FINISH | SIM walks the route |
+| SIM: tank runs out per area, walks to the station and on to the next lane without painting, each tank ends at a lane end, carries on lane by lane, covers the field, stops at FINISH | SIM walks the route |
+| After TANK EMPTY the chip points at the start of the next unsprayed lane (`Next lane · N m`), `At the next lane` near it, REFILLED far away warns for a few seconds and still records | next lane after a refill |
 | SIM → GPS mid-mission: the SIM walk stops, no auto-REFILLED, the record is tagged `src: 'sim'` | SIM→GPS switch |
 | Field app (`prod`): no DEV even with the old flag, 7-tap ignored, no test-log row; test app: DEV on, TEST tag | two apps |
 | Crop check: photo pinned at the operator, field card counts it, AI (mocked) queued offline and done online with Sonnet 5 + JSON schema + the key, listed in the report | crop check |
