@@ -36,6 +36,10 @@ async function boot(opts = {}) {
   // with the old 2 s so its refill trips don't each wait half a minute
   // (modeLock sets the real value back to test the countdown itself).
   await ctx.addInitScript(() => { if (typeof window.AGRAS_MODE_LOCK_MS !== 'number') window.AGRAS_MODE_LOCK_MS = 2000; });
+  // The suite never needs the real network (it is all mocked or blocked), but
+  // the app waits while navigator.onLine is false, and this machine's internet
+  // comes over the phone's hotspot, which drops now and then. Pin it online.
+  await ctx.addInitScript(() => { try { Object.defineProperty(Navigator.prototype, 'onLine', { configurable: true, get: () => true }); } catch (e) { /* ignore */ } });
   const page = await ctx.newPage();
   const logs = [];
   page.on('console', (m) => logs.push(m.text()));
