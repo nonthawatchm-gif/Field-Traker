@@ -11,7 +11,7 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (122 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
+`app/test/run.js` (123 checks now, all passing). `build-74` (`9101a36`, the two-app split) is installed on the owner's
 phone: the field app updated in place, and the test app alongside it.
 
 ## Start here
@@ -20,11 +20,11 @@ phone: the field app updated in place, and the test app alongside it.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 122 checks, ~22 min, expect 122/122
+node test/run.js                     # 123 checks, ~22 min, expect 123/123
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 122/122 on a clean checkout, something in the fixes below
+If `test/run.js` is not 123/123 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
@@ -654,6 +654,11 @@ photos; asking a chat app by hand is free but manual.
 - **Report.** `buildFieldReport(field, missions, checks)` gives each round its
   checks; the report screen and the shared text list them.
 - Test: `cropChecks` (5 checks; the API is mocked with `page.route`).
+- **Retry race (fixed 2026-10-01):** if the phone came back online while a
+  failing request was still finishing, that failure set the 60 s back-off
+  after the `online` event had cleared it, so the check sat queued a minute.
+  A failure now backs off only if no `online` event came since it started
+  (`aiOnlineAtRef`). Test: `aiOnlineRace` (it failed on the old code).
 - **Verified on the phone (build-75, test app, 2026-09-23):** the owner took
   photos through CHECK → TAKE PHOTO HERE (camera permission prompt, photo,
   pin, crop, status, note) and reported every step working. **Not yet

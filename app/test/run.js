@@ -1166,10 +1166,38 @@ async function uvIndex() {
   }
 }
 
+/** Back online while a failed AI request is still finishing: it retries at
+ *  once instead of sitting out the 60 s back-off (seen as a flaky cropChecks). */
+async function aiOnlineRace() {
+  const { browser, ctx, page } = await boot();
+  await makeField(ctx, page, [[0, 0], [60, 0], [60, 140], [0, 140]], [-8, -6]);
+  await page.evaluate(() => localStorage.setItem('agras_ai_key', 'sk-ant-test-1234'));
+  await page.reload(); await page.waitForTimeout(2500);
+  let calls = 0;
+  await page.route('https://api.anthropic.com/**', async (route) => {
+    calls++;
+    if (calls === 1) { await new Promise((r) => setTimeout(r, 2500)); return route.abort(); }   // a slow failure
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ model: 'claude-sonnet-5', stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ status: 'healthy', name: 'ปกติ ไม่พบปัญหา', confidence: 'high', seen: 'ใบเขียวดี', actives: [], todo: [] }) }] }) });
+  });
+  const photo = await page.screenshot({ type: 'jpeg', quality: 60 });
+  await page.locator('[aria-label="Crop check"]').locator('visible=true').first().click({ force: true });
+  await page.waitForTimeout(400);
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), tap(page, 'TAKE PHOTO HERE', { wait: 0 })]);
+  await chooser.setFiles({ name: 'leaf.jpg', mimeType: 'image/jpeg', buffer: photo });
+  await page.waitForTimeout(1200);
+  await tap(page, 'ANALYSE WITH AI', { wait: 1000 });
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));   // while request 1 is still failing
+  await page.waitForTimeout(5000);
+  const rec = await page.evaluate(() => JSON.parse(localStorage.getItem('agras-tracker-checks'))[0]);
+  check('back online during a failing request: retried at once, not after 60 s', rec.aiState === 'done' && calls === 2, `state ${rec.aiState}, ${calls} requests`);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex, aiOnlineRace }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);

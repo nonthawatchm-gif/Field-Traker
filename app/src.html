@@ -3264,6 +3264,7 @@ function App() {
   const checkPinsRef = useRef(null);      // { key, list } for drawScene, set each render
   const aiBusyRef = useRef(false);
   const aiRetryAtRef = useRef(0);
+  const aiOnlineAtRef = useRef(0);        // when the phone last came back online
   const updateChecks = (fn) => setChecks((prev) => { const next = fn(prev); persistChecks(next); return next; });
   const patchCheck = (id, patch) => updateChecks((l) => l.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   const takeCheckPhoto = () => {
@@ -3305,7 +3306,7 @@ function App() {
   // Wake the queue when the phone comes back online, and once a minute.
   useEffect(() => {
     const wake = () => setAiTick((n) => n + 1);
-    const online = () => { aiRetryAtRef.current = 0; wake(); };
+    const online = () => { aiRetryAtRef.current = 0; aiOnlineAtRef.current = Date.now(); wake(); };
     window.addEventListener('online', online);
     const t = setInterval(wake, 60000);
     return () => { window.removeEventListener('online', online); clearInterval(t); };
@@ -3317,6 +3318,7 @@ function App() {
     if (!next) return;
     aiBusyRef.current = true;
     patchCheck(next.id, { aiState: 'running', aiError: null });
+    const startedAt = Date.now();
     (async () => {
       try {
         const url = await readPhoto(next.id);
@@ -3326,7 +3328,9 @@ function App() {
         AgrasLog.add('CHECK', `AI ${next.id}: ${ai.status} · ${ai.name} (${ai.confidence})`);
       } catch (err) {
         const m = (err && err.message) || String(err);
-        if (err && err.retry) aiRetryAtRef.current = Date.now() + 60000;
+        // back off a minute, unless the phone came back online while this
+        // request was failing: then try again straight away
+        if (err && err.retry && !(aiOnlineAtRef.current >= startedAt)) aiRetryAtRef.current = Date.now() + 60000;
         patchCheck(next.id, err && err.retry ? { aiState: 'queued', aiError: m } : { aiState: 'error', aiError: m });
         AgrasLog.add('CHECK', `AI ${next.id} failed: ${m}`);
       } finally {
