@@ -1269,10 +1269,33 @@ async function nextLane() {
   await browser.close();
 }
 
+/** The app killed on the walk back from the station (screen off, Android reclaims it):
+ *  after the restore the chip still points at the next lane, not back at the station. */
+async function nextLaneRestore() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+  await makeField(ctx, page);                       // 80 x 80, station at -10,-10
+  await moveTo(ctx, page, 1.5, 1.5, 900);
+  await startSpray(page, 1200);
+  await walk(ctx, page, [1.5, 1.5], [60, 1.5], 2, 100);
+  await tap(page, 'TANK EMPTY', { wait: 900 });
+  await walk(ctx, page, [60, 1.5], [-10, -10], 3, 100);   // to the station
+  await walk(ctx, page, [-10, -10], [40, 40], 3, 100);    // and away from it
+  await page.waitForTimeout(6500);                        // past the 5 s autosave
+  await page.reload();
+  await page.waitForTimeout(3500);
+  await tap(page, 'RESUME', { wait: 1500 });
+  await moveTo(ctx, page, 40.5, 40, 900);
+  const t = await txt(page);
+  const m = t.match(/Next lane · (\d+) m/);
+  check('after a restore mid-refill the chip still points at the next lane', !!m, m ? m[0] : (t.match(/To station · \d+ m|At the station[^|]*/) || [''])[0]);
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex, aiOnlineRace, nextLane }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex, aiOnlineRace, nextLane, nextLaneRestore }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
