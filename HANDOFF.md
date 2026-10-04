@@ -40,10 +40,11 @@ Two notes on running it:
 
 ## Where things stand
 
-- State on 2026-10-01 (night): the test app has `build-87` (`a4f5e8e`: next
-  lane after a refill, plus the AI retry race and the harness fix on top of
-  build-84's work), installed with the field app's data copied in (backups of both
-  apps taken first, in `%TEMP%gras-tools\*_b87pre.*`). The field app is still on
+- State on 2026-10-04: the test app has `build-90` (`53b9e1d`: next lane
+  after a refill with PR #5's two fixes and the station line "refill, then walk
+  to the next lane", on top of build-84's work), installed with the field app's
+  data copied in (backups of both apps taken first, in
+  `%TEMP%gras-tools\*_b90pre.*`). The field app is still on
   `05d537f` and waits for the owner's word. **Standing rule from the owner:
   whenever a build goes on the test app, copy the field app's data into it
   first.** CI keeps only the 3 newest releases. Next lane is not yet tried on the
