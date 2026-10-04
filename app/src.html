@@ -2082,16 +2082,30 @@ function drawScene(ctx, w, h, v, field, sim, gridCanvas, station, opts = {}) {
   if (opts.plotting) {
     const pts = opts.drafting;
     if (pts && pts.length) {
-      ctx.strokeStyle = '#0A5238'; ctx.lineWidth = 1.75; ctx.setLineDash([6, 5]);
-      ctx.beginPath();
-      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(X_(v, p.x), Y_(v, p.y)) : ctx.lineTo(X_(v, p.x), Y_(v, p.y))));
-      if (pts.length > 2) ctx.lineTo(X_(v, pts[0].x), Y_(v, pts[0].y));
-      ctx.stroke(); ctx.setLineDash([]);
+      // Drawn like the finished boundary, a white line on a dark halo, so it reads
+      // over satellite imagery (the owner: the thin dark-green dashes were invisible).
+      // The sides plotted so far are solid; the closing side back to the first
+      // corner is dashed, since the field is not closed yet.
+      const k = Math.min(2, window.devicePixelRatio || 1);
+      const halo = (draw) => {
+        ctx.beginPath(); draw();
+        ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 5.5 * k; ctx.stroke();
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * k; ctx.stroke();
+      };
+      ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      if (pts.length > 1) halo(() => pts.forEach((p, i) => (i === 0 ? ctx.moveTo(X_(v, p.x), Y_(v, p.y)) : ctx.lineTo(X_(v, p.x), Y_(v, p.y)))));
+      if (pts.length > 2) {
+        ctx.setLineDash([6 * k, 6 * k]);
+        const a = pts[pts.length - 1], b = pts[0];
+        halo(() => { ctx.moveTo(X_(v, a.x), Y_(v, a.y)); ctx.lineTo(X_(v, b.x), Y_(v, b.y)); });
+        ctx.setLineDash([]);
+      }
       pts.forEach((p, i) => {
         ctx.fillStyle = i === 0 ? '#8A4B06' : '#0A5238';
-        ctx.beginPath(); ctx.arc(X_(v, p.x), Y_(v, p.y), i === 0 ? 5 : 4, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.beginPath(); ctx.arc(X_(v, p.x), Y_(v, p.y), (i === 0 ? 6 : 5) * k, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2 * k; ctx.stroke();
       });
+      ctx.restore();
     }
     if (opts.live) {
       const lx = X_(v, opts.live.x), ly = Y_(v, opts.live.y);
@@ -3674,7 +3688,8 @@ function App() {
              satelliteOnRef.current && zoomCeilingRef.current, lastStop ? lastStop.x + ',' + lastStop.y : '', route ? rp.idx + ':' + route.segs.length + ':' + route.faint : '', pins ? pins.key : ''].join('|');
         if (sig !== null && sig === lastSigRef.current) return;
         lastSigRef.current = sig || '';
-        drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, stationRef.current, {
+        // while placing the station, the station icon sits on the point being chosen
+        drawScene(cv.getContext('2d'), cv.width, cv.height, viewRef.current, field, sim, gridCanvasRef.current, ph === 'station' ? (stationDraftRef.current || stationRef.current) : stationRef.current, {
           plotting: ph === 'boundary', drafting: draftRef.current,
           live: ph === 'boundary' && sm === 'gps' && gpsLiveRef.current.lat != null ? gpsLiveRef.current : null,
           static: ph === 'ready' || ph === 'boundary',
@@ -3688,10 +3703,14 @@ function App() {
         if (ph === 'station') {
           const pt = stationDraftRef.current || stationRef.current;
           const v = viewRef.current, ctx = cv.getContext('2d');
-          ctx.save(); ctx.strokeStyle = 'rgba(10,82,56,.6)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+          // a pulsing white ring on a dark halo around it, so it is found on satellite imagery
+          // (the owner: the thin dark-green dashed ring could not be seen)
           const kk = Math.min(2, window.devicePixelRatio || 1);
-          ctx.lineWidth = 1.5 * kk;
-          ctx.beginPath(); ctx.arc(X_(v, pt.x), Y_(v, pt.y), (13 + 3 * Math.sin(t / 220)) * kk, 0, Math.PI * 2); ctx.stroke();
+          const r = (22 + 4 * Math.sin(t / 220)) * kk;
+          ctx.save();
+          ctx.beginPath(); ctx.arc(X_(v, pt.x), Y_(v, pt.y), r, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 5 * kk; ctx.stroke();
+          ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.5 * kk; ctx.stroke();
           ctx.restore();
         }
       }
