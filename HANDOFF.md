@@ -40,11 +40,11 @@ Two notes on running it:
 
 ## Where things stand
 
-- State on 2026-10-04: the test app has `build-90` (`53b9e1d`: next lane
-  after a refill with PR #5's two fixes and the station line "refill, then walk
-  to the next lane", on top of build-84's work), installed with the field app's
-  data copied in (backups of both apps taken first, in
-  `%TEMP%gras-tools\*_b90pre.*`). The field app is still on
+- State on 2026-10-04: the test app has `build-91` (`ad57b1a`: next lane
+  after a refill with PR #5's fixes, the station line "refill, then walk to the
+  next lane", and the plotting line and station pick drawn white on a dark halo
+  so they read over satellite), installed with the field app's data copied in
+  (backups of both apps taken first, in `%TEMP%\agras-tools\*_b91pre.*`). The field app is still on
   `05d537f` and waits for the owner's word. **Standing rule from the owner:
   whenever a build goes on the test app, copy the field app's data into it
   first.** CI keeps only the 3 newest releases. Next lane is not yet tried on the
