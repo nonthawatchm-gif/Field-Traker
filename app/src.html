@@ -5017,7 +5017,7 @@ function App() {
                   <span className="text-[12px] font-mono font-bold text-[#0C6B48] whitespace-nowrap">
                     {dNext != null
                       ? (dNext <= RESUME_NEAR_M ? 'At the next lane · tap REFILLED' : `Next lane · ${dNext.toFixed(0)} m`)
-                      : reached ? 'At the station · refill, then tap REFILLED' : `To station · ${dStation.toFixed(0)} m`}
+                      : reached ? (rt ? 'At the station · refill, then walk to the next lane' : 'At the station · refill, then tap REFILLED') : `To station · ${dStation.toFixed(0)} m`}
                   </span>
                 </Glass>
               </div>

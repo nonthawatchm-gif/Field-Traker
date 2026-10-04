@@ -819,7 +819,9 @@ rest of the lane as missed, along the heading to the field edge, if 5 m or more)
 and `nextLaneTarget()` (first lane of the suggested route plan, the same lanes the
 ROUTE button draws, that is at most 15% sprayed, turned round when its far end is
 nearer the station), stored in `resumeTargetRef`. After the station (`reachedStationRef`)
-and 15 m out, the map line, the pin (`opts.lastStop`) and a chip `Next lane · N m`
+and 15 m out, the map line, the pin (`opts.lastStop`) and a chip `Next lane · N m` (at the station the line reads
+`At the station · refill, then walk to the next lane`; with no lane left, the old
+`refill, then tap REFILLED`)
 point at it, `At the next lane · tap REFILLED` within 8 m. `resumeSprayingNow()`
 warns `Still N m from the next lane` for 6 s when pressed further out, never blocks.
 In SIM the walk goes station -> next lane and the route is rebuilt from the lanes

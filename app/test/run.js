@@ -1247,7 +1247,7 @@ async function nextLane() {
   const log0 = await page.evaluate(() => AgrasLog.lines().join('\n'));
   check('TANK EMPTY picks the next lane to point at', /RESUME next lane starts at/.test(log0), (log0.match(/RESUME .*/) || [''])[0].slice(0, 90));
   await walk(ctx, page, [60, 1.5], [-10, -10], 3, 100);   // to the station
-  check('at the station the line still says refill', /At the station · refill, then tap REFILLED/.test(await txt(page)));
+  check('at the station the line says refill, then walk to the next lane', /At the station · refill, then walk to the next lane/.test(await txt(page)));
   await walk(ctx, page, [-10, -10], [40, 40], 3, 100);    // away from the station, nowhere near a lane start
   let t = await txt(page);
   const m = t.match(/Next lane · (\d+) m/);
