@@ -851,6 +851,8 @@ so no installed app has it.
 
 ### Thai UI with a language switch (2026-10-04, not yet built)
 
+**Hold the build:** the owner wants it built together with the dark-mode design, once that is done (2026-10-04).
+
 The owner asked for the UI in Thai and a language switch in Settings. The owner
 translated the strings themselves: `docs/translate/ui-strings-th.csv` (English,
 Thai, screen, notes, source line; "ไม่ต้องแปล" = keep English). How it works:
