@@ -44,11 +44,12 @@ Two notes on running it:
   after a refill with PR #5's fixes, the station line "refill, then walk to the
   next lane", and the plotting line and station pick drawn white on a dark halo
   so they read over satellite), installed with the field app's data copied in
-  (backups of both apps taken first, in `%TEMP%\agras-tools\*_b91pre.*`). The field app is still on
-  `05d537f` and waits for the owner's word. **Standing rule from the owner:
+  (backups of both apps taken first, in `%TEMP%\agras-tools\*_b91pre.*`). The field app got the
+  same build on the owner's word (`app-prod.apk` of build-91, 2026-10-04 09:59;
+  its data checked unchanged afterwards, backup in `*_prodpre.*`). **Standing rule from the owner:
   whenever a build goes on the test app, copy the field app's data into it
-  first.** CI keeps only the 3 newest releases. Next lane is not yet tried on the
-  phone.
+  first.** CI keeps only the 3 newest releases. Next lane is not yet tried in a
+  real field.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
   turned out to be the docs commit, not the UI change it was assumed to be, and
