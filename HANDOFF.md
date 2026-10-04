@@ -849,6 +849,36 @@ whole feature exists for. The target is now rebuilt from the restored grid
 session. Test: `nextLaneRestore`. Landed as `909dbde` (PR #6) after build-91,
 so no installed app has it.
 
+### Thai UI with a language switch (2026-10-04, not yet built)
+
+The owner asked for the UI in Thai and a language switch in Settings. The owner
+translated the strings themselves: `docs/translate/ui-strings-th.csv` (English,
+Thai, screen, notes, source line; "ไม่ต้องแปล" = keep English). How it works:
+
+- `T(key, ...args)` near the top of `src.html`; `UI_TH` holds the translations
+  (keys are the English text, `{0}` `{1}` for values). `UI_LANG` is `'th'` unless
+  `localStorage.agras_lang === 'en'`. Settings has `ภาษา · Language: ไทย | English`
+  (`changeLang`): it re-renders, no reload. `<html lang>` follows it, and
+  `html:lang(th) body * { letter-spacing: normal }` stops the mono / tracking
+  labels pulling Thai syllables apart.
+- The strings were wrapped by a one-off babel script (321 places), then about 15
+  composed strings it could not see were wrapped by hand (`{0} check{1} left`,
+  `pace {0} m/s`, the `rai` unit, GPS status words, `m² of {0}`). Whitespace around
+  a key lives at the call site (`" " + T("· not started")`), not in the key.
+- **When adding UI text, wrap it in `T()` and add the Thai to `UI_TH`.** A string
+  that is compared somewhere must be compared through `T()` too (`gpsQuality ===
+  T("STRONG")`).
+- **The test harness runs in English** (`harness.js` sets `agras_lang = 'en'` unless
+  a test sets it), so every check still reads the English text. Last full run
+  before the whitespace fix: 129/132; the 3 failures were the field card losing a
+  space before `· not started`; fixed, `rounds,cropChecks,sprayReport,homeDesign`
+  then 25/25. Full suite not rerun after that fix.
+- Checked by walking every screen in Thai in SIM: what is left in English is the
+  DEV panel only (SIM, AUTO-WALK, TEST OUT-OF-BOUNDS), which the field app hides.
+- Open: the owner kept `REFILLED · SPRAY` (tank tile) as `เติมแล้ว · พ่น` while the
+  dock button is `เติมน้ำแล้ว · เริ่มพ่น`; asked whether to align. Also the strings
+  translated by hand (list above) are the assistant's Thai, not yet reviewed.
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against

@@ -40,6 +40,9 @@ async function boot(opts = {}) {
   // the app waits while navigator.onLine is false, and this machine's internet
   // comes over the phone's hotspot, which drops now and then. Pin it online.
   await ctx.addInitScript(() => { try { Object.defineProperty(Navigator.prototype, 'onLine', { configurable: true, get: () => true }); } catch (e) { /* ignore */ } });
+  // The app's UI is Thai by default; the checks read the English text, so run in English
+  // (the Settings language switch writes the same key).
+  await ctx.addInitScript(() => { try { if (!localStorage.getItem('agras_lang')) localStorage.setItem('agras_lang', 'en'); } catch (e) { /* ignore */ } });
   const page = await ctx.newPage();
   const logs = [];
   page.on('console', (m) => logs.push(m.text()));

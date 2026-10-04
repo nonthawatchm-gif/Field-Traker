@@ -30,6 +30,8 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   :root { color-scheme: light; }
+  /* Thai text: no letter-spacing (the mono / tracking-wide labels pulled Thai syllables apart) */
+  html:lang(th) body * { letter-spacing: normal !important; }
   html, body { background: #F4F1E7; height: 100%; margin: 0; padding: 0; overscroll-behavior: none; }
   body {
     font-family: 'IBM Plex Sans Thai', ui-sans-serif, system-ui, sans-serif;
@@ -104,6 +106,321 @@
 
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useEffect, useCallback } = React;
+
+/* ---- UI language: Thai by default, English from Settings (agras_lang = 'en'). The
+ * Thai text is the owner's translation (docs/translate/ui-strings-th.csv); a key is
+ * the English text with {0} {1} for the values put in. ---- */
+const UI_TH = {
+  "m² of {0}":"ตร.ม. จาก {0}",
+  "{0} check{1} left":"เหลือเช็ก {0} ข้อ",
+  "{0} item{1} unchecked":"ยังไม่เช็ก {0} ข้อ",
+  "{0}% of sprayed area{1}":"{0}% ของพื้นที่ที่พ่น{1}",
+  "pace {0} m/s":"ความเร็ว {0} ม./วินาที",
+  "swath {0} m":"หน้ากว้าง {0} ม.",
+  "{0}L tank{1}":"ถัง {0} ลิตร{1}",
+  "{0} tank{1} used":"ใช้ {0} ถัง",
+  "rai":"ไร่",
+  "active":"รับ GPS แล้ว",
+  "idle":"ยังไม่เปิด GPS",
+  "insecure":"ต้องใช้ HTTPS",
+  "unavailable":"ใช้ GPS ไม่ได้",
+  "requesting":"กำลังหาตำแหน่ง…","Share":"แชร์",
+  "Shared":"แชร์แล้ว",
+  "Downloaded":"ดาวน์โหลดแล้ว",
+  "Mission alerts":"แจ้งเตือนระหว่างพ่น",
+  "TANK EMPTY":"น้ำหมดถัง",
+  "Tank #":"ถังที่ ",
+  "rai ·":"ไร่ ·",
+  "avg {0} rai / tank":"เฉลี่ย {0} ไร่/ถัง",
+  "this tank so far":"ถังนี้ได้แล้ว",
+  "Pace":"ความเร็ว",
+  "Tracking spray coverage — tap to return to the app":"กำลังบันทึกพื้นที่พ่น — แตะเพื่อกลับเข้าแอป",
+  "Spraying is not being recorded":"ไม่ได้บันทึกการพ่นอยู่",
+  "Tap REFILLED · START SPRAYING if you are spraying again.":"กด เติมน้ำแล้ว · เพื่อเริ่มพ่นต่อ",
+  "Out of bounds":"ออกนอกแปลง",
+  "Spraying auto-cut off — walk back inside the field.":"หยุดบันทึกการพ่นแล้ว — เดินกลับเข้าในแปลง",
+  "Offline storage is not available on this browser/connection.":"เครื่องนี้เก็บแผนที่ออฟไลน์ไม่ได้",
+  "STOPPED":"หยุดอยู่",
+  "TOO SLOW · OVER SPRAYING":"เดินช้าไป · ละอองหนาเกินไป",
+  "TOO FAST · UNDER SPRAYING":"เดินเร็วไป · ละอองบางเกินไป",
+  "IDEAL PACE":"ความเร็วพอดี",
+  "STRONG":"ดี",
+  "FAIR":"พอใช้",
+  "WEAK":"อ่อน",
+  "· ≈{0} L wasted":"· ≈ เปลือง {0} ลิตร",
+  "re-sprayed over ground already covered{0}":"พ่นซ้ำพื้นที่ที่พ่นแล้ว{0}",
+  "no ground covered twice":"ไม่มีพื้นที่พ่นซ้ำ",
+  "SPRAY OFF / OUT OF FIELD":"หยุดพ่น / อยู่นอกแปลง",
+  "PLOT BOUNDARY":"วาดขอบแปลง",
+  "SET REFILL STATION":"ตั้งจุดเติมน้ำ",
+  "READY":"พร้อม",
+  "COMPLETE":"เสร็จ",
+  "PAUSED":"พัก",
+  "SPRAYING":"กำลังพ่น",
+  "REFILL · NOT RECORDING":"เติมน้ำ · ไม่บันทึก",
+  "REFILL — NOT RECORDING":"เติมน้ำ — ไม่บันทึก",
+  "Tap REFILLED · START SPRAYING when you spray again":"กด เติมน้ำแล้ว · เพื่อเริ่มพ่นต่อ",
+  "Unfinished mission restored. Tap Resume below to keep spraying, or Finish to end it.":"กู้งานที่ค้างไว้แล้ว กด พ่นต่อ ด้านล่างเพื่อพ่นต่อ หรือ จบงาน เพื่อปิดงานนี้",
+  "OUT OF BOUNDS — PAUSED":"ออกนอกแปลง — พัก",
+  "Spraying auto-cut off — walk back inside to resume":"หยุดพ่นอัตโนมัติ — เดินกลับเข้าแปลงเพื่อพ่นต่อ",
+  "TEST":"ทดสอบ",
+  "no field yet":"ยังไม่มีแปลง",
+  "· swath":"· หน้ากว้าง",
+  "locating…":"กำลังหาตำแหน่ง…",
+  "SET STATION":"ตั้งจุดเติมน้ำ",
+  "LAT":"ละติจูด",
+  "LNG":"ลองจิจูด",
+  "ACCURACY":"ความแม่นยำ",
+  "SPEED":"ความเร็ว",
+  "HEADING":"ทิศทาง",
+  "ALTITUDE":"ความสูง",
+  "REQUESTING GPS ACCESS…":"กำลังขอใช้ GPS…",
+  "LOCATION PERMISSION DENIED":"ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง",
+  "GPS UNAVAILABLE":"ใช้ GPS ไม่ได้",
+  "HTTPS REQUIRED FOR GPS":"ต้องใช้ HTTPS จึงจะใช้ GPS ได้",
+  "STARTING GPS…":"กำลังเปิด GPS…",
+  "Allow location access when your browser prompts you.":"กด อนุญาต เมื่อเครื่องถามเรื่องตำแหน่ง",
+  "This page’s location permission is set to Block. Open the site settings (the icon next to the address bar) and set Location to Allow — the browser remembers that choice for this page, so you won’t be asked again.":"หน้านี้ถูกตั้งให้บล็อกตำแหน่ง เปิดการตั้งค่าเว็บ (ไอคอนข้างช่องที่อยู่) แล้วตั้ง ตำแหน่ง เป็น อนุญาต — เบราว์เซอร์จะจำไว้ ไม่ถามอีก",
+  "This device or browser can’t report a location right now.":"เครื่องหรือเบราว์เซอร์นี้หาตำแหน่งไม่ได้ในตอนนี้",
+  "Try Again":"ลองอีกครั้ง",
+  "MAP THE PERIMETER":"วาดขอบแปลง",
+  "Drag the map so the crosshair sits on each corner, then tap Add at Crosshair.":"เลื่อนแผนที่ให้เป้าเล็งอยู่ตรงมุมแปลง แล้วกด ปักที่เป้าเล็ง ทีละมุม",
+  "Walk the real edges and tap Mark Corner at each one, or tap the map.":"เดินไปตามขอบแปลงจริง แล้วกด ปักมุม ที่แต่ละมุม หรือแตะบนแผนที่",
+  "Tap the field edges in order,":"แตะขอบแปลงตามลำดับ",
+  "more to close.":"อีกจุดจึงปิดแปลงได้",
+  "· all corners in? tap CLOSE FIELD":"· ครบทุกมุมแล้ว? กด ปิดแปลง",
+  "· map a real boundary to continue":"· ต้องวาดขอบแปลงจริงก่อนจึงไปต่อได้",
+  "Tap where the mix tank sits":"แตะตรงที่วางถังผสมยา",
+  "Spray time":"เวลาพ่น",
+  "Distance":"ระยะทาง",
+  "REFILLED · SPRAY":"เติมแล้ว · พ่น",
+  "Coverage":"พ่นแล้ว",
+  "Overlap":"พ่นซ้ำ",
+  "Zoom in":"ซูมเข้า",
+  "Zoom out":"ซูมออก",
+  "Center on my location":"ตำแหน่งของฉัน",
+  "Show all corners":"ดูทุกมุม",
+  "Suggest route":"แนะนำเส้นทาง",
+  "ROUTE":"เส้นทาง",
+  "Crop check":"ตรวจพืช",
+  "CHECK":"ตรวจพืช",
+  "North up":"หันทิศเหนือขึ้น",
+  "Re-center on me":"กลับมาที่ตัวฉัน",
+  "Whole field":"ดูทั้งแปลง",
+  "Show stats":"ดูตัวเลข",
+  "At the next lane · tap REFILLED":"ถึงเลนถัดไปแล้ว · กด เติมน้ำแล้ว",
+  "Next lane · {0} m":"เลนถัดไป · {0} ม.",
+  "At the station · refill, then walk to the next lane":"ถึงจุดเติมน้ำ · เติมน้ำเสร็จแล้ว เดินไปเลนถัดไป",
+  "At the station · refill, then tap REFILLED":"ถึงจุดเติมน้ำ · เติมน้ำเสร็จแล้ว กด เติมน้ำแล้ว",
+  "To station · {0} m":"ไปจุดเติมน้ำ · {0} ม.",
+  "Area sprayed":"พื้นที่ที่พ่น",
+  "· tank #":"· ถังที่ ",
+  "Unsprayed":"ยังไม่พ่น",
+  "Sprayed":"พ่นแล้ว",
+  "Overlapped":"พ่นซ้ำ",
+  "CANCEL":"ยกเลิก",
+  "MARK CORNER":"ปักมุม",
+  "ADD AT CROSSHAIR":"ปักที่เป้าเล็ง",
+  "UNDO":"ย้อนกลับ",
+  "TAP TO CONFIRM":"แตะอีกครั้งเพื่อยืนยัน",
+  "CLOSE FIELD":"ปิดแปลง",
+  "MY LOCATION":"ตำแหน่งฉัน",
+  "CONFIRM STATION":"ยืนยันจุดเติมน้ำ",
+  "Suggested route ·":"เส้นทางแนะนำ ·",
+  "along the long side":"ตามด้านยาว",
+  "across the field":"ขวางแปลง",
+  "· best":"· ดีที่สุด",
+  "lanes ·":"เลน ·",
+  "Walk to refill ≈":"เดินไปเติมน้ำ ≈",
+  "· ① ② … = tank runs out":"· ① ② … = จุดที่น้ำหมด",
+  "Starting at the far end would save ≈":"ถ้าเริ่มจากปลายไกลจะประหยัด ≈",
+  "Close route":"ปิดเส้นทาง",
+  "LANES ALONG THE LONG SIDE":"เลนตามด้านยาว",
+  "LANES ACROSS THE FIELD":"เลนขวางแปลง",
+  "Raining now":"ฝนกำลังตก",
+  "Wind {0} km/h":"ลม {0} กม./ชม.",
+  "UV {0} · very high":"UV {0} · สูงมาก",
+  "Last stop":"จุดที่หยุดล่าสุด",
+  "You are at the last stop":"คุณอยู่ที่จุดที่หยุดล่าสุด",
+  "Last stop · {0} m":"จุดที่หยุดล่าสุด · {0} ม.",
+  "Settings":"ตั้งค่า",
+  "SETTINGS":"ตั้งค่า",
+  "Field selector":"เลือกแปลง",
+  "sprayed {0}":"พ่นเมื่อ {0}",
+  "created {0}":"สร้างเมื่อ {0}",
+  "Round":"รอบที่",
+  "need action":"ต้องจัดการ",
+  "· {0}% sprayed":"· พ่นแล้ว {0}%",
+  "· not started":"· ยังไม่เริ่ม",
+  "· {0} check{1}":"· ตรวจพืช {0} ครั้ง",
+  "Tap to choose a saved field":"แตะเพื่อเลือกแปลงที่บันทึกไว้",
+  "No saved fields yet":"ยังไม่มีแปลงที่บันทึกไว้",
+  "Plot a field, then tap SAVE below":"วาดแปลง แล้วกด บันทึก ด้านล่าง",
+  "START SPRAYING":"เริ่มพ่น",
+  "TANK EMPTY · {0}":"น้ำหมดถัง · {0}",
+  "REFILLED · START SPRAYING · {0}":"เติมน้ำแล้ว · เริ่มพ่น · {0}",
+  "REFILLED · START SPRAYING":"เติมน้ำแล้ว · เริ่มพ่น",
+  "SAVE & PAUSE":"บันทึกและพัก",
+  "RESUME":"พ่นต่อ",
+  "FINISH":"จบงาน",
+  "CHEMICALS · ROUND":"สารเคมี · รอบที่",
+  "Chemical name":"ชื่อสารเคมี",
+  "Rate per tank":"อัตราต่อถัง",
+  "Unit":"หน่วย",
+  "Remove chemical":"ลบสารเคมี",
+  "ADD CHEMICAL":"เพิ่มสารเคมี",
+  "SAVE & START":"บันทึกและเริ่ม",
+  "SKIP":"ข้าม",
+  "SAVE":"บันทึก",
+  "Back to checks":"กลับไปรายการตรวจ",
+  "CROP CHECK":"ตรวจพืช",
+  "Close checks":"ปิดการตรวจพืช",
+  "WAITING FOR AI":"รอ AI",
+  "· no GPS":"· ไม่มี GPS",
+  "HEALTHY":"ปกติดี",
+  "UNSURE":"ไม่แน่ใจ",
+  "NEEDS ACTION":"ต้องจัดการ",
+  "ASK AI AGAIN":"ให้ AI ดูอีกครั้ง",
+  "ANALYSE WITH AI":"ให้ AI วิเคราะห์",
+  "TAP AGAIN TO DELETE":"แตะอีกครั้งเพื่อลบ",
+  "DELETE":"ลบ",
+  "DONE":"เสร็จ",
+  "TAKE PHOTO HERE":"ถ่ายรูปตรงนี้",
+  "no GPS yet — the photo is kept without a pin":"ยังไม่มี GPS — เก็บรูปไว้โดยไม่ปักหมุด",
+  "· AI on":"· เปิด AI",
+  "SPRAY REPORT":"รายงานการพ่น",
+  "SHARE":"แชร์",
+  "Close report":"ปิดรายงาน",
+  "FINISH · ROUND":"จบงาน · รอบที่",
+  "This field":"แปลงนี้",
+  "% sprayed this round":"% พ่นแล้วในรอบนี้",
+  "FIELD DONE · CLOSE ROUND {0}":"แปลงเสร็จแล้ว · ปิดรอบที่ {0}",
+  "Next time this field starts round":"ครั้งหน้าแปลงนี้จะเริ่มรอบที่",
+  "on an empty map.":"บนแผนที่ว่าง",
+  "NOT DONE · CONTINUE LATER":"ยังไม่เสร็จ · ไว้พ่นต่อ",
+  "stays open; its sprayed area is kept for next time.":"ยังเปิดอยู่ พื้นที่ที่พ่นแล้วเก็บไว้ใช้ครั้งหน้า",
+  "MISSION SUMMARY":"สรุปงาน",
+  "Round {0} · field done":"รอบที่ {0} · แปลงเสร็จแล้ว",
+  "Round {0} · continue later":"รอบที่ {0} · ไว้พ่นต่อ",
+  "Spray mission complete":"พ่นเสร็จแล้ว",
+  "Close":"ปิด",
+  "SPRAY TIME":"เวลาพ่น",
+  "DISTANCE":"ระยะทาง",
+  "AREA SPRAYED":"พื้นที่ที่พ่น",
+  "· field {0}% done":"· แปลงเสร็จ {0}%",
+  "OVERLAPPED":"พ่นซ้ำ",
+  "MISSED SPOTS":"จุดที่พ่นตก",
+  "flagged red on the map":"แสดงสีแดงบนแผนที่",
+  "none flagged":"ไม่มีจุดตก",
+  "TANKS USED":"ถังที่ใช้",
+  "· avg {0} rai/tank":"· เฉลี่ย {0} ไร่/ถัง",
+  "Saved to mission history":"บันทึกลงประวัติแล้ว",
+  "START NEW":"เริ่มใหม่",
+  "MISSION HISTORY":"ประวัติการพ่น",
+  "Mission history ·":"ประวัติการพ่น ·",
+  "logged ·":"ครั้ง ·",
+  "rai all-time":"ไร่ ทั้งหมด",
+  "No missions saved yet.":"ยังไม่มีประวัติการพ่น",
+  "Finish a spraying run and tap Save Session to log it here.":"พ่นให้เสร็จแล้วกด บันทึก เพื่อเก็บไว้ที่นี่",
+  "· {0}round {1}{2}":"· {0}รอบที่ {1}{2}",
+  "· open":"· ยังเปิด",
+  "% overlap":"% พ่นซ้ำ",
+  "No coverage image saved":"ไม่มีภาพพื้นที่พ่น",
+  "field {0} rai":"แปลง {0} ไร่",
+  "COMPLIANCE LOG":"บันทึกความปลอดภัย",
+  "PPE":"ชุดป้องกัน",
+  "Mix rate":"อัตราผสม",
+  "Nozzle":"หัวพ่น",
+  "Wind":"ลม",
+  "· Weather:":"· อากาศ:",
+  "Live reading:":"ค่าตอนนี้:",
+  "wind —":"ลม —",
+  "EXPORT CSV":"ส่งออก CSV",
+  "CLEAR HISTORY":"ล้างประวัติ",
+  "FIELD LIBRARY":"คลังแปลง",
+  "Saved field library ·":"แปลงที่บันทึกไว้ ·",
+  "ADD FIELD":"เพิ่มแปลง",
+  "No fields saved yet":"ยังไม่มีแปลงที่บันทึกไว้",
+  "Plot or load a field, then tap SAVE from the ready screen to keep it here.":"วาดหรือเลือกแปลง แล้วกด บันทึก ที่หน้าพร้อมพ่น เพื่อเก็บไว้ที่นี่",
+  "· GPS-anchored":"· ผูกกับ GPS แล้ว",
+  "· sprayed":"· พ่นแล้ว",
+  "· {0} mission{1}":"· {0} งาน",
+  "· {0} round{1} done":"· เสร็จ {0} รอบ",
+  "CONFIRM":"ยืนยัน",
+  "ACTIVE FIELD":"แปลงที่ใช้อยู่",
+  "SET AS ACTIVE FIELD":"ใช้แปลงนี้",
+  "REPORT":"รายงาน",
+  "TAP AGAIN — CLEAR SPRAYED AREA":"แตะอีกครั้ง — ล้างพื้นที่ที่พ่น",
+  "RESET SPRAYED AREA":"ล้างพื้นที่ที่พ่น",
+  "TAP AGAIN — ERASE ALL FIELDS, SPRAYED AREAS & HISTORY":"แตะอีกครั้ง — ลบแปลง พื้นที่พ่น และประวัติทั้งหมด",
+  "RESET ALL SAVED DATA":"ล้างข้อมูลทั้งหมด",
+  "NAME THIS FIELD":"ตั้งชื่อแปลงนี้",
+  "RENAME FIELD":"เปลี่ยนชื่อแปลง",
+  "Field saved ·":"บันทึกแปลงแล้ว ·",
+  "· SKIP keeps the date name":"· กด ข้าม จะใช้วันที่เป็นชื่อ",
+  "Field name":"ชื่อแปลง",
+  "e.g. Soybean Field 1":"เช่น แปลงถั่ว 1",
+  "Tank size and nozzle width · remembered for next time":"ขนาดถังและหน้ากว้างหัวพ่น · จำไว้ใช้ครั้งหน้า",
+  "Tank":"ถัง",
+  "Width":"หน้ากว้าง",
+  "Edge gap":"ระยะห่างขอบ",
+  "PPE worn":"ใส่ชุดป้องกันแล้ว",
+  "Mix rate OK":"อัตราผสมถูกต้อง",
+  "Nozzle checked":"ตรวจหัวพ่นแล้ว",
+  "Wind checked":"ดูลมแล้ว",
+  "Rain {0}%":"ฝน {0}%",
+  "Pre-flight checklist":"เช็กก่อนพ่น",
+  "All checked":"ครบทุกข้อ",
+  "Checking live wind/rain…":"กำลังดูลม/ฝน…",
+  "Live wind/rain unavailable — check manually":"ดูลม/ฝนไม่ได้ — ตรวจเอง",
+  "TAP TO USE":"แตะเพื่อใช้",
+  "Raining now: the spray will wash off.":"ฝนกำลังตก: ยาจะถูกชะล้าง",
+  "Rain likely within 3 hours: the spray may wash off.":"อาจมีฝนใน 3 ชั่วโมง: ยาอาจถูกชะล้าง",
+  "Strong wind: the spray will drift.":"ลมแรง: ยาจะปลิว",
+  "UV {0}, very high: cover up, drink water, rest in the shade.":"UV {0} สูงมาก: ปกปิดผิว ดื่มน้ำ พักในที่ร่ม",
+  "Operator name":"ชื่อผู้พ่น",
+  "Weather (e.g. calm, 28°C)":"สภาพอากาศ (เช่น ลมสงบ 28°C)",
+  "Chemicals · round":"สารเคมี · รอบที่",
+  "Field":"แปลง",
+  "EDIT BOUNDARY":"แก้ขอบแปลง",
+  "PLOT FIELD":"วาดแปลง",
+  "STATION":"จุดเติมน้ำ",
+  "Tools":"เครื่องมือ",
+  "Offline map ready · {0}":"แผนที่ออฟไลน์พร้อม · {0}",
+  "Offline map — not downloaded":"แผนที่ออฟไลน์ — ยังไม่ดาวน์โหลด",
+  "No missions logged yet":"ยังไม่มีประวัติการพ่น",
+  "rai total →":"ไร่ ทั้งหมด →",
+  "AI crop check ·":"ตรวจพืชด้วย AI ·",
+  "key sk-…{0} · this phone only":"คีย์ sk-…{0} · เฉพาะเครื่องนี้",
+  "no API key (photos and pins still work)":"ยังไม่มี API key (ถ่ายรูปและปักหมุดได้ตามปกติ)",
+  "replace key…":"เปลี่ยนคีย์…",
+  "paste Anthropic API key (sk-ant-…)":"วาง Anthropic API key (sk-ant-…)",
+  "Save API key":"บันทึก API key",
+  "REMOVE":"ลบ",
+  "Test log · {0} lines":"บันทึกทดสอบ · {0} บรรทัด",
+  "Preparing…":"กำลังเตรียม…",
+  "Share failed:":"แชร์ไม่สำเร็จ:",
+  "Log cleared":"ล้างบันทึกแล้ว",
+  "CLEAR":"ล้าง",
+  "OFFLINE MAP":"แผนที่ออฟไลน์",
+  "Download satellite maps for offline use · for the active field, before you lose signal":"ดาวน์โหลดภาพดาวเทียมไว้ใช้ออฟไลน์ · ของแปลงที่ใช้อยู่ ก่อนไปที่ไม่มีสัญญาณ",
+  "This browser doesn't support offline map storage — satellite imagery will need a live connection every time.":"เบราว์เซอร์นี้เก็บแผนที่ออฟไลน์ไม่ได้ — ต้องใช้เน็ตทุกครั้งที่ดูภาพดาวเทียม",
+  "Get a GPS fix at least once (switch to GPS mode) so the field's real-world location is known, then come back here to download.":"ให้ GPS จับตำแหน่งได้อย่างน้อยหนึ่งครั้ง (โหมด GPS) แอปจะรู้ตำแหน่งจริงของแปลง แล้วกลับมาดาวน์โหลดที่นี่",
+  "Offline Map Ready":"แผนที่ออฟไลน์พร้อม",
+  "No offline tiles cached yet":"ยังไม่มีแผนที่ออฟไลน์",
+  "Downloading tiles…":"กำลังดาวน์โหลดแผนที่…",
+  "CANCEL DOWNLOAD":"ยกเลิกดาวน์โหลด",
+  "DOWNLOAD FIELD MAP FOR OFFLINE USE":"ดาวน์โหลดแผนที่แปลงไว้ใช้ออฟไลน์",
+  "CLEAR OFFLINE CACHE":"ล้างแผนที่ออฟไลน์",
+  "Something went wrong":"เกิดข้อผิดพลาด",
+  "Your mission progress was autosaved — reopening will offer to resume it.":"งานที่พ่นบันทึกไว้แล้ว — เปิดแอปใหม่จะถามให้พ่นต่อ",
+  "Reload":"โหลดใหม่"};
+let UI_LANG = (() => { try { return localStorage.getItem('agras_lang') === 'en' ? 'en' : 'th'; } catch (e) { return 'th'; } })();
+function T(key, ...args) {
+  const s = UI_LANG === 'th' && UI_TH[key] != null ? UI_TH[key] : key;
+  return args.length ? s.replace(/\{(\d+)\}/g, (m, i) => (args[i] != null ? String(args[i]) : '')) : s;
+}
+
 
 /* ------------------------------------------------------------------ *
  * Icons — inlined lucide-style glyphs (same names as lucide-react,    *
@@ -1653,17 +1970,17 @@ async function shareTestLog() {
   AgrasLog.flush();
   const text = `Agras Field Tracker test log · build ${APP_BUILD}\n` + AgrasLog.text() + '\n';
   const name = 'agras-log-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '') + '.txt';
-  const FS = nativePlugin('Filesystem'), SH = nativePlugin('Share');
+  const FS = nativePlugin('Filesystem'), SH = nativePlugin(T("Share"));
   if (FS && SH) {
     const r = await FS.writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
     await SH.share({ title: 'Agras test log', text: name, url: r.uri, dialogTitle: 'Send test log' });
-    return 'Shared ' + name;
+    return (T("Shared") + " ") + name;
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  return 'Downloaded ' + name;
+  return (T("Downloaded") + " ") + name;
 }
 
 /* Native (Capacitor) bridge helpers — inert in a plain browser. */
@@ -1697,7 +2014,7 @@ function alertUser(freqs, title, body) {
     if (LN) {
       const send = () => LN.schedule({ notifications: [{ id: alertNotifId++ % 2000000000, title, body, channelId: 'agras-alerts' }] });
       if (alertChannelReady) send();
-      else LN.createChannel({ id: 'agras-alerts', name: 'Mission alerts', importance: 5, vibration: true, visibility: 1 }).catch(() => {}).then(() => { alertChannelReady = true; send(); });
+      else LN.createChannel({ id: 'agras-alerts', name: T("Mission alerts"), importance: 5, vibration: true, visibility: 1 }).catch(() => {}).then(() => { alertChannelReady = true; send(); });
     }
   } catch (e) { /* best-effort */ }
 }
@@ -2352,17 +2669,17 @@ const Tile = ({ icon: Icon, label, value, unit, accent }) => (
 /** Dedicated Liquid & Tank telemetry widget — a live bar gauge (not just a
  *  number) so remaining solution reads at a glance, plus a one-tap "just
  *  refilled" action for a manual top-off outside the formal breakpoint flow. */
-const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = 'TANK EMPTY', disabled }) => (
+const TankTile = ({ number, areaRai, avgRai, capacity, onEmpty, actionLabel = T("TANK EMPTY"), disabled }) => (
   <Glass className="pointer-events-auto px-3 py-2 min-w-[104px]">
     <div className="flex items-center gap-1.5 text-[#55655F]">
       <Droplet size={12} strokeWidth={2.25} className="text-[#0C6B48]" />
-      <span className="text-[9px] tracking-[.14em] uppercase font-mono">Tank #{number}</span>
+      <span className="text-[9px] tracking-[.14em] uppercase font-mono">{T("Tank #")}{number}</span>
     </div>
     <div className="flex items-baseline gap-1 mt-0.5">
       <span className="font-mono tnum text-[20px] leading-none font-semibold text-[#0C6B48]">{areaRai.toFixed(2)}</span>
-      <span className="text-[10px] text-[#55655F]">rai · {capacity}L</span>
+      <span className="text-[10px] text-[#55655F]">{T("rai ·")} {capacity}L</span>
     </div>
-    <p className="text-[8.5px] text-[#55655F] mt-1 whitespace-nowrap">{avgRai != null ? `avg ${avgRai.toFixed(2)} rai / tank` : 'this tank so far'}</p>
+    <p className="text-[8.5px] text-[#55655F] mt-1 whitespace-nowrap">{avgRai != null ? T("avg {0} rai / tank", avgRai.toFixed(2)) : T("this tank so far")}</p>
     <button onClick={onEmpty} disabled={disabled} className="mt-1.5 w-full min-h-[34px] rounded-md border border-[#8A4B06]/60 text-[#8A4B06] text-[10px] font-mono font-bold tracking-wide active:bg-[#8A4B06]/15 disabled:opacity-40">{actionLabel}</button>
   </Glass>
 );
@@ -2373,7 +2690,7 @@ const PaceTile = ({ kmh, label, color }) => (
   <Glass className="px-3 py-2 min-w-[104px]" style={{ borderColor: color + '55' }}>
     <div className="flex items-center gap-1.5 text-[#55655F]">
       <Gauge size={12} strokeWidth={2.25} style={{ color }} />
-      <span className="text-[9px] tracking-[.14em] uppercase font-mono">Pace</span>
+      <span className="text-[9px] tracking-[.14em] uppercase font-mono">{T("Pace")}</span>
     </div>
     <div className="flex items-baseline gap-1 mt-0.5">
       <span className="font-mono tnum text-[20px] leading-none font-semibold" style={{ color }}>{kmh.toFixed(1)}</span>
@@ -2503,6 +2820,10 @@ function App() {
       try { localStorage.setItem('agras_dev', next ? '1' : '0'); } catch (e) { /* ignore */ }
     }
   };
+  // UI language (see T()): kept in localStorage; switching re-renders, no reload
+  const [uiLang, setUiLang] = useState(UI_LANG);
+  useEffect(() => { try { document.documentElement.lang = uiLang; } catch (e) { /* ignore */ } }, [uiLang]);
+  const changeLang = (v) => { UI_LANG = v; try { localStorage.setItem('agras_lang', v); } catch (e) { /* ignore */ } setUiLang(v); AgrasLog.add('LANG', v); };
   const [srcMode, setSrcMode] = useState('gps');      // gps only (sim mode removed)
   const [gpsStatus, setGpsStatus] = useState('idle'); // idle | requesting | active | denied | unavailable | insecure
   const [gpsInfo, setGpsInfo] = useState(null);       // { lat, lng, accuracy }
@@ -3144,7 +3465,7 @@ function App() {
       AgrasLog.add('GPS', 'bg watcher start');
       let watcherId = null, cancelled = false;
       Promise.resolve(BG.addWatcher(
-        { backgroundTitle: 'Agras Field Tracker', backgroundMessage: 'Tracking spray coverage — tap to return to the app', requestPermissions: true, stale: false, distanceFilter: 0 },
+        { backgroundTitle: 'Agras Field Tracker', backgroundMessage: T("Tracking spray coverage — tap to return to the app"), requestPermissions: true, stale: false, distanceFilter: 0 },
         (loc, err) => {
           if (err) { AgrasLog.add('GPS', 'bg error ' + (err.code || '') + ' ' + (err.message || '')); setGpsStatus(err.code === 'NOT_AUTHORIZED' ? 'denied' : 'unavailable'); return; }
           if (loc) onPosition(loc.latitude, loc.longitude, loc.accuracy, loc.speed, loc.bearing, loc.altitude, 'bg');
@@ -3600,7 +3921,7 @@ function App() {
               if (closed < u.walked * 0.5 && Date.now() - u.lastAlert > 180000) {
                 u.lastAlert = Date.now();
                 AgrasLog.add('ALERT', `not recording: walked ${Math.round(u.walked)}m in the field during ${opModeRef.current}`);
-                alertUser([660, 660, 660], 'Spraying is not being recorded', 'Tap REFILLED · START SPRAYING if you are spraying again.');
+                alertUser([660, 660, 660], T("Spraying is not being recorded"), T("Tap REFILLED · START SPRAYING if you are spraying again."));
               }
               u.walked = 0;
             }
@@ -3624,7 +3945,7 @@ function App() {
           oobRef.current = flagged; setOob(flagged);
           AgrasLog.add('OOB', `${flagged ? 'left' : 'back inside'} field at ${sim.pos.x.toFixed(1)},${sim.pos.y.toFixed(1)} (hidden=${document.hidden})`);
           if (flagged) {
-            if (enteredFieldRef.current) alertUser([880, 880], 'Out of bounds', 'Spraying auto-cut off — walk back inside the field.');
+            if (enteredFieldRef.current) alertUser([880, 880], T("Out of bounds"), T("Spraying auto-cut off — walk back inside the field."));
             // key-event autosave: out-of-bounds is exactly the moment an
             // operator might set the phone down mid-mission to sort out why
             try {
@@ -3965,7 +4286,7 @@ function App() {
   const mapDownloadInFlightRef = useRef(false); // guards against a manual tap and an automatic post-save prefetch racing each other
   const downloadFieldMapOffline = async () => {
     if (!unprojectRef.current) return;
-    if (!mapCacheRef.current) { setDownloadState({ done: 0, total: 0, error: 'Offline storage is not available on this browser/connection.' }); return; }
+    if (!mapCacheRef.current) { setDownloadState({ done: 0, total: 0, error: T("Offline storage is not available on this browser/connection.") }); return; }
     if (mapDownloadInFlightRef.current) return;
     mapDownloadInFlightRef.current = true;
     try {
@@ -4625,7 +4946,7 @@ function App() {
   const liveSpeedMs = speedEmaRef.current;
   const liveSpeedKmh = liveSpeedMs * 3.6;
   const paceZone = liveSpeedKmh < 0.3 ? 'stopped' : liveSpeedKmh < 2.5 ? 'slow' : liveSpeedKmh > 3.5 ? 'fast' : 'ideal';
-  const paceLabel = { stopped: 'STOPPED', slow: 'TOO SLOW · OVER SPRAYING', fast: 'TOO FAST · UNDER SPRAYING', ideal: 'IDEAL PACE' }[paceZone];
+  const paceLabel = { stopped: T("STOPPED"), slow: T("TOO SLOW · OVER SPRAYING"), fast: T("TOO FAST · UNDER SPRAYING"), ideal: T("IDEAL PACE") }[paceZone];
   const paceColor = { stopped: '#55655F', slow: '#0B6BA8', fast: '#A5201A', ideal: '#0A5238' }[paceZone];
   // flow rate = ground area covered per minute (swath x speed) x solution
   // per square metre (rateLRai / 1600 rai-in-sqm) — the actual L/min a pump
@@ -4659,9 +4980,9 @@ function App() {
   const dStation = dist(sim.pos, stationRef.current);
   // Spec §4C: direction back to the boundary for the Auto-Pause banner arrow.
   const oobArrowDeg = oob ? bearingTo(sim.pos, nearestEdgePoint(sim.pos, field.poly).proj) : 0;
-  const gpsQuality = gpsInfo ? (gpsInfo.accuracy <= 5 ? 'STRONG' : gpsInfo.accuracy <= 15 ? 'FAIR' : 'WEAK') : null;
-  const gpsColor = gpsQuality === 'STRONG' ? '#0A5238' : gpsQuality === 'FAIR' ? '#8A4B06' : '#A5201A';
-  const gpsColorClass = gpsQuality === 'STRONG' ? 'text-[#0A5238]' : gpsQuality === 'FAIR' ? 'text-[#8A4B06]' : 'text-[#A5201A]';
+  const gpsQuality = gpsInfo ? (gpsInfo.accuracy <= 5 ? T("STRONG") : gpsInfo.accuracy <= 15 ? T("FAIR") : T("WEAK")) : null;
+  const gpsColor = gpsQuality === T("STRONG") ? '#0A5238' : gpsQuality === T("FAIR") ? '#8A4B06' : '#A5201A';
+  const gpsColorClass = gpsQuality === T("STRONG") ? 'text-[#0A5238]' : gpsQuality === T("FAIR") ? 'text-[#8A4B06]' : 'text-[#A5201A]';
 
 
   // ---- Tank & Liquid Volume Tracker -----------------------------------
@@ -4679,23 +5000,23 @@ function App() {
   // Litres are only ever an estimate off the measured rai-per-tank average, so
   // they stay omitted until at least one tank has actually been closed.
   const wastedLitres = avgTankRai ? mOverlapRai * tankCapacity / avgTankRai : null;
-  const wastedSuffix = wastedLitres != null ? ` · ≈${wastedLitres.toFixed(1)} L wasted` : '';
+  const wastedSuffix = wastedLitres != null ? " " + T("· ≈{0} L wasted", wastedLitres.toFixed(1)) : '';
   const overlapSub = mSprayedCells > 0
-    ? `${mOverlapRate.toFixed(0)}% of sprayed area${wastedSuffix}`
+    ? T("{0}% of sprayed area{1}", mOverlapRate.toFixed(0), wastedSuffix)
     : mOverlapCells > 0
-      ? `re-sprayed over ground already covered${wastedSuffix}`
-      : 'no ground covered twice';
+      ? T("re-sprayed over ground already covered{0}", wastedSuffix)
+      : T("no ground covered twice");
 
-  const statusLabel = oob ? 'SPRAY OFF / OUT OF FIELD' : (
-    phase === 'boundary' ? 'PLOT BOUNDARY' :
-    phase === 'station' ? 'SET REFILL STATION' :
-    phase === 'ready' ? 'READY' :
-    phase === 'done' ? 'COMPLETE' :
-    phase === 'paused' ? 'PAUSED' :
-    { spray: 'SPRAYING', toStation: 'REFILL · NOT RECORDING' }[opMode]
+  const statusLabel = oob ? T("SPRAY OFF / OUT OF FIELD") : (
+    phase === 'boundary' ? T("PLOT BOUNDARY") :
+    phase === 'station' ? T("SET REFILL STATION") :
+    phase === 'ready' ? T("READY") :
+    phase === 'done' ? T("COMPLETE") :
+    phase === 'paused' ? T("PAUSED") :
+    { spray: T("SPRAYING"), toStation: T("REFILL · NOT RECORDING") }[opMode]
   );
   const guidanceCopy = {
-    toStation: { title: 'REFILL — NOT RECORDING', sub: 'Tap REFILLED · START SPRAYING when you spray again', tone: 'cyan' },
+    toStation: { title: T("REFILL — NOT RECORDING"), sub: T("Tap REFILLED · START SPRAYING when you spray again"), tone: 'cyan' },
   }[opMode];
 
   // Which single hint panel — GPS acquisition, boundary help, station help —
@@ -4776,7 +5097,7 @@ function App() {
           {restoredToast && (phase === 'paused' || phase === 'running') && (
             <div className="pointer-events-auto rounded-xl border border-[#8A4B06]/50 bg-[#FFF6E8]/95 px-3.5 py-2.5 flex items-center gap-2.5">
               <History size={16} className="text-[#8A4B06] shrink-0" />
-              <p className="text-[11px] leading-snug text-[#2A1A00] min-w-0">Unfinished mission restored. Tap Resume below to keep spraying, or Finish to end it.</p>
+              <p className="text-[11px] leading-snug text-[#2A1A00] min-w-0">{T("Unfinished mission restored. Tap Resume below to keep spraying, or Finish to end it.")}</p>
             </div>
           )}
 
@@ -4792,8 +5113,8 @@ function App() {
               <div className="pointer-events-auto w-full max-w-[420px] rounded-xl bg-[#A5201A] text-[#FFFFFF] px-4 py-3 flex items-center gap-2.5 shadow-[0_8px_28px_rgba(165,32,26,.35)]">
                 <Navigation size={22} strokeWidth={2.4} className="shrink-0" style={{ transform: `rotate(${oobArrowDeg}deg)` }} />
                 <div className="leading-tight min-w-0">
-                  <p className="font-display font-extrabold text-sm tracking-wide">OUT OF BOUNDS — PAUSED</p>
-                  <p className="text-xs opacity-90 mt-0.5">Spraying auto-cut off — walk back inside to resume</p>
+                  <p className="font-display font-extrabold text-sm tracking-wide">{T("OUT OF BOUNDS — PAUSED")}</p>
+                  <p className="text-xs opacity-90 mt-0.5">{T("Spraying auto-cut off — walk back inside to resume")}</p>
                 </div>
               </div>
             </div>
@@ -4805,14 +5126,14 @@ function App() {
           <div className="flex items-start justify-between gap-2">
             <Glass data-hud className="pointer-events-auto px-3 py-2 flex items-center gap-2 min-w-0 flex-1 basis-0 min-h-[48px]" onClick={secretDevTap}>
               <Radar size={15} className={'shrink-0 ' + (oob ? 'text-[#A5201A]' : running ? 'text-[#0C6B48]' : 'text-[#55655F]')} />
-              {IS_TEST_APP && <span className="shrink-0 text-[8px] font-mono font-bold tracking-[.12em] px-1.5 py-0.5 rounded bg-[#E8890C] text-[#FFFFFF]">TEST</span>}
+              {IS_TEST_APP && <span className="shrink-0 text-[8px] font-mono font-bold tracking-[.12em] px-1.5 py-0.5 rounded bg-[#E8890C] text-[#FFFFFF]">{T("TEST")}</span>}
               <div className="leading-tight min-w-0">
                 <p className={'font-display text-xs font-bold tracking-[.01em] truncate ' + (oob ? 'text-[#A5201A]' : '')}>{statusLabel}</p>
                 <p className="text-[9px] text-[#55655F] font-mono truncate">
                   {phase === 'boundary' ? `${draft.length} corner${draft.length === 1 ? '' : 's'}`
                     : (activeFieldId || phase === 'running' || phase === 'paused' || phase === 'done')
-                    ? (() => { const r = toRai(field.area); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()
-                    : 'no field yet'} · swath {swath.toFixed(1)}m
+                    ? (() => { const r = toRai(field.area); return `${r.rai}-${r.ngan}-${r.wa} ${T("rai")}`; })()
+                    : T("no field yet")} {T("· swath")} {swath.toFixed(1)}m
                 </p>
               </div>
             </Glass>
@@ -4847,7 +5168,7 @@ function App() {
               {srcMode === 'gps' && (
                 <button onClick={() => setGpsCardOpen((v) => !v)} className="flex items-center justify-between gap-1.5 min-w-0 w-full">
                   <span className="text-[9px] font-mono text-[#55655F] truncate">
-                    {gpsStatus === 'active' && gpsInfo ? `±${gpsInfo.accuracy.toFixed(1)}m` : gpsStatus === 'requesting' ? 'locating…' : gpsStatus}
+                    {gpsStatus === 'active' && gpsInfo ? `±${gpsInfo.accuracy.toFixed(1)}m` : gpsStatus === 'requesting' ? T("locating…") : T(gpsStatus)}
                   </span>
                   <span className="flex items-center gap-1 shrink-0">
                     {gpsQuality && <span className="text-[8.5px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ color: gpsColor, border: `1px solid ${gpsColor}55` }}>{gpsQuality}</span>}
@@ -4862,7 +5183,7 @@ function App() {
                   where reaching for a menu mid-spray would be annoying. */}
               {(!devMode || devPanelOpen) && (phase === 'running' || phase === 'paused') && (
                 <button onClick={startStationSetup} className="w-full min-h-[30px] flex items-center justify-center gap-1 text-[9px] font-mono tracking-wide text-[#0C6B48] border border-[#E2DCC9] rounded py-1">
-                  <Droplet size={11} /> SET STATION
+                  <Droplet size={11} /> {T("SET STATION")}
                 </button>
               )}
             </Glass>
@@ -4876,30 +5197,30 @@ function App() {
             <Glass className="pointer-events-auto px-3.5 py-3">
               <div className="grid grid-cols-3 gap-x-2 gap-y-2.5">
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">LAT</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">{T("LAT")}</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsInfo ? gpsInfo.lat.toFixed(6) : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">LNG</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">{T("LNG")}</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsInfo ? gpsInfo.lng.toFixed(6) : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">ACCURACY</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">{T("ACCURACY")}</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate" style={{ color: gpsColor }}>{gpsInfo ? `±${gpsInfo.accuracy.toFixed(1)}m` : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">SPEED</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">{T("SPEED")}</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsExtraRef.current.speed != null ? `${(gpsExtraRef.current.speed * 3.6).toFixed(1)} km/h` : '—'}</p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">HEADING</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">{T("HEADING")}</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate flex items-center gap-1">
                     <Compass size={11} className="text-[#0C6B48] shrink-0" style={{ transform: gpsExtraRef.current.heading != null ? `rotate(${gpsExtraRef.current.heading}deg)` : undefined }} />
                     {gpsExtraRef.current.heading != null ? `${gpsExtraRef.current.heading.toFixed(0)}°` : '—'}
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">ALTITUDE</p>
+                  <p className="text-[8px] tracking-[.1em] font-mono text-[#55655F]">{T("ALTITUDE")}</p>
                   <p className="font-mono tnum text-[11px] font-bold truncate">{gpsExtraRef.current.altitude != null ? `${gpsExtraRef.current.altitude.toFixed(0)} m` : '—'}</p>
                 </div>
               </div>
@@ -4914,36 +5235,36 @@ function App() {
           {topHint === 'gps' && (
             <Glass className="pointer-events-auto px-3.5 py-3 border-[#8A4B06]/40">
               <p className="font-display text-sm font-bold tracking-wide text-[#8A4B06]">
-                {{ requesting: 'REQUESTING GPS ACCESS…', denied: 'LOCATION PERMISSION DENIED', unavailable: 'GPS UNAVAILABLE', insecure: 'HTTPS REQUIRED FOR GPS', idle: 'STARTING GPS…' }[gpsStatus]}
+                {{ requesting: T("REQUESTING GPS ACCESS…"), denied: T("LOCATION PERMISSION DENIED"), unavailable: T("GPS UNAVAILABLE"), insecure: T("HTTPS REQUIRED FOR GPS"), idle: T("STARTING GPS…") }[gpsStatus]}
               </p>
               <p className="text-xs text-[#55655F] mt-1 leading-snug">
-                {gpsStatus === 'requesting' && 'Allow location access when your browser prompts you.'}
-                {gpsStatus === 'denied' && 'This page’s location permission is set to Block. Open the site settings (the icon next to the address bar) and set Location to Allow — the browser remembers that choice for this page, so you won’t be asked again.'}
-                {gpsStatus === 'unavailable' && 'This device or browser can’t report a location right now.'}
+                {gpsStatus === 'requesting' && T("Allow location access when your browser prompts you.")}
+                {gpsStatus === 'denied' && T("This page’s location permission is set to Block. Open the site settings (the icon next to the address bar) and set Location to Allow — the browser remembers that choice for this page, so you won’t be asked again.")}
+                {gpsStatus === 'unavailable' && T("This device or browser can’t report a location right now.")}
                 {gpsStatus === 'insecure' && 'Open this page over https:// (or localhost) — browsers block GPS on insecure origins.'}
               </p>
               <div className="mt-2 flex items-center gap-4">
-                {gpsStatus === 'denied' && <button onClick={() => setGpsRetryTick((n) => n + 1)} className="min-h-[30px] text-xs font-mono text-[#8A4B06] underline">Try Again</button>}
+                {gpsStatus === 'denied' && <button onClick={() => setGpsRetryTick((n) => n + 1)} className="min-h-[30px] text-xs font-mono text-[#8A4B06] underline">{T("Try Again")}</button>}
               </div>
             </Glass>
           )}
           {topHint === 'boundary' && (
             <Glass data-hud className="pointer-events-auto px-3.5 py-3">
-              <p className="font-display text-sm font-bold tracking-wide text-[#0C6B48]">MAP THE PERIMETER</p>
+              <p className="font-display text-sm font-bold tracking-wide text-[#0C6B48]">{T("MAP THE PERIMETER")}</p>
               <p className="text-xs text-[#55655F] mt-1 leading-snug">
                 {satelliteOn
-                  ? 'Drag the map so the crosshair sits on each corner, then tap Add at Crosshair.'
+                  ? T("Drag the map so the crosshair sits on each corner, then tap Add at Crosshair.")
                   : srcMode === 'gps'
-                  ? 'Walk the real edges and tap Mark Corner at each one, or tap the map.'
-                  : 'Tap the field edges in order, ' + Math.max(0, 3 - draft.length) + ' more to close.'}
+                  ? T("Walk the real edges and tap Mark Corner at each one, or tap the map.")
+                  : (T("Tap the field edges in order,") + " ") + Math.max(0, 3 - draft.length) + " " + T("more to close.")}
               </p>
-              <p className="font-mono text-[10px] text-[#55655F] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{draft.length >= 3 ? ' · all corners in? tap CLOSE FIELD' : srcMode === 'gps' && !fieldRef.current.gpsAnchored ? ' · map a real boundary to continue' : ''}</p>
+              <p className="font-mono text-[10px] text-[#55655F] mt-1.5">{draft.length} point{draft.length === 1 ? '' : 's'} plotted{draft.length >= 3 ? " " + T("· all corners in? tap CLOSE FIELD") : srcMode === 'gps' && !fieldRef.current.gpsAnchored ? " " + T("· map a real boundary to continue") : ''}</p>
             </Glass>
           )}
           {topHint === 'station' && (
             <Glass data-hud className="pointer-events-auto px-3.5 py-3 border-[#0C6B48]/40">
-              <p className="font-display text-sm font-bold tracking-wide text-[#0C6B48]">SET REFILL STATION</p>
-              <p className="text-xs text-[#55655F] mt-1 leading-snug">Tap where the mix tank sits{srcMode === 'gps' ? ', or use your current position.' : '.'}</p>
+              <p className="font-display text-sm font-bold tracking-wide text-[#0C6B48]">{T("SET REFILL STATION")}</p>
+              <p className="text-xs text-[#55655F] mt-1 leading-snug">{T("Tap where the mix tank sits")}{srcMode === 'gps' ? ', or use your current position.' : '.'}</p>
             </Glass>
           )}
         </div>
@@ -4959,8 +5280,8 @@ function App() {
           <div className={'flex flex-col gap-2 pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2" style={running && !showStats ? { display: 'none' } : undefined}>
-                <Tile icon={TimerIcon} label="Spray time" value={fmtTime(sim.elapsed)} />
-                <Tile icon={Footprints} label="Distance" value={sim.distance.toFixed(0)} unit="m" />
+                <Tile icon={TimerIcon} label={T("Spray time")} value={fmtTime(sim.elapsed)} />
+                <Tile icon={Footprints} label={T("Distance")} value={sim.distance.toFixed(0)} unit="m" />
                 <PaceTile kmh={liveSpeedKmh} label={paceLabel} color={paceColor} />
               </div>
             )}
@@ -4968,9 +5289,9 @@ function App() {
           <div className={'flex flex-col gap-2 items-end pointer-events-none transition-opacity ' + (oob ? 'opacity-35' : 'opacity-100')}>
             {(phase === 'running' || phase === 'paused') && (
               <div className="flex flex-col gap-2 items-end" style={running && !showStats ? { display: 'none' } : undefined}>
-                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} disabled={modeLockS > 0} actionLabel={(opMode === 'spray' ? 'TANK EMPTY' : 'REFILLED · SPRAY') + (modeLockS > 0 ? ` · ${modeLockS}` : '')} />
-                <Tile icon={Crosshair} label="Coverage" value={coveragePct.toFixed(0)} unit="%" accent="text-[#0A5238]" />
-                <Tile icon={Layers} label="Overlap" value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#8A4B06]' : undefined} />
+                <TankTile number={tankNumber} areaRai={curTankArea / 1600} avgRai={avgTankRai} capacity={tankCapacity} onEmpty={onTankTileRefill} disabled={modeLockS > 0} actionLabel={(opMode === 'spray' ? T("TANK EMPTY") : T("REFILLED · SPRAY")) + (modeLockS > 0 ? ` · ${modeLockS}` : '')} />
+                <Tile icon={Crosshair} label={T("Coverage")} value={coveragePct.toFixed(0)} unit="%" accent="text-[#0A5238]" />
+                <Tile icon={Layers} label={T("Overlap")} value={overlapRate.toFixed(0)} unit="%" accent={overlapRate > 15 ? 'text-[#8A4B06]' : undefined} />
                 {srcMode === 'gps' && gpsInfo && <Tile icon={Satellite} label="GPS" value={gpsInfo.lat.toFixed(4)} unit={gpsInfo.lng.toFixed(4)} accent={gpsColorClass} />}
               </div>
             )}
@@ -4986,34 +5307,34 @@ function App() {
               <div className="flex flex-col gap-2.5 pointer-events-auto">
                 {(phase === 'boundary' || phase === 'station') && satelliteOn && (
                   <>
-                    <MapCtrlBtn icon={ZoomIn} onClick={() => zoomMap(1)} title="Zoom in" />
-                    <MapCtrlBtn icon={ZoomOut} onClick={() => zoomMap(-1)} title="Zoom out" />
-                    <MapCtrlBtn icon={LocateFixed} onClick={centerOnMyLocation} disabled={gpsStatus !== 'active'} title="Center on my location" />
-                    {phase === 'boundary' && draft.length >= 2 && <MapCtrlBtn icon={OverviewIcon} onClick={fitDraftInView} title="Show all corners" />}
+                    <MapCtrlBtn icon={ZoomIn} onClick={() => zoomMap(1)} title={T("Zoom in")} />
+                    <MapCtrlBtn icon={ZoomOut} onClick={() => zoomMap(-1)} title={T("Zoom out")} />
+                    <MapCtrlBtn icon={LocateFixed} onClick={centerOnMyLocation} disabled={gpsStatus !== 'active'} title={T("Center on my location")} />
+                    {phase === 'boundary' && draft.length >= 2 && <MapCtrlBtn icon={OverviewIcon} onClick={fitDraftInView} title={T("Show all corners")} />}
 </>
                 )}
                 {phase === 'ready' && (
                   <div className="flex flex-col items-center gap-0.5">
-                    <MapCtrlBtn icon={RouteIcon} active={!!routePlan} onClick={toggleRoute} title="Suggest route" />
-                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">ROUTE</span>
+                    <MapCtrlBtn icon={RouteIcon} active={!!routePlan} onClick={toggleRoute} title={T("Suggest route")} />
+                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">{T("ROUTE")}</span>
                   </div>
                 )}
                 {phase === 'ready' && activeFieldId && (
                   <div className="flex flex-col items-center gap-0.5">
-                    <MapCtrlBtn icon={Leaf} active={showChecks} onClick={() => { setOpenCheckId(null); setCheckMsg(''); setShowChecks(true); }} title="Crop check" />
-                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">CHECK</span>
+                    <MapCtrlBtn icon={Leaf} active={showChecks} onClick={() => { setOpenCheckId(null); setCheckMsg(''); setShowChecks(true); }} title={T("Crop check")} />
+                    <span className="text-[8.5px] font-mono font-bold tracking-[.1em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">{T("CHECK")}</span>
                   </div>
                 )}
                 {/* compass: only when the map has been rotated; tap = north up */}
                 {panRef.current && Math.abs(panRef.current.a || 0) > 0.03 && (phase !== 'running' && phase !== 'paused' || camMode === 'free') && (
                   <MapCtrlBtn icon={(p) => <NorthArrow size={p.size} style={{ transform: `rotate(${-(panRef.current.a || 0)}rad)` }} />}
-                    onClick={() => { if (panRef.current) panRef.current = { ...panRef.current, a: 0 }; setTick((n) => n + 1); }} title="North up" />
+                    onClick={() => { if (panRef.current) panRef.current = { ...panRef.current, a: 0 }; setTick((n) => n + 1); }} title={T("North up")} />
                 )}
                 {(phase === 'running' || phase === 'paused') && (
                   <>
-                    <MapCtrlBtn icon={LocateFixed} active={camMode === 'follow'} onClick={() => { navHeadingRef.current = null; setCamMode('follow'); }} title="Re-center on me" />
-                    <MapCtrlBtn icon={OverviewIcon} active={camMode === 'fit'} onClick={() => setCamMode('fit')} title="Whole field" />
-                    <MapCtrlBtn icon={Gauge} active={showStats} onClick={() => setShowStats((v) => !v)} title="Show stats" />
+                    <MapCtrlBtn icon={LocateFixed} active={camMode === 'follow'} onClick={() => { navHeadingRef.current = null; setCamMode('follow'); }} title={T("Re-center on me")} />
+                    <MapCtrlBtn icon={OverviewIcon} active={camMode === 'fit'} onClick={() => setCamMode('fit')} title={T("Whole field")} />
+                    <MapCtrlBtn icon={Gauge} active={showStats} onClick={() => setShowStats((v) => !v)} title={T("Show stats")} />
                   </>
                 )}
               </div>
@@ -5046,8 +5367,8 @@ function App() {
                       : <Navigation size={15} className="text-[#0C6B48] shrink-0" style={{ transform: `rotate(${bearingTo(sim.pos, stationRef.current)}deg)` }} />}
                   <span className="text-[12px] font-mono font-bold text-[#0C6B48] whitespace-nowrap">
                     {dNext != null
-                      ? (dNext <= RESUME_NEAR_M ? 'At the next lane · tap REFILLED' : `Next lane · ${dNext.toFixed(0)} m`)
-                      : reached ? (rt ? 'At the station · refill, then walk to the next lane' : 'At the station · refill, then tap REFILLED') : `To station · ${dStation.toFixed(0)} m`}
+                      ? (dNext <= RESUME_NEAR_M ? T("At the next lane · tap REFILLED") : T("Next lane · {0} m", dNext.toFixed(0)))
+                      : reached ? (rt ? T("At the station · refill, then walk to the next lane") : T("At the station · refill, then tap REFILLED")) : T("To station · {0} m", dStation.toFixed(0))}
                   </span>
                 </Glass>
               </div>
@@ -5073,12 +5394,12 @@ function App() {
           <div className="shrink-0 px-3 pb-2 flex items-end justify-between gap-2">
             <div className="pointer-events-auto min-w-0">
               <Glass className="px-3.5 py-2.5 max-w-[220px]">
-                <p className="text-[9px] tracking-[.14em] uppercase font-mono text-[#55655F] truncate">Area sprayed</p>
+                <p className="text-[9px] tracking-[.14em] uppercase font-mono text-[#55655F] truncate">{T("Area sprayed")}</p>
                 <div className="flex items-baseline gap-1.5 mt-0.5 min-w-0">
                   <span className="font-mono tnum text-xl font-bold text-[#24322C] leading-none shrink-0">{areaSprayed.toFixed(0)}</span>
-                  <span className="text-[11px] text-[#55655F] truncate">m² of {field.area.toFixed(0)}</span>
+                  <span className="text-[11px] text-[#55655F] truncate">{T("m² of {0}", field.area.toFixed(0))}</span>
                 </div>
-                <p className="font-mono tnum text-[11px] text-[#0A5238] mt-1 truncate">{rai.rai}-{rai.ngan}-{rai.wa} rai <span className="text-[#55655F]">· tank #{tankNumber}</span></p>
+                <p className="font-mono tnum text-[11px] text-[#0A5238] mt-1 truncate">{rai.rai}-{rai.ngan}-{rai.wa} {T("rai")} <span className="text-[#55655F]">{T("· tank #")}{tankNumber}</span></p>
               </Glass>
             </div>
             <div className="pointer-events-auto shrink-0">
@@ -5087,7 +5408,7 @@ function App() {
                     raster, not UI tokens: the raster is tuned to read over
                     satellite imagery, so the swatches track it rather than
                     the palette, or the key stops matching the map. */}
-                {[['#E4DFCD', 'Unsprayed'], ['#34C76F', 'Sprayed'], ['#FFB648', 'Overlapped']].map(([c, l]) => (
+                {[['#E4DFCD', T("Unsprayed")], ['#34C76F', T("Sprayed")], ['#FFB648', T("Overlapped")]].map(([c, l]) => (
                   <div key={l} className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-[2px] shrink-0 border border-[#14201C]/20" style={{ background: c }} />
                     <span className="text-[9.5px] text-[#55655F] whitespace-nowrap">{l}</span>
@@ -5105,18 +5426,18 @@ function App() {
         <div data-dock className="shrink-0 pointer-events-auto p-3" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
           {phase === 'boundary' && (
             <Dock>
-              <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={cancelPlotting} disabled={srcMode === 'gps' && !fieldRef.current.gpsAnchored} />
-              {srcMode === 'gps' && !satelliteOn && <DockBtn icon={LocateFixed} label="MARK CORNER" tone="teal" onClick={markCorner} disabled={gpsStatus !== 'active'} />}
-              {satelliteOn && <DockBtn icon={Crosshair} label="ADD AT CROSSHAIR" tone="teal" onClick={addPointAtCrosshair} />}
-              <DockBtn icon={Undo2} label="UNDO" tone="ghost" onClick={undoPoint} disabled={!draft.length} />
-              <DockBtn icon={confirmCloseField ? AlertTriangle : CheckCircle2} label={confirmCloseField ? 'TAP TO CONFIRM' : 'CLOSE FIELD'} tone={confirmCloseField ? 'amber' : 'teal'} big disabled={draft.length < 3} onClick={closeBoundary} />
+              <DockBtn icon={X} label={T("CANCEL")} tone="ghost" onClick={cancelPlotting} disabled={srcMode === 'gps' && !fieldRef.current.gpsAnchored} />
+              {srcMode === 'gps' && !satelliteOn && <DockBtn icon={LocateFixed} label={T("MARK CORNER")} tone="teal" onClick={markCorner} disabled={gpsStatus !== 'active'} />}
+              {satelliteOn && <DockBtn icon={Crosshair} label={T("ADD AT CROSSHAIR")} tone="teal" onClick={addPointAtCrosshair} />}
+              <DockBtn icon={Undo2} label={T("UNDO")} tone="ghost" onClick={undoPoint} disabled={!draft.length} />
+              <DockBtn icon={confirmCloseField ? AlertTriangle : CheckCircle2} label={confirmCloseField ? T("TAP TO CONFIRM") : T("CLOSE FIELD")} tone={confirmCloseField ? 'amber' : 'teal'} big disabled={draft.length < 3} onClick={closeBoundary} />
             </Dock>
           )}
           {phase === 'station' && (
             <Dock>
-              <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={cancelStationSetup} />
-              {srcMode === 'gps' && <DockBtn icon={LocateFixed} label="MY LOCATION" tone="teal" onClick={useMyLocationForStation} disabled={gpsStatus !== 'active'} />}
-              <DockBtn icon={CheckCircle2} label="CONFIRM STATION" tone="teal" big onClick={confirmStation} />
+              <DockBtn icon={X} label={T("CANCEL")} tone="ghost" onClick={cancelStationSetup} />
+              {srcMode === 'gps' && <DockBtn icon={LocateFixed} label={T("MY LOCATION")} tone="teal" onClick={useMyLocationForStation} disabled={gpsStatus !== 'active'} />}
+              <DockBtn icon={CheckCircle2} label={T("CONFIRM STATION")} tone="teal" big onClick={confirmStation} />
             </Dock>
           )}
           {phase === 'ready' && (
@@ -5129,24 +5450,24 @@ function App() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#0B6BA8] font-bold">
-                          Suggested route · {r.along ? 'along the long side' : 'across the field'}{routePlan.idx === routePlan.best ? ' · best' : ''}
+                          {T("Suggested route ·")} {r.along ? T("along the long side") : T("across the field")}{routePlan.idx === routePlan.best ? " " + T("· best") : ''}
                         </p>
                         <p className="text-[12px] font-mono text-[#14201C] font-bold mt-0.5">
-                          {r.lanes} lanes · {Math.round(r.sprayLen)} m · about {tanks} tank{tanks === 1 ? '' : 's'}
+                          {r.lanes} {T("lanes ·")} {Math.round(r.sprayLen)} m · about {tanks} tank{tanks === 1 ? '' : 's'}
                         </p>
                         <p className="text-[10px] font-mono text-[#55655F] mt-0.5">
-                          Walk to refill ≈ {Math.round(r.empty)} m{r.tanks.length ? ` · ① ② … = tank runs out` : ''}
+                          {T("Walk to refill ≈")} {Math.round(r.empty)} m{r.tanks.length ? " " + T("· ① ② … = tank runs out") : ''}
                         </p>
                         {routePlan.idx === routePlan.best && routePlan.farSaves >= 30 && (
-                          <p className="text-[10px] font-mono text-[#55655F] mt-0.5">Starting at the far end would save ≈ {routePlan.farSaves} m</p>
+                          <p className="text-[10px] font-mono text-[#55655F] mt-0.5">{T("Starting at the far end would save ≈")} {routePlan.farSaves} m</p>
                         )}
                       </div>
-                      <button onClick={() => setRoutePlan(null)} aria-label="Close route" className="text-[#55655F] p-1 shrink-0"><X size={16} /></button>
+                      <button onClick={() => setRoutePlan(null)} aria-label={T("Close route")} className="text-[#55655F] p-1 shrink-0"><X size={16} /></button>
                     </div>
                     {other && (
                       <button onClick={() => setRoutePlan((p) => ({ ...p, idx: 1 - p.idx }))}
                         className="mt-2 w-full min-h-[38px] rounded-lg border border-[#0B6BA8]/50 text-[11px] font-mono font-bold text-[#0B6BA8] flex items-center justify-center gap-1.5">
-                        <RotateCcw size={13} /> {other.along ? 'LANES ALONG THE LONG SIDE' : 'LANES ACROSS THE FIELD'} · {Math.round(other.empty)} m walk
+                        <RotateCcw size={13} /> {other.along ? T("LANES ALONG THE LONG SIDE") : T("LANES ACROSS THE FIELD")} · {Math.round(other.empty)} m walk
                       </button>
                     )}
                   </div>
@@ -5160,11 +5481,11 @@ function App() {
                 const unchecked = ['ppe', 'mixedRate', 'nozzle', 'wind'].filter((k) => !checklist[k]).length;
                 const wx = sprayWeather;
                 // the amber dot always comes with its reason, weather first
-                const reason = wx && wx.rainNowWarning ? 'Raining now'
+                const reason = wx && wx.rainNowWarning ? T("Raining now")
                   : wx && wx.rainSoonWarning ? `Rain ${wx.rainSoonProb != null ? Math.round(wx.rainSoonProb) + '% ' : ''}in 3 h`
-                  : wx && wx.windWarning ? `Wind ${Math.round(wx.windKmh || 0)} km/h`
-                  : wx && wx.uvWarning ? `UV ${Math.round(wx.uvIndex)} · very high`
-                  : unchecked > 0 ? `${unchecked} check${unchecked === 1 ? '' : 's'} left` : null;
+                  : wx && wx.windWarning ? T("Wind {0} km/h", Math.round(wx.windKmh || 0))
+                  : wx && wx.uvWarning ? T("UV {0} · very high", Math.round(wx.uvIndex))
+                  : unchecked > 0 ? T("{0} check{1} left", unchecked, unchecked === 1 ? '' : 's') : null;
                 const stop = lastStopOfActiveField(), live = gpsLiveRef.current;
                 const stopDist = stop && live.lat != null ? dist(stop, { x: live.x, y: live.y }) : null;
                 return (
@@ -5172,7 +5493,7 @@ function App() {
                     {stop && (
                       <div className="mr-auto flex items-center gap-1.5 rounded-full bg-[#FFFFFF] border border-[#14201C]/30 px-3 min-h-[36px] shadow-[0_2px_14px_rgba(20,32,28,.12)] text-[11px] font-mono font-bold text-[#14201C]">
                         <span className="w-3 h-3 rounded-full border-2 border-[#14201C] flex items-center justify-center shrink-0"><span className="w-1 h-1 rounded-full bg-[#8A4B06]" /></span>
-                        {stopDist == null ? 'Last stop' : stopDist < 8 ? 'You are at the last stop' : `Last stop · ${Math.round(stopDist)} m`}
+                        {stopDist == null ? T("Last stop") : stopDist < 8 ? T("You are at the last stop") : T("Last stop · {0} m", Math.round(stopDist))}
                       </div>
                     )}
                     {reason && (
@@ -5181,12 +5502,12 @@ function App() {
                         <AlertTriangle size={13} className="shrink-0" />{reason}
                       </button>
                     )}
-                    <button onClick={() => setShowSpraySettings(true)} aria-label="Settings" className="flex flex-col items-center gap-0.5">
+                    <button onClick={() => setShowSpraySettings(true)} aria-label={T("Settings")} className="flex flex-col items-center gap-0.5">
                       <span className="relative w-[38px] h-[38px] rounded-full bg-[#FFFFFF] border border-[#E2DCC9] shadow-[0_2px_14px_rgba(20,32,28,.12)] flex items-center justify-center text-[#0C6B48]">
                         <SlidersIcon size={24} />
                         {reason && <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#8A4B06] border-2 border-[#FFFFFF]" />}
                       </span>
-                      <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">SETTINGS</span>
+                      <span className="text-[9px] font-mono font-bold tracking-[.12em] text-[#14201C] px-1.5 py-px rounded-full bg-[#FBF8EF]/95 shadow-[0_1px_4px_rgba(0,0,0,.35)]">{T("SETTINGS")}</span>
                     </button>
                   </div>
                 );
@@ -5200,30 +5521,30 @@ function App() {
                     <MapPinned size={18} className="text-[#0C6B48]" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#0C6B48]/80 font-bold">Field selector</p>
+                    <p className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#0C6B48]/80 font-bold">{T("Field selector")}</p>
                     {activeFieldEntry ? (
                       <>
                         <p className="font-display text-[15px] font-bold text-[#14201C] truncate">{activeFieldEntry.name}</p>
                         <p className="text-[10px] font-mono text-[#55655F] truncate">
-                          {(() => { const r = toRai(activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}
-                          {' · '}{activeFieldEntry.lastSprayedTs ? `sprayed ${fmtDate(activeFieldEntry.lastSprayedTs)}` : `created ${fmtDate(activeFieldEntry.ts)}`}
+                          {(() => { const r = toRai(activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600); return `${r.rai}-${r.ngan}-${r.wa} ${T("rai")}`; })()}
+                          {' · '}{activeFieldEntry.lastSprayedTs ? T("sprayed {0}", fmtDate(activeFieldEntry.lastSprayedTs)) : T("created {0}", fmtDate(activeFieldEntry.ts))}
                         </p>
                         <p className="text-[10px] font-mono text-[#0A5238] truncate">
-                          Round {activeFieldEntry.round || 1}
-                          {fieldChecks.some((c) => c.status === 'problem' && !checkWaiting(c)) && <span className="text-[#A5201A]"> · {fieldChecks.filter((c) => c.status === 'problem' && !checkWaiting(c)).length} need action</span>}
+                          {T("Round")} {activeFieldEntry.round || 1}
+                          {fieldChecks.some((c) => c.status === 'problem' && !checkWaiting(c)) && <span className="text-[#A5201A]"> · {fieldChecks.filter((c) => c.status === 'problem' && !checkWaiting(c)).length} {T("need action")}</span>}
                           {activeFieldEntry.cov && activeFieldEntry.cov.sprayedCells > 0
-                            ? ` · ${Math.min(100, (activeFieldEntry.cov.sprayedCells * CELL * CELL) / (activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600) * 100).toFixed(0)}% sprayed`
-                            : ' · not started'}
-                          {fieldChecks.length > 0 && ` · ${fieldChecks.length} check${fieldChecks.length === 1 ? '' : 's'}`}
+                            ? " " + T("· {0}% sprayed", Math.min(100, (activeFieldEntry.cov.sprayedCells * CELL * CELL) / (activeFieldEntry.areaSqm != null ? activeFieldEntry.areaSqm : activeFieldEntry.areaRai * 1600) * 100).toFixed(0))
+                            : " " + T("· not started")}
+                          {fieldChecks.length > 0 && " " + T("· {0} check{1}", fieldChecks.length, fieldChecks.length === 1 ? '' : 's')}
                         </p>
                       </>
                     ) : (
                       <>
                         <p className="font-display text-[15px] font-bold text-[#14201C] truncate">
-                          {fieldLibrary.length > 0 ? 'Tap to choose a saved field' : 'No saved fields yet'}
+                          {fieldLibrary.length > 0 ? T("Tap to choose a saved field") : T("No saved fields yet")}
                         </p>
                         <p className="text-[10px] font-mono text-[#55655F] truncate">
-                          {fieldLibrary.length > 0 ? `${fieldLibrary.length} field${fieldLibrary.length === 1 ? '' : 's'} in library` : 'Plot a field, then tap SAVE below'}
+                          {fieldLibrary.length > 0 ? `${fieldLibrary.length} field${fieldLibrary.length === 1 ? '' : 's'} in library` : T("Plot a field, then tap SAVE below")}
                         </p>
                       </>
                     )}
@@ -5233,7 +5554,7 @@ function App() {
                 <button onClick={startSpraying}
                   className="shrink-0 w-[104px] rounded-xl bg-[#0A5238] text-[#FFFFFF] shadow-[0_5px_0_#063A27] flex flex-col items-center justify-center gap-1.5 px-2 active:translate-y-px">
                   <Play size={22} strokeWidth={2.6} className="fill-current" />
-                  <span className="font-display font-extrabold text-[11px] tracking-wide leading-tight text-center">START SPRAYING</span>
+                  <span className="font-display font-extrabold text-[11px] tracking-wide leading-tight text-center">{T("START SPRAYING")}</span>
                 </button>
               </div>
 
@@ -5242,14 +5563,14 @@ function App() {
           {(phase === 'running' || phase === 'paused') && (
             <Dock>
               {opMode === 'spray'
-                ? <DockBtn icon={Fuel} label={modeLockS > 0 ? `TANK EMPTY · ${modeLockS}` : 'TANK EMPTY'} tone="amber" onClick={tankEmpty} disabled={!!manualPathRef.current || modeLockS > 0} />
-                : <DockBtn icon={Play} label={modeLockS > 0 ? `REFILLED · START SPRAYING · ${modeLockS}` : 'REFILLED · START SPRAYING'} tone="green" onClick={resumeSprayingNow} disabled={modeLockS > 0} />}
-              <DockBtn icon={running ? Save : Play} label={running ? 'SAVE & PAUSE' : 'RESUME'} tone="teal"
+                ? <DockBtn icon={Fuel} label={modeLockS > 0 ? T("TANK EMPTY · {0}", modeLockS) : T("TANK EMPTY")} tone="amber" onClick={tankEmpty} disabled={!!manualPathRef.current || modeLockS > 0} />
+                : <DockBtn icon={Play} label={modeLockS > 0 ? T("REFILLED · START SPRAYING · {0}", modeLockS) : T("REFILLED · START SPRAYING")} tone="green" onClick={resumeSprayingNow} disabled={modeLockS > 0} />}
+              <DockBtn icon={running ? Save : Play} label={running ? T("SAVE & PAUSE") : T("RESUME")} tone="teal"
                 onClick={() => { if (running) saveSessionNow(); setPhase(running ? 'paused' : 'running'); }} />
               {/* Spec §4A Rule 3: End Mission must NOT be reachable from the
                   live running screen — only once the operator has already
                   paused, to prevent an accidental mid-spray termination. */}
-              {phase === 'paused' && <DockBtn icon={Square} label="FINISH" tone="red" onClick={() => setShowFinishChoice(true)} />}
+              {phase === 'paused' && <DockBtn icon={Square} label={T("FINISH")} tone="red" onClick={() => setShowFinishChoice(true)} />}
             </Dock>
           )}
         </div>
@@ -5263,25 +5584,25 @@ function App() {
         return (
           <div className="absolute inset-0 z-40 bg-[#F4F1E7]/92 flex items-center justify-center p-4">
             <div className="w-full max-w-[380px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4 max-h-[92vh] overflow-y-auto">
-              <p className="font-display text-[15px] font-bold tracking-wide">CHEMICALS · ROUND {(e && e.round) || 1}</p>
+              <p className="font-display text-[15px] font-bold tracking-wide">{T("CHEMICALS · ROUND")} {(e && e.round) || 1}</p>
               <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">สารที่ใช้ในการฉีดพ่นครั้งนี้ · อัตราต่อถัง</p>
               <div className="flex flex-col gap-2">
                 {chemDraft.map((c, i) => (
                   <div key={i} className="flex gap-1.5 items-center">
-                    <input value={c.name} onChange={(ev) => setRow(i, 'name', ev.target.value)} placeholder="ชื่อสาร" aria-label="Chemical name"
+                    <input value={c.name} onChange={(ev) => setRow(i, 'name', ev.target.value)} placeholder="ชื่อสาร" aria-label={T("Chemical name")}
                       className="flex-1 min-w-0 min-h-[42px] px-2.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[12px] text-[#14201C] placeholder:text-[#4A564F]" />
-                    <input value={c.rate} onChange={(ev) => setRow(i, 'rate', ev.target.value)} placeholder="อัตรา" inputMode="decimal" aria-label="Rate per tank"
+                    <input value={c.rate} onChange={(ev) => setRow(i, 'rate', ev.target.value)} placeholder="อัตรา" inputMode="decimal" aria-label={T("Rate per tank")}
                       className="w-[56px] min-h-[42px] px-2 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[12px] font-mono text-[#14201C] placeholder:text-[#4A564F]" />
-                    <select value={c.unit} onChange={(ev) => setRow(i, 'unit', ev.target.value)} aria-label="Unit"
+                    <select value={c.unit} onChange={(ev) => setRow(i, 'unit', ev.target.value)} aria-label={T("Unit")}
                       className="w-[82px] min-h-[42px] px-1.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[12px] text-[#24322C]">
                       {CHEM_UNITS.map((u) => <option key={u} value={u}>{u}/ถัง</option>)}
                     </select>
-                    <button onClick={() => setChemDraft((d) => d.filter((_, j) => j !== i))} aria-label="Remove chemical" className="w-9 min-h-[42px] flex items-center justify-center text-[#55655F]"><X size={16} /></button>
+                    <button onClick={() => setChemDraft((d) => d.filter((_, j) => j !== i))} aria-label={T("Remove chemical")} className="w-9 min-h-[42px] flex items-center justify-center text-[#55655F]"><X size={16} /></button>
                   </div>
                 ))}
                 <button onClick={() => setChemDraft((d) => [...d, { name: '', rate: '', unit: 'cc' }])}
                   className="min-h-[40px] rounded-lg border border-dashed border-[#C6C0AC] text-[11px] font-mono text-[#55655F] flex items-center justify-center gap-1.5">
-                  <Plus size={13} /> ADD CHEMICAL
+                  <Plus size={13} /> {T("ADD CHEMICAL")}
                 </button>
               </div>
               {memory.length > 0 && (
@@ -5298,13 +5619,13 @@ function App() {
               <div className="mt-4 flex flex-col gap-2">
                 {chemSheet === 'start' ? (
                   <>
-                    <DockBtn icon={Play} label="SAVE & START" tone="green" big onClick={() => { saveChemicals(chemDraft); close(); reallyStartSpraying(); }} />
-                    <DockBtn icon={X} label="SKIP" tone="ghost" onClick={() => { saveChemicals([]); close(); reallyStartSpraying(); }} />
+                    <DockBtn icon={Play} label={T("SAVE & START")} tone="green" big onClick={() => { saveChemicals(chemDraft); close(); reallyStartSpraying(); }} />
+                    <DockBtn icon={X} label={T("SKIP")} tone="ghost" onClick={() => { saveChemicals([]); close(); reallyStartSpraying(); }} />
                   </>
                 ) : (
                   <>
-                    <DockBtn icon={Save} label="SAVE" tone="teal" big onClick={() => { saveChemicals(chemDraft); close(); }} />
-                    <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={close} />
+                    <DockBtn icon={Save} label={T("SAVE")} tone="teal" big onClick={() => { saveChemicals(chemDraft); close(); }} />
+                    <DockBtn icon={X} label={T("CANCEL")} tone="ghost" onClick={close} />
                   </>
                 )}
               </div>
@@ -5324,13 +5645,13 @@ function App() {
             <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onCheckPhoto} data-check-input />
             <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-[#E2DCC9]" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
               <div className="min-w-0 flex items-center gap-2">
-                {c && <button onClick={() => { setOpenCheckId(null); setConfirmDeleteCheck(false); }} aria-label="Back to checks" className="text-[#55655F] p-1 -ml-1"><ChevronLeft size={20} /></button>}
+                {c && <button onClick={() => { setOpenCheckId(null); setConfirmDeleteCheck(false); }} aria-label={T("Back to checks")} className="text-[#55655F] p-1 -ml-1"><ChevronLeft size={20} /></button>}
                 <div className="min-w-0">
-                  <p className="font-display text-[15px] font-bold tracking-wide">CROP CHECK</p>
+                  <p className="font-display text-[15px] font-bold tracking-wide">{T("CROP CHECK")}</p>
                   <p className="text-[11px] text-[#55655F] truncate">{f.name} · ครั้งที่ {f.round || 1}</p>
                 </div>
               </div>
-              <button onClick={() => { setShowChecks(false); setOpenCheckId(null); }} aria-label="Close checks" className="text-[#55655F] p-2"><X size={20} /></button>
+              <button onClick={() => { setShowChecks(false); setOpenCheckId(null); }} aria-label={T("Close checks")} className="text-[#55655F] p-2"><X size={20} /></button>
             </div>
             {checkMsg && <p className="px-4 pt-2 text-[11px] font-mono text-[#8A5A00]">{checkMsg}</p>}
             {!c ? (
@@ -5345,7 +5666,7 @@ function App() {
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px] font-semibold text-[#14201C] truncate">{checkWaiting(x) ? (x.aiState === 'running' ? 'AI กำลังดูรูป…' : 'รอสัญญาณเน็ต') : checkTitle(x)}</span>
                       <span className="block text-[10px] font-mono truncate" style={{ color: checkColor(x) }}>
-                        {checkWaiting(x) ? 'WAITING FOR AI' : (CHECK_STATUS_TH[x.status] || '')} · {thTime(x.ts)} · {x.crop}{x.lat == null ? ' · no GPS' : ''}
+                        {checkWaiting(x) ? T("WAITING FOR AI") : (CHECK_STATUS_TH[x.status] || '')} · {thTime(x.ts)} · {x.crop}{x.lat == null ? " " + T("· no GPS") : ''}
                       </span>
                     </span>
                     <span className="text-[#55655F]">›</span>
@@ -5356,7 +5677,7 @@ function App() {
               <div className="flex-1 overflow-y-auto px-4 py-3">
                 <CheckPhoto id={c.id} className="w-full aspect-[4/3] rounded-xl" />
                 <p className="mt-3 text-[10px] font-mono font-bold tracking-[.14em]" style={{ color: checkColor(c) }}>
-                  {checkWaiting(c) ? 'WAITING FOR AI' : (c.status === 'healthy' ? 'HEALTHY' : c.status === 'unsure' ? 'UNSURE' : 'NEEDS ACTION')} · {c.crop}
+                  {checkWaiting(c) ? T("WAITING FOR AI") : (c.status === 'healthy' ? T("HEALTHY") : c.status === 'unsure' ? T("UNSURE") : T("NEEDS ACTION"))} · {c.crop}
                 </p>
                 <p className="font-display text-[19px] font-bold leading-tight text-[#14201C]">{checkTitle(c)}</p>
                 <p className="text-[10.5px] font-mono text-[#55655F] mt-0.5">{thDateTime(c.ts)}{c.lat != null ? ` · GPS ±${Math.round(c.acc || 0)} m` : ' · ไม่มีตำแหน่ง GPS'}</p>
@@ -5416,7 +5737,7 @@ function App() {
 
                 {!c.ai && !checkWaiting(c) && (
                   aiKey
-                    ? <button onClick={() => askAi(c.id)} className="mt-3 w-full min-h-[46px] rounded-xl bg-[#0C6B48] text-[#FFFFFF] text-[12px] font-mono font-bold tracking-[.06em] flex items-center justify-center gap-2"><Leaf size={16} />{c.aiState === 'error' ? 'ASK AI AGAIN' : 'ANALYSE WITH AI'}</button>
+                    ? <button onClick={() => askAi(c.id)} className="mt-3 w-full min-h-[46px] rounded-xl bg-[#0C6B48] text-[#FFFFFF] text-[12px] font-mono font-bold tracking-[.06em] flex items-center justify-center gap-2"><Leaf size={16} />{c.aiState === 'error' ? T("ASK AI AGAIN") : T("ANALYSE WITH AI")}</button>
                     : <p className="mt-3 text-[11px] text-[#55655F] leading-relaxed">อยากให้ AI ช่วยดูรูป: ใส่ Anthropic API key ในหน้าตั้งค่า (SETTINGS → AI crop check)</p>
                 )}
                 {c.ai && <p className="mt-3 text-[10px] font-mono text-[#8A8F86]">AI · {c.ai.model} · {thDateTime(c.ai.ts)}</p>}
@@ -5424,19 +5745,19 @@ function App() {
                 <div className="mt-4 mb-2 flex gap-2">
                   <button onClick={() => (confirmDeleteCheck ? deleteCheck(c.id) : setConfirmDeleteCheck(true))}
                     className={'flex-1 min-h-[44px] rounded-xl border text-[11px] font-mono font-bold ' + (confirmDeleteCheck ? 'border-[#A5201A] bg-[#A5201A] text-[#FFFFFF]' : 'border-[#C6C0AC] text-[#55655F]')}>
-                    {confirmDeleteCheck ? 'TAP AGAIN TO DELETE' : 'DELETE'}
+                    {confirmDeleteCheck ? T("TAP AGAIN TO DELETE") : T("DELETE")}
                   </button>
-                  <button onClick={() => { setOpenCheckId(null); setConfirmDeleteCheck(false); }} className="flex-[2] min-h-[44px] rounded-xl bg-[#0A5238] text-[#FFFFFF] text-[12px] font-mono font-bold">DONE</button>
+                  <button onClick={() => { setOpenCheckId(null); setConfirmDeleteCheck(false); }} className="flex-[2] min-h-[44px] rounded-xl bg-[#0A5238] text-[#FFFFFF] text-[12px] font-mono font-bold">{T("DONE")}</button>
                 </div>
               </div>
             )}
             {!c && (
               <div className="px-4 pt-2 pb-4 border-t border-[#E2DCC9] bg-[#FFFFFF]" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
                 <button onClick={takeCheckPhoto} className="w-full min-h-[50px] rounded-xl bg-[#0A5238] text-[#FFFFFF] text-[13px] font-mono font-bold tracking-[.06em] flex items-center justify-center gap-2">
-                  <Camera size={18} /> TAKE PHOTO HERE
+                  <Camera size={18} /> {T("TAKE PHOTO HERE")}
                 </button>
                 <p className="mt-1.5 text-[10px] font-mono text-[#55655F] text-center">
-                  {gpsInfo ? `pinned where you stand · GPS ±${Math.round(gpsInfo.accuracy || 0)} m` : 'no GPS yet — the photo is kept without a pin'}{aiKey ? ' · AI on' : ''}
+                  {gpsInfo ? `pinned where you stand · GPS ±${Math.round(gpsInfo.accuracy || 0)} m` : T("no GPS yet — the photo is kept without a pin")}{aiKey ? " " + T("· AI on") : ''}
                 </p>
               </div>
             )}
@@ -5450,7 +5771,7 @@ function App() {
         const rounds = buildFieldReport(f, missions, checks);
         const share = () => {
           const text = fieldReportText(f, rounds);
-          const SH = nativePlugin('Share');
+          const SH = nativePlugin(T("Share"));
           const done = (m) => setReportMsg(m);
           if (SH) Promise.resolve(SH.share({ title: `รายงานการฉีดพ่น · ${f.name}`, text, dialogTitle: 'ส่งรายงาน' })).then(() => done('')).catch(() => done(''));
           else if (navigator.share) navigator.share({ title: f.name, text }).catch(() => {});
@@ -5461,12 +5782,12 @@ function App() {
           <div className="absolute inset-0 z-40 bg-[#F4F1E7] flex flex-col">
             <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-[#E2DCC9]" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
               <div className="min-w-0">
-                <p className="font-display text-[15px] font-bold tracking-wide">SPRAY REPORT</p>
+                <p className="font-display text-[15px] font-bold tracking-wide">{T("SPRAY REPORT")}</p>
                 <p className="text-[11px] text-[#55655F] truncate">{f.name} · {(f.areaRai || 0).toFixed(2)} ไร่</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button onClick={share} className="min-h-[38px] px-3 rounded-lg bg-[#0C6B48] text-[#FFFFFF] text-[11px] font-bold font-mono">SHARE</button>
-                <button onClick={() => setReportFieldId(null)} aria-label="Close report" className="text-[#55655F] p-2"><X size={20} /></button>
+                <button onClick={share} className="min-h-[38px] px-3 rounded-lg bg-[#0C6B48] text-[#FFFFFF] text-[11px] font-bold font-mono">{T("SHARE")}</button>
+                <button onClick={() => setReportFieldId(null)} aria-label={T("Close report")} className="text-[#55655F] p-2"><X size={20} /></button>
               </div>
             </div>
             {reportMsg && <p className="px-4 pt-2 text-[11px] font-mono text-[#0A5238]">{reportMsg}</p>}
@@ -5524,14 +5845,14 @@ function App() {
         return (
           <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
             <div className="w-full max-w-[360px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4">
-              <p className="font-display text-[15px] font-bold tracking-wide">FINISH · ROUND {round}</p>
-              <p className="text-[10.5px] text-[#55655F] mt-0.5">{e ? e.name : 'This field'} · {coveragePct.toFixed(0)}% sprayed this round</p>
+              <p className="font-display text-[15px] font-bold tracking-wide">{T("FINISH · ROUND")} {round}</p>
+              <p className="text-[10.5px] text-[#55655F] mt-0.5">{e ? e.name : T("This field")} · {coveragePct.toFixed(0)}{T("% sprayed this round")}</p>
               <div className="mt-4 flex flex-col gap-2.5">
-                <DockBtn icon={CheckCircle2} label={`FIELD DONE · CLOSE ROUND ${round}`} tone="green" big onClick={() => choose('complete')} />
-                <p className="text-[10px] text-[#55655F] -mt-1 px-1">Next time this field starts round {round + 1} on an empty map.</p>
-                <DockBtn icon={Save} label="NOT DONE · CONTINUE LATER" tone="teal" big onClick={() => choose('partial')} />
-                <p className="text-[10px] text-[#55655F] -mt-1 px-1">Round {round} stays open; its sprayed area is kept for next time.</p>
-                <DockBtn icon={X} label="CANCEL" tone="ghost" onClick={() => setShowFinishChoice(false)} />
+                <DockBtn icon={CheckCircle2} label={T("FIELD DONE · CLOSE ROUND {0}", round)} tone="green" big onClick={() => choose('complete')} />
+                <p className="text-[10px] text-[#55655F] -mt-1 px-1">{T("Next time this field starts round")} {round + 1} {T("on an empty map.")}</p>
+                <DockBtn icon={Save} label={T("NOT DONE · CONTINUE LATER")} tone="teal" big onClick={() => choose('partial')} />
+                <p className="text-[10px] text-[#55655F] -mt-1 px-1">{T("Round")} {round} {T("stays open; its sprayed area is kept for next time.")}</p>
+                <DockBtn icon={X} label={T("CANCEL")} tone="ghost" onClick={() => setShowFinishChoice(false)} />
               </div>
             </div>
           </div>
@@ -5543,14 +5864,14 @@ function App() {
           <div className="w-full max-w-[380px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] overflow-hidden max-h-[92vh] overflow-y-auto">
             <div className="flex items-start justify-between px-4 pt-4 pb-2">
               <div>
-                <p className="font-display text-[16px] font-bold tracking-wide">MISSION SUMMARY</p>
+                <p className="font-display text-[16px] font-bold tracking-wide">{T("MISSION SUMMARY")}</p>
                 <p className="text-[10.5px] text-[#55655F]">
-                  {finishInfo ? (finishInfo.complete ? `Round ${finishInfo.round} · field done` : `Round ${finishInfo.round} · continue later`) : 'Spray mission complete'}
+                  {finishInfo ? (finishInfo.complete ? T("Round {0} · field done", finishInfo.round) : T("Round {0} · continue later", finishInfo.round)) : T("Spray mission complete")}
                 </p>
               </div>
               {/* Close = back to the home screen, same as START NEW. The mission is
                   already filed, so there is nothing to lose by closing. */}
-              <button onClick={goHomeFromSummary} aria-label="Close" className="text-[#55655F] p-2 -mr-1 -mt-1"><X size={20} /></button>
+              <button onClick={goHomeFromSummary} aria-label={T("Close")} className="text-[#55655F] p-2 -mr-1 -mt-1"><X size={20} /></button>
             </div>
             <div className="px-4 pb-2">
               <div className="h-[160px] rounded-xl overflow-hidden bg-[#F4F1E7] border border-[#E2DCC9]">
@@ -5559,13 +5880,13 @@ function App() {
             </div>
             <dl className="grid grid-cols-2 gap-px bg-[#E2DCC9] mt-2">
               {[
-                ['SPRAY TIME', fmtTime(sim.elapsed), `pace ${speedMs.toFixed(2)} m/s`],
-                ['DISTANCE', `${sim.distance.toFixed(0)} m`, `swath ${swath.toFixed(1)} m`],
-                ['AREA SPRAYED', `${mRai.rai}-${mRai.ngan}-${mRai.wa} rai`, `${mRaiDec.toFixed(2)} rai · ${mArea.toFixed(0)} m²${cbase.sprayed > 0 ? ` · field ${coveragePct.toFixed(0)}% done` : ''}`],
+                [T("SPRAY TIME"), fmtTime(sim.elapsed), T("pace {0} m/s", speedMs.toFixed(2))],
+                [T("DISTANCE"), `${sim.distance.toFixed(0)} m`, T("swath {0} m", swath.toFixed(1))],
+                [T("AREA SPRAYED"), `${mRai.rai}-${mRai.ngan}-${mRai.wa} ${T("rai")}`, `${mRaiDec.toFixed(2)} ${T("rai")} · ${mArea.toFixed(0)} m²${cbase.sprayed > 0 ? " " + T("· field {0}% done", coveragePct.toFixed(0)) : ''}`],
                 // Spec §4D "Metrics Rule": physical quantities, not bare percentages.
-                ['OVERLAPPED', `${mOverlapRai.toFixed(2)} rai`, overlapSub],
-                ['MISSED SPOTS', `${missedRai.toFixed(2)} rai`, missedCellsCount > 0 ? 'flagged red on the map' : 'none flagged'],
-                ['TANKS USED', `${tanksUsed}`, `${tankCapacity}L tank${avgTankRai != null ? ` · avg ${avgTankRai.toFixed(2)} rai/tank` : ''}`]
+                [T("OVERLAPPED"), `${mOverlapRai.toFixed(2)} ${T("rai")}`, overlapSub],
+                [T("MISSED SPOTS"), `${missedRai.toFixed(2)} ${T("rai")}`, missedCellsCount > 0 ? T("flagged red on the map") : T("none flagged")],
+                [T("TANKS USED"), `${tanksUsed}`, T("{0}L tank{1}", tankCapacity, avgTankRai != null ? " " + T("· avg {0} rai/tank", avgTankRai.toFixed(2)) : '')]
               ].map(([label, val, sub]) => (
                 <div key={label} className="bg-[#FFFFFF] p-3">
                   <dt className="text-[9px] tracking-[.12em] font-mono text-[#55655F]">{label}</dt>
@@ -5576,9 +5897,9 @@ function App() {
             </dl>
             <div className="p-3 flex flex-col gap-2.5">
               <p className="flex items-center justify-center gap-1.5 text-[10.5px] font-mono text-[#0A5238]">
-                <Check size={13} /> Saved to mission history
+                <Check size={13} /> {T("Saved to mission history")}
               </p>
-              <DockBtn icon={RotateCcw} label="START NEW" tone="teal" onClick={goHomeFromSummary} />
+              <DockBtn icon={RotateCcw} label={T("START NEW")} tone="teal" onClick={goHomeFromSummary} />
             </div>
           </div>
         </div>
@@ -5597,8 +5918,8 @@ function App() {
                   <button onClick={() => setSelectedMissionId(null)} className="text-[#0C6B48] p-1 -ml-1"><ChevronLeft size={20} /></button>
                 ) : <History size={17} className="text-[#0C6B48]" />}
                 <div className="min-w-0">
-                  <p className="font-display text-[15px] font-bold tracking-wide truncate">{selected ? fmtDate(selected.ts) : 'MISSION HISTORY'}</p>
-                  {!selected && <p className="text-[9.5px] text-[#55655F] font-mono">Mission history · {missions.length} logged · {totalRai.toFixed(2)} rai all-time</p>}
+                  <p className="font-display text-[15px] font-bold tracking-wide truncate">{selected ? fmtDate(selected.ts) : T("MISSION HISTORY")}</p>
+                  {!selected && <p className="text-[9.5px] text-[#55655F] font-mono">{T("Mission history ·")} {missions.length} {T("logged ·")} {totalRai.toFixed(2)} {T("rai all-time")}</p>}
                 </div>
               </div>
               <button onClick={() => { setShowHistory(false); setSelectedMissionId(null); setConfirmClear(false); }} className="text-[#55655F] p-1 shrink-0"><X size={20} /></button>
@@ -5608,8 +5929,8 @@ function App() {
               {!selected && missions.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-center gap-2 pb-16">
                   <History size={28} className="text-[#C6C0AC]" />
-                  <p className="text-[12.5px] text-[#55655F]">No missions saved yet.</p>
-                  <p className="text-[10.5px] text-[#4A564F] max-w-[220px]">Finish a spraying run and tap Save Session to log it here.</p>
+                  <p className="text-[12.5px] text-[#55655F]">{T("No missions saved yet.")}</p>
+                  <p className="text-[10.5px] text-[#4A564F] max-w-[220px]">{T("Finish a spraying run and tap Save Session to log it here.")}</p>
                 </div>
               )}
 
@@ -5623,13 +5944,13 @@ function App() {
                       </div>
                       <div className="flex-1 min-w-0 py-2.5 pr-3 flex flex-col justify-between">
                         <div>
-                          <p className="font-mono text-[10px] text-[#55655F] truncate">{fmtDate(m.ts)}{m.round ? ` · ${m.fieldName ? m.fieldName + ' · ' : ''}round ${m.round}${m.complete ? ' ✓' : ' · open'}` : ''}</p>
-                          <p className="font-mono tnum text-[15px] font-bold text-[#0A5238] mt-0.5">{m.rai}-{m.ngan}-{m.wa} rai</p>
+                          <p className="font-mono text-[10px] text-[#55655F] truncate">{fmtDate(m.ts)}{m.round ? " " + T("· {0}round {1}{2}", m.fieldName ? m.fieldName + ' · ' : '', m.round, m.complete ? ' ✓' : " " + T("· open")) : ''}</p>
+                          <p className="font-mono tnum text-[15px] font-bold text-[#0A5238] mt-0.5">{m.rai}-{m.ngan}-{m.wa} {T("rai")}</p>
                         </div>
                         <div className="flex items-center gap-3 text-[9.5px] font-mono text-[#55655F] mt-1">
                           <span>{m.distance.toFixed(0)} m</span>
                           <span>{fmtTime(m.elapsed)}</span>
-                          <span className={m.overlapRate > 15 ? 'text-[#8A4B06]' : ''}>{m.overlapRate.toFixed(0)}% overlap</span>
+                          <span className={m.overlapRate > 15 ? 'text-[#8A4B06]' : ''}>{m.overlapRate.toFixed(0)}{T("% overlap")}</span>
                         </div>
                       </div>
                     </button>
@@ -5640,15 +5961,15 @@ function App() {
               {selected && (
                 <div className="flex flex-col gap-3">
                   <div className="h-[190px] rounded-xl overflow-hidden bg-[#F4F1E7] border border-[#E2DCC9]">
-                    {selected.thumb ? <img src={selected.thumb} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-[#C6C0AC] text-[11px]">No coverage image saved</div>}
+                    {selected.thumb ? <img src={selected.thumb} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-[#C6C0AC] text-[11px]">{T("No coverage image saved")}</div>}
                   </div>
                   <dl className="grid grid-cols-2 gap-px bg-[#E2DCC9] rounded-xl overflow-hidden">
                     {[
-                      ['SPRAY TIME', fmtTime(selected.elapsed), `field ${selected.fieldRai.toFixed(2)} rai`],
-                      ['DISTANCE', `${selected.distance.toFixed(0)} m`, `swath ${selected.swath.toFixed(1)} m`],
-                      ['AREA SPRAYED', `${selected.rai}-${selected.ngan}-${selected.wa} rai`, `${selected.raiDec.toFixed(2)} rai · ${selected.areaSprayed.toFixed(0)} m²`],
-                      ['OVERLAPPED', `${(selected.overlapRai ?? 0).toFixed(2)} rai`, `${(selected.overlapRate ?? 0).toFixed(0)}% of sprayed area`],
-                      ['MISSED SPOTS', `${(selected.missedRai ?? 0).toFixed(2)} rai`, selected.tanks != null ? `${selected.tanks} tank${selected.tanks === 1 ? '' : 's'} used` : `${selected.litres.toFixed(1)} L used total`]
+                      [T("SPRAY TIME"), fmtTime(selected.elapsed), T("field {0} rai", selected.fieldRai.toFixed(2))],
+                      [T("DISTANCE"), `${selected.distance.toFixed(0)} m`, T("swath {0} m", selected.swath.toFixed(1))],
+                      [T("AREA SPRAYED"), `${selected.rai}-${selected.ngan}-${selected.wa} ${T("rai")}`, `${selected.raiDec.toFixed(2)} ${T("rai")} · ${selected.areaSprayed.toFixed(0)} m²`],
+                      [T("OVERLAPPED"), `${(selected.overlapRai ?? 0).toFixed(2)} ${T("rai")}`, T("{0}% of sprayed area{1}", (selected.overlapRate ?? 0).toFixed(0), '')],
+                      [T("MISSED SPOTS"), `${(selected.missedRai ?? 0).toFixed(2)} ${T("rai")}`, selected.tanks != null ? T("{0} tank{1} used", selected.tanks, selected.tanks === 1 ? '' : 's') : `${selected.litres.toFixed(1)} L used total`]
                     ].map(([label, val, sub]) => (
                       <div key={label} className="bg-[#FFFFFF] p-3">
                         <dt className="text-[9px] tracking-[.12em] font-mono text-[#55655F]">{label}</dt>
@@ -5663,20 +5984,20 @@ function App() {
                       than showing false "unchecked" state. */}
                   {selected.checklist && (
                     <div className="rounded-xl border border-[#E2DCC9] bg-[#FFFFFF] p-3">
-                      <p className="text-[9px] tracking-[.12em] font-mono text-[#55655F] mb-2">COMPLIANCE LOG</p>
+                      <p className="text-[9px] tracking-[.12em] font-mono text-[#55655F] mb-2">{T("COMPLIANCE LOG")}</p>
                       <div className="flex flex-wrap gap-1.5 mb-2">
-                        {[['ppe', 'PPE'], ['mixedRate', 'Mix rate'], ['nozzle', 'Nozzle'], ['wind', 'Wind']].map(([k, label]) => (
+                        {[['ppe', T("PPE")], ['mixedRate', T("Mix rate")], ['nozzle', T("Nozzle")], ['wind', T("Wind")]].map(([k, label]) => (
                           <span key={k} className={'text-[10px] font-mono px-2 py-1 rounded-full border ' + (selected.checklist[k] ? 'border-[#0C6B48]/50 text-[#0C6B48]' : 'border-[#E2DCC9] text-[#4A564F]')}>
                             {selected.checklist[k] ? '✓ ' : '— '}{label}
                           </span>
                         ))}
                       </div>
                       <p className="text-[10.5px] font-mono text-[#55655F]">
-                        Operator: {selected.operator ? selected.operator : '—'} · Weather: {selected.weather ? selected.weather : '—'}
+                        Operator: {selected.operator ? selected.operator : '—'} {T("· Weather:")} {selected.weather ? selected.weather : '—'}
                       </p>
                       {selected.weatherApi && (
                         <p className="text-[10.5px] font-mono text-[#4A564F] mt-1">
-                          Live reading: {selected.weatherApi.windKmh != null ? `${Math.round(selected.weatherApi.windKmh)} km/h wind` : 'wind —'}
+                          {T("Live reading:")} {selected.weatherApi.windKmh != null ? `${Math.round(selected.weatherApi.windKmh)} km/h wind` : T("wind —")}
                           {selected.weatherApi.rainSoonProb != null ? `, ${Math.round(selected.weatherApi.rainSoonProb)}% rain (3h)` : ''}
                           {selected.weatherApi.uvIndex != null ? `, UV ${Math.round(selected.weatherApi.uvIndex)}` : ''}
                           {' '}(Open-Meteo)
@@ -5692,8 +6013,8 @@ function App() {
               <div className="shrink-0 p-3 border-t border-[#E2DCC9] flex flex-col gap-2" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
                 <p className="text-center text-[9.5px] font-mono text-[#4A564F]">{totalDist.toFixed(0)} m walked all-time</p>
                 <div className="grid grid-cols-2 gap-2.5">
-                  <DockBtn icon={Download} label="EXPORT CSV" tone="ghost" onClick={exportHistoryCSV} />
-                  <DockBtn icon={Trash2} label={confirmClear ? 'TAP TO CONFIRM' : 'CLEAR HISTORY'} tone={confirmClear ? 'red' : 'dim'} onClick={clearHistory} />
+                  <DockBtn icon={Download} label={T("EXPORT CSV")} tone="ghost" onClick={exportHistoryCSV} />
+                  <DockBtn icon={Trash2} label={confirmClear ? T("TAP TO CONFIRM") : T("CLEAR HISTORY")} tone={confirmClear ? 'red' : 'dim'} onClick={clearHistory} />
                 </div>
               </div>
             )}
@@ -5710,21 +6031,21 @@ function App() {
             <div className="flex items-center gap-2.5 min-w-0">
               <MapPinned size={17} className="text-[#0C6B48] shrink-0" />
               <div className="min-w-0">
-                <p className="font-display text-[15px] font-bold tracking-wide truncate">FIELD LIBRARY</p>
-                <p className="text-[9.5px] text-[#55655F] font-mono">Saved field library · {fieldLibrary.length} saved</p>
+                <p className="font-display text-[15px] font-bold tracking-wide truncate">{T("FIELD LIBRARY")}</p>
+                <p className="text-[9.5px] text-[#55655F] font-mono">{T("Saved field library ·")} {fieldLibrary.length} saved</p>
               </div>
             </div>
             <button onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); }} className="text-[#55655F] p-1 shrink-0"><X size={20} /></button>
           </div>
           <div className="shrink-0 px-4 pt-3 flex">
-            <DockBtn icon={Plus} label="ADD FIELD" tone="teal" onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); startPlotting(null); }} />
+            <DockBtn icon={Plus} label={T("ADD FIELD")} tone="teal" onClick={() => { setShowFieldLibrary(false); setConfirmDeleteFieldId(null); startPlotting(null); }} />
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {fieldLibrary.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
                 <MapPinned size={28} className="text-[#C6C0AC]" />
-                <p className="text-sm text-[#55655F]">No fields saved yet</p>
-                <p className="text-xs text-[#4A564F]">Plot or load a field, then tap SAVE from the ready screen to keep it here.</p>
+                <p className="text-sm text-[#55655F]">{T("No fields saved yet")}</p>
+                <p className="text-xs text-[#4A564F]">{T("Plot or load a field, then tap SAVE from the ready screen to keep it here.")}</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -5749,13 +6070,13 @@ function App() {
                               <p className="font-display text-sm font-bold truncate">{f.name}</p>
                             </span>
                             <p className="text-[10px] font-mono text-[#55655F] mt-0.5 truncate">
-                              {r.rai}-{r.ngan}-{r.wa} rai · {f.lastSprayedTs ? `sprayed ${fmtDate(f.lastSprayedTs)}` : `created ${fmtDate(f.ts)}`}{f.gpsAnchored ? ' · GPS-anchored' : ''}
+                              {r.rai}-{r.ngan}-{r.wa} {T("rai ·")} {f.lastSprayedTs ? T("sprayed {0}", fmtDate(f.lastSprayedTs)) : T("created {0}", fmtDate(f.ts))}{f.gpsAnchored ? " " + T("· GPS-anchored") : ''}
                             </p>
                             {f.cov ? (
                               <p className="text-[10px] font-mono text-[#0A5238] mt-0.5 truncate">
-                                round {f.round || 1} · sprayed {Math.min(100, (f.cov.sprayedCells * CELL * CELL) / (f.areaSqm != null ? f.areaSqm : f.areaRai * 1600) * 100).toFixed(0)}% · {(f.cov.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai{f.stats ? ` · ${f.stats.missions} mission${f.stats.missions === 1 ? '' : 's'}` : ''}
+                                {T("Round")} {f.round || 1} {T("· sprayed")} {Math.min(100, (f.cov.sprayedCells * CELL * CELL) / (f.areaSqm != null ? f.areaSqm : f.areaRai * 1600) * 100).toFixed(0)}% · {(f.cov.sprayedCells * CELL * CELL / 1600).toFixed(2)} rai{f.stats ? " " + T("· {0} mission{1}", f.stats.missions, f.stats.missions === 1 ? '' : 's') : ''}
                               </p>
-                            ) : <p className="text-[10px] font-mono text-[#4A564F] mt-0.5">round {f.round || 1} · not started{(f.rounds && f.rounds.length) ? ` · ${f.rounds.length} round${f.rounds.length === 1 ? '' : 's'} done` : ''}</p>}
+                            ) : <p className="text-[10px] font-mono text-[#4A564F] mt-0.5">{T("Round")} {f.round || 1} {T("· not started")}{(f.rounds && f.rounds.length) ? " " + T("· {0} round{1} done", f.rounds.length, f.rounds.length === 1 ? '' : 's') : ''}</p>}
                           </button>
                         )}
                         {!isRenaming && (
@@ -5766,26 +6087,26 @@ function App() {
                         )}
                         <button onClick={() => (confirmDeleteFieldId === f.id ? deleteFieldFromLibrary(f.id) : setConfirmDeleteFieldId(f.id))}
                           className={'shrink-0 min-h-[38px] px-2.5 rounded-lg flex items-center justify-center ' + (confirmDeleteFieldId === f.id ? 'bg-[#A5201A] text-[#FFFFFF]' : 'text-[#55655F]')}>
-                          {confirmDeleteFieldId === f.id ? <span className="text-[9px] font-mono font-bold px-0.5">CONFIRM</span> : <Trash2 size={15} />}
+                          {confirmDeleteFieldId === f.id ? <span className="text-[9px] font-mono font-bold px-0.5">{T("CONFIRM")}</span> : <Trash2 size={15} />}
                         </button>
                       </div>
                       {!isRenaming && (
                         <button onClick={() => { loadFieldFromLibrary(f); setShowFieldLibrary(false); }}
                           disabled={isActive}
                           className={'min-h-[36px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide flex items-center justify-center gap-1.5 ' + (isActive ? 'bg-[#0C6B48]/15 text-[#0C6B48] border border-[#0C6B48]/30' : 'bg-[#F4F1E7] text-[#24322C] border border-[#C6C0AC]')}>
-                          {isActive ? <><Star size={11} className="fill-[#0C6B48]" /> ACTIVE FIELD</> : 'SET AS ACTIVE FIELD'}
+                          {isActive ? <><Star size={11} className="fill-[#0C6B48]" /> {T("ACTIVE FIELD")}</> : T("SET AS ACTIVE FIELD")}
                         </button>
                       )}
                       {!isRenaming && (
                         <button onClick={() => { setReportMsg(''); setReportFieldId(f.id); }}
                           className="min-h-[36px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide flex items-center justify-center gap-1.5 bg-[#F4F1E7] text-[#0C6B48] border border-[#0C6B48]/40">
-                          <History size={12} /> REPORT
+                          <History size={12} /> {T("REPORT")}
                         </button>
                       )}
                       {!isRenaming && f.cov && (
                         <button onClick={() => { if (confirmResetCovId === f.id) resetFieldCoverage(f.id); else { setConfirmResetCovId(f.id); setTimeout(() => setConfirmResetCovId((c) => (c === f.id ? null : c)), 5000); } }}
                           className={'min-h-[34px] rounded-lg text-[9.5px] font-mono font-bold tracking-wide border ' + (confirmResetCovId === f.id ? 'bg-[#8A4B06] text-[#FFFFFF] border-[#8A4B06]' : 'border-[#C6C0AC] text-[#55655F]')}>
-                          {confirmResetCovId === f.id ? 'TAP AGAIN — CLEAR SPRAYED AREA' : 'RESET SPRAYED AREA'}
+                          {confirmResetCovId === f.id ? T("TAP AGAIN — CLEAR SPRAYED AREA") : T("RESET SPRAYED AREA")}
                         </button>
                       )}
                     </div>
@@ -5797,7 +6118,7 @@ function App() {
           <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
             <button onClick={() => { if (confirmResetAll) resetAllSavedData(); else { setConfirmResetAll(true); setTimeout(() => setConfirmResetAll(false), 6000); } }}
               className={'w-full min-h-[46px] rounded-xl text-[10.5px] font-mono font-bold tracking-wide border ' + (confirmResetAll ? 'bg-[#A5201A] text-[#FFFFFF] border-[#A5201A]' : 'border-[#A5201A]/50 text-[#A5201A]')}>
-              {confirmResetAll ? 'TAP AGAIN — ERASE ALL FIELDS, SPRAYED AREAS & HISTORY' : 'RESET ALL SAVED DATA'}
+              {confirmResetAll ? T("TAP AGAIN — ERASE ALL FIELDS, SPRAYED AREAS & HISTORY") : T("RESET ALL SAVED DATA")}
             </button>
           </div>
         </div>
@@ -5807,17 +6128,17 @@ function App() {
       {showSaveField && (
         <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[340px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4">
-            <p className="font-display text-[15px] font-bold tracking-wide">{namingNewField ? 'NAME THIS FIELD' : 'RENAME FIELD'}</p>
+            <p className="font-display text-[15px] font-bold tracking-wide">{namingNewField ? T("NAME THIS FIELD") : T("RENAME FIELD")}</p>
             <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">
-              {namingNewField ? 'Field saved · ' : ''}{(() => { const r = toRai(fieldRef.current.area); return `${r.rai}-${r.ngan}-${r.wa} rai`; })()}{namingNewField ? ' · SKIP keeps the date name' : ''}
+              {namingNewField ? (T("Field saved ·") + " ") : ''}{(() => { const r = toRai(fieldRef.current.area); return `${r.rai}-${r.ngan}-${r.wa} ${T("rai")}`; })()}{namingNewField ? " " + T("· SKIP keeps the date name") : ''}
             </p>
-            <input autoFocus={!namingNewField} value={saveFieldName} onChange={(e) => setSaveFieldName(e.target.value)} aria-label="Field name"
+            <input autoFocus={!namingNewField} value={saveFieldName} onChange={(e) => setSaveFieldName(e.target.value)} aria-label={T("Field name")}
               onFocus={(e) => { if (namingNewField) e.target.select(); }}
-              placeholder="e.g. Soybean Field 1"
+              placeholder={T("e.g. Soybean Field 1")}
               className="w-full min-h-[46px] px-3 rounded-lg bg-[#F4F1E7] border border-[#C6C0AC] text-[#24322C] text-sm font-sans placeholder:text-[#4A564F] outline-none focus:border-[#0C6B48]" />
             <div className="grid grid-cols-2 gap-2.5 mt-4">
-              <DockBtn icon={X} label={namingNewField ? 'SKIP' : 'CANCEL'} tone="ghost" onClick={() => { setShowSaveField(false); setNamingNewField(false); }} />
-              <DockBtn icon={Save} label="SAVE" tone="teal" disabled={!saveFieldName.trim()}
+              <DockBtn icon={X} label={namingNewField ? T("SKIP") : T("CANCEL")} tone="ghost" onClick={() => { setShowSaveField(false); setNamingNewField(false); }} />
+              <DockBtn icon={Save} label={T("SAVE")} tone="teal" disabled={!saveFieldName.trim()}
                 onClick={() => { if (activeFieldIdRef.current) renameFieldInLibrary(activeFieldIdRef.current, saveFieldName); setShowSaveField(false); setNamingNewField(false); }} />
             </div>
           </div>
@@ -5832,21 +6153,25 @@ function App() {
         <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[360px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <p className="font-display text-[15px] font-bold tracking-wide">SETTINGS</p>
+              <p className="font-display text-[15px] font-bold tracking-wide">{T("SETTINGS")}</p>
               <button onClick={() => setShowSpraySettings(false)} className="text-[#55655F] p-1"><X size={18} /></button>
             </div>
-            <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">Tank size and nozzle width · remembered for next time</p>
+            <div className="flex items-center gap-3 mt-2">
+              <span className="text-[12px] font-semibold text-[#24322C] shrink-0">ภาษา · Language</span>
+              <div className="flex-1"><Toggle2 value={uiLang} onChange={changeLang} options={[{ v: 'th', label: 'ไทย' }, { v: 'en', label: 'English' }]} /></div>
+            </div>
+            <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">{T("Tank size and nozzle width · remembered for next time")}</p>
             <Glass className="px-2 py-2 flex flex-col gap-1">
-              <Stepper label="Tank" value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
-              <Stepper label="Width" value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
-              <Stepper label="Edge gap" value={edgeGap} unit="m" dec={1} step={0.5} min={0} max={10} onChange={setEdgeGap} />
+              <Stepper label={T("Tank")} value={tankCapacity} unit="L" step={1} min={1} max={60} onChange={setTankCapacity} />
+              <Stepper label={T("Width")} value={swath} unit="m" dec={1} step={0.1} min={0.5} max={10} onChange={(w) => { setSwath(w); resetSim(w); }} />
+              <Stepper label={T("Edge gap")} value={edgeGap} unit="m" dec={1} step={0.5} min={0} max={10} onChange={setEdgeGap} />
             </Glass>
             {(() => {
               const items = [
-                ['ppe', 'PPE worn'],
-                ['mixedRate', 'Mix rate OK'],
-                ['nozzle', 'Nozzle checked'],
-                ['wind', 'Wind checked'],
+                ['ppe', T("PPE worn")],
+                ['mixedRate', T("Mix rate OK")],
+                ['nozzle', T("Nozzle checked")],
+                ['wind', T("Wind checked")],
               ];
               const checkedCount = items.filter(([k]) => checklist[k]).length;
               const uncheckedCount = items.length - checkedCount;
@@ -5855,8 +6180,8 @@ function App() {
               const applyWeatherReading = () => {
                 if (!wx) return;
                 const parts = [];
-                if (wx.windKmh != null) parts.push(`Wind ${Math.round(wx.windKmh)} km/h`);
-                if (wx.rainSoonProb != null) parts.push(`Rain ${Math.round(wx.rainSoonProb)}%`);
+                if (wx.windKmh != null) parts.push(T("Wind {0} km/h", Math.round(wx.windKmh)));
+                if (wx.rainSoonProb != null) parts.push(T("Rain {0}%", Math.round(wx.rainSoonProb)));
                 if (wx.uvIndex != null) parts.push(`UV ${Math.round(wx.uvIndex)}`);
                 setChecklist((c) => {
                   const next = { ...c, wind: true, weather: parts.join(', ') };
@@ -5869,8 +6194,8 @@ function App() {
                   <button disabled
                     className="w-full flex items-center justify-between gap-2 px-3.5 py-3 min-h-[44px]">
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F] shrink-0">Pre-flight checklist</span>
-                      <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#55655F]' : 'text-[#0A5238]')}>{uncheckedCount > 0 ? `${uncheckedCount} item${uncheckedCount === 1 ? '' : 's'} unchecked` : 'All checked'}</span>
+                      <span className="text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F] shrink-0">{T("Pre-flight checklist")}</span>
+                      <span className={'text-[10px] font-mono shrink-0 ' + (uncheckedCount > 0 ? 'text-[#55655F]' : 'text-[#0A5238]')}>{uncheckedCount > 0 ? T("{0} item{1} unchecked", uncheckedCount, uncheckedCount === 1 ? '' : 's') : T("All checked")}</span>
                       {wxRisk && <AlertTriangle size={12} className="text-[#9A560A] shrink-0" />}
                     </span>
                   </button>
@@ -5893,12 +6218,12 @@ function App() {
                           before. */}
                       {sprayWeatherStatus === 'loading' && (
                         <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#55655F] px-0.5">
-                          <Wind size={12} className="shrink-0 animate-pulse" /> Checking live wind/rain…
+                          <Wind size={12} className="shrink-0 animate-pulse" /> {T("Checking live wind/rain…")}
                         </div>
                       )}
                       {sprayWeatherStatus === 'error' && (
                         <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-[#4A564F] px-0.5">
-                          <CloudRain size={12} className="shrink-0" /> Live wind/rain unavailable — check manually
+                          <CloudRain size={12} className="shrink-0" /> {T("Live wind/rain unavailable — check manually")}
                         </div>
                       )}
                       {sprayWeatherStatus === 'ok' && wx && (
@@ -5912,31 +6237,31 @@ function App() {
                           </span>
                           <CloudRain size={14} className={'shrink-0 ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#9A560A]' : 'text-[#55655F]')} />
                           <span className={'text-[11px] font-mono flex-1 min-w-0 truncate ' + ((wx.rainNowWarning || wx.rainSoonWarning) ? 'text-[#9A560A]' : 'text-[#24322C]')}>
-                            {wx.rainNowWarning ? 'Raining now' : (wx.rainSoonProb != null ? `${Math.round(wx.rainSoonProb)}% next 3h` : '—')}
+                            {wx.rainNowWarning ? T("Raining now") : (wx.rainSoonProb != null ? `${Math.round(wx.rainSoonProb)}% next 3h` : '—')}
                           </span>
                           {wx.uvIndex != null && (
                             <span className={'flex items-center gap-1 text-[11px] font-mono shrink-0 ' + (wx.uvWarning ? 'text-[#9A560A] font-bold' : 'text-[#24322C]')}>
                               <Sun size={14} className={'shrink-0 ' + (wx.uvWarning ? 'text-[#9A560A]' : 'text-[#55655F]')} />UV {Math.round(wx.uvIndex)}
                             </span>
                           )}
-                          <span className="text-[9px] font-mono text-[#4A564F] shrink-0">TAP TO USE</span>
+                          <span className="text-[9px] font-mono text-[#4A564F] shrink-0">{T("TAP TO USE")}</span>
                         </button>
                       )}
                       {sprayWeatherStatus === 'ok' && wxRisk && (
                         <p className="mt-1 px-0.5 text-[10.5px] leading-snug text-[#9A560A]">
-                          {wx.rainNowWarning ? 'Raining now: the spray will wash off.'
-                            : wx.rainSoonWarning ? 'Rain likely within 3 hours: the spray may wash off.'
-                            : wx.windWarning ? 'Strong wind: the spray will drift.'
-                            : `UV ${Math.round(wx.uvIndex)}, very high: cover up, drink water, rest in the shade.`}
+                          {wx.rainNowWarning ? T("Raining now: the spray will wash off.")
+                            : wx.rainSoonWarning ? T("Rain likely within 3 hours: the spray may wash off.")
+                            : wx.windWarning ? T("Strong wind: the spray will drift.")
+                            : T("UV {0}, very high: cover up, drink water, rest in the shade.", Math.round(wx.uvIndex))}
                         </p>
                       )}
 
                       <div className="grid grid-cols-2 gap-1.5 mt-1.5">
                         <input value={checklist.operator} onChange={(e) => setChecklistField('operator', e.target.value)}
-                          placeholder="Operator name" maxLength={40}
+                          placeholder={T("Operator name")} maxLength={40}
                           className="min-h-[36px] px-2.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[11px] font-mono text-[#24322C] placeholder:text-[#4A564F]" />
                         <input value={checklist.weather} onChange={(e) => setChecklistField('weather', e.target.value)}
-                          placeholder="Weather (e.g. calm, 28°C)" maxLength={40}
+                          placeholder={T("Weather (e.g. calm, 28°C)")} maxLength={40}
                           className="min-h-[36px] px-2.5 rounded-lg bg-[#F4F1E7] border border-[#E2DCC9] text-[11px] font-mono text-[#24322C] placeholder:text-[#4A564F]" />
                       </div>
                     </div>
@@ -5948,7 +6273,7 @@ function App() {
               <button onClick={() => { const m = activeFieldEntry.roundMeta || {}; setChemDraft(m.chemicals && m.chemicals.length ? m.chemicals.map((c) => ({ ...c })) : [{ name: '', rate: '', unit: 'cc' }]); setChemSheet('edit'); }}
                 className="mt-3 w-full flex items-center justify-between gap-2 text-left rounded-xl border border-[#E2DCC9] bg-[#F4F1E7] px-3.5 py-2.5 min-h-[48px]">
                 <span className="min-w-0">
-                  <span className="block text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">Chemicals · round {activeFieldEntry.round || 1}</span>
+                  <span className="block text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">{T("Chemicals · round")} {activeFieldEntry.round || 1}</span>
                   <span className="block text-[11px] font-mono text-[#24322C] truncate">
                     {activeFieldEntry.roundMeta && activeFieldEntry.roundMeta.chemicals && activeFieldEntry.roundMeta.chemicals.length
                       ? activeFieldEntry.roundMeta.chemicals.map(chemLine).join(' · ') : 'ยังไม่ได้ระบุสาร — แตะเพื่อใส่'}
@@ -5957,57 +6282,57 @@ function App() {
                 <Pencil size={14} className="text-[#0C6B48] shrink-0" />
               </button>
             )}
-            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">Field</p>
+            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">{T("Field")}</p>
             <div className="flex flex-col gap-2">
               <Dock>
-                <DockBtn icon={MapPinned} label={activeFieldEntry ? 'EDIT BOUNDARY' : 'PLOT FIELD'} tone="ghost" onClick={() => { setShowSpraySettings(false); startPlotting(activeFieldEntry ? activeFieldEntry.id : null); }} />
-                <DockBtn icon={Droplet} label="STATION" tone="ghost" onClick={() => { setShowSpraySettings(false); startStationSetup(); }} />
+                <DockBtn icon={MapPinned} label={activeFieldEntry ? T("EDIT BOUNDARY") : T("PLOT FIELD")} tone="ghost" onClick={() => { setShowSpraySettings(false); startPlotting(activeFieldEntry ? activeFieldEntry.id : null); }} />
+                <DockBtn icon={Droplet} label={T("STATION")} tone="ghost" onClick={() => { setShowSpraySettings(false); startStationSetup(); }} />
               </Dock>
               <Dock>
-                <DockBtn icon={Pencil} label="RENAME FIELD" tone="ghost" big disabled={!activeFieldEntry}
+                <DockBtn icon={Pencil} label={T("RENAME FIELD")} tone="ghost" big disabled={!activeFieldEntry}
                   onClick={() => { setShowSpraySettings(false); setSaveFieldName(activeFieldEntry ? activeFieldEntry.name : ''); setShowSaveField(true); }} />
               </Dock>
             </div>
-            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">Tools</p>
+            <p className="mt-4 mb-1 text-[9.5px] tracking-[.14em] uppercase font-mono text-[#4A564F]">{T("Tools")}</p>
             <div className="flex flex-col gap-2">
               <button onClick={() => { setShowSpraySettings(false); setShowOfflineMap(true); refreshCacheInfo(); }}
                 className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate">
                   {cacheInfo && cacheInfo.tiles > 0 ? <Wifi size={13} className="text-[#0A5238] shrink-0" /> : <CloudOff size={13} className="text-[#55655F] shrink-0" />}
-                  <span className="truncate">{cacheInfo && cacheInfo.tiles > 0 ? `Offline map ready · ${fmtBytes(cacheInfo.bytes)}` : 'Offline map — not downloaded'}</span>
+                  <span className="truncate">{cacheInfo && cacheInfo.tiles > 0 ? T("Offline map ready · {0}", fmtBytes(cacheInfo.bytes)) : T("Offline map — not downloaded")}</span>
                 </span>
               </button>
               <button onClick={() => { setShowSpraySettings(false); setShowHistory(true); }}
                 className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg px-3.5 min-h-[44px]">
                 <span className="flex items-center gap-2 min-w-0 truncate"><History size={13} className="text-[#0C6B48] shrink-0" />
-                  <span className="truncate">{missions.length > 0 ? `${missions.length} mission${missions.length === 1 ? '' : 's'} logged` : 'No missions logged yet'}</span>
+                  <span className="truncate">{missions.length > 0 ? `${missions.length} mission${missions.length === 1 ? '' : 's'} logged` : T("No missions logged yet")}</span>
                 </span>
-                {missions.length > 0 && <span className="text-[#0A5238] shrink-0">{missions.reduce((a, m) => a + m.raiDec, 0).toFixed(2)} rai total →</span>}
+                {missions.length > 0 && <span className="text-[#0A5238] shrink-0">{missions.reduce((a, m) => a + m.raiDec, 0).toFixed(2)} {T("rai total →")}</span>}
               </button>
               <div className="text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg px-3.5 py-2.5 flex flex-col gap-1.5">
                 <span className="flex items-center gap-2"><Leaf size={13} className="text-[#0C6B48] shrink-0" />
-                  <span className="truncate">AI crop check · {aiKey ? `key sk-…${aiKey.slice(-4)} · this phone only` : 'no API key (photos and pins still work)'}</span>
+                  <span className="truncate">{T("AI crop check ·")} {aiKey ? T("key sk-…{0} · this phone only", aiKey.slice(-4)) : T("no API key (photos and pins still work)")}</span>
                 </span>
                 <span className="flex gap-1.5">
-                  <input type="password" value={aiKeyDraft} onChange={(e) => setAiKeyDraft(e.target.value)} placeholder={aiKey ? 'replace key…' : 'paste Anthropic API key (sk-ant-…)'}
+                  <input type="password" value={aiKeyDraft} onChange={(e) => setAiKeyDraft(e.target.value)} placeholder={aiKey ? T("replace key…") : T("paste Anthropic API key (sk-ant-…)")}
                     autoComplete="off" className="flex-1 min-w-0 min-h-[36px] rounded-md border border-[#C6C0AC] bg-[#FFFFFF] px-2 text-[11px] text-[#14201C]" />
-                  <button onClick={saveAiKey} aria-label="Save API key" disabled={!aiKeyDraft.trim()} className="min-h-[36px] px-2.5 rounded-md bg-[#0C6B48] text-[#FFFFFF] font-bold disabled:opacity-40">SAVE</button>
-                  {aiKey && <button onClick={removeAiKey} className="min-h-[36px] px-2 rounded-md border border-[#C6C0AC] text-[#55655F]">REMOVE</button>}
+                  <button onClick={saveAiKey} aria-label={T("Save API key")} disabled={!aiKeyDraft.trim()} className="min-h-[36px] px-2.5 rounded-md bg-[#0C6B48] text-[#FFFFFF] font-bold disabled:opacity-40">{T("SAVE")}</button>
+                  {aiKey && <button onClick={removeAiKey} className="min-h-[36px] px-2 rounded-md border border-[#C6C0AC] text-[#55655F]">{T("REMOVE")}</button>}
                 </span>
               </div>
               {!IS_PROD && <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-[#55655F] bg-[#F4F1E7] border border-[#E2DCC9] rounded-lg pl-3.5 pr-1.5 min-h-[44px]">
-                <span className="truncate">{logMsg || `Test log · ${AgrasLog.lines().length} lines`}</span>
+                <span className="truncate">{logMsg || T("Test log · {0} lines", AgrasLog.lines().length)}</span>
                 <span className="flex gap-1 shrink-0">
-                  <button onClick={() => { setLogMsg('Preparing…'); shareTestLog().then(setLogMsg).catch((e) => setLogMsg('Share failed: ' + ((e && e.message) || e))); }}
-                    className="min-h-[36px] px-2.5 rounded-md bg-[#0C6B48] text-[#FFFFFF] font-bold">SHARE</button>
-                  <button onClick={() => { AgrasLog.clear(); setLogMsg('Log cleared'); }}
-                    className="min-h-[36px] px-2 rounded-md border border-[#C6C0AC] text-[#55655F]">CLEAR</button>
+                  <button onClick={() => { setLogMsg(T("Preparing…")); shareTestLog().then(setLogMsg).catch((e) => setLogMsg((T("Share failed:") + " ") + ((e && e.message) || e))); }}
+                    className="min-h-[36px] px-2.5 rounded-md bg-[#0C6B48] text-[#FFFFFF] font-bold">{T("SHARE")}</button>
+                  <button onClick={() => { AgrasLog.clear(); setLogMsg(T("Log cleared")); }}
+                    className="min-h-[36px] px-2 rounded-md border border-[#C6C0AC] text-[#55655F]">{T("CLEAR")}</button>
                 </span>
               </div>}
             </div>
             {/* DONE stays pinned to the bottom of the sheet while it scrolls */}
             <div className="sticky -bottom-4 -mx-4 -mb-4 mt-4 px-4 pt-3 pb-4 bg-[#FFFFFF] border-t border-[#E2DCC9] flex justify-center">
-              <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label="DONE" tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
+              <div className="w-full max-w-[260px] flex"><DockBtn icon={CheckCircle2} label={T("DONE")} tone="teal" onClick={() => setShowSpraySettings(false)} /></div>
             </div>
           </div>
         </div>
@@ -6032,21 +6357,21 @@ function App() {
         <div className="absolute inset-0 z-30 bg-[#F4F1E7]/90 flex items-center justify-center p-4">
           <div className="w-full max-w-[360px] rounded-2xl bg-[#FFFFFF] border border-[#E2DCC9] p-4">
             <div className="flex items-center justify-between">
-              <p className="font-display text-[15px] font-bold tracking-wide">OFFLINE MAP</p>
+              <p className="font-display text-[15px] font-bold tracking-wide">{T("OFFLINE MAP")}</p>
               <button onClick={() => setShowOfflineMap(false)} className="text-[#55655F] p-1 -mr-1"><X size={18} /></button>
             </div>
-            <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">Download satellite maps for offline use · for the active field, before you lose signal</p>
+            <p className="text-[10.5px] text-[#55655F] mt-0.5 mb-3">{T("Download satellite maps for offline use · for the active field, before you lose signal")}</p>
 
             {!('caches' in window) ? (
-              <p className="text-xs text-[#8A4B06] leading-relaxed">This browser doesn't support offline map storage — satellite imagery will need a live connection every time.</p>
+              <p className="text-xs text-[#8A4B06] leading-relaxed">{T("This browser doesn't support offline map storage — satellite imagery will need a live connection every time.")}</p>
             ) : !unprojectRef.current ? (
-              <p className="text-xs text-[#55655F] leading-relaxed">Get a GPS fix at least once (switch to GPS mode) so the field's real-world location is known, then come back here to download.</p>
+              <p className="text-xs text-[#55655F] leading-relaxed">{T("Get a GPS fix at least once (switch to GPS mode) so the field's real-world location is known, then come back here to download.")}</p>
             ) : (
               <>
                 <div className="rounded-xl bg-[#F4F1E7] border border-[#E2DCC9] p-3 flex items-center gap-3">
                   {cacheInfo && cacheInfo.tiles > 0 ? <Wifi size={20} className="text-[#0A5238] shrink-0" /> : <CloudOff size={20} className="text-[#55655F] shrink-0" />}
                   <div className="min-w-0">
-                    <p className="text-sm font-bold truncate">{cacheInfo && cacheInfo.tiles > 0 ? 'Offline Map Ready' : 'No offline tiles cached yet'}</p>
+                    <p className="text-sm font-bold truncate">{cacheInfo && cacheInfo.tiles > 0 ? T("Offline Map Ready") : T("No offline tiles cached yet")}</p>
                     <p className="text-[10px] font-mono text-[#55655F] mt-0.5">{cacheInfo ? `${cacheInfo.tiles} tiles · ${fmtBytes(cacheInfo.bytes)}` : '—'}</p>
                   </div>
                 </div>
@@ -6057,21 +6382,21 @@ function App() {
                   ) : (
                     <div className="mt-3">
                       <div className="flex items-center justify-between text-[10px] font-mono text-[#55655F]">
-                        <span>Downloading tiles…</span>
+                        <span>{T("Downloading tiles…")}</span>
                         <span>{downloadState.done} / {downloadState.total}</span>
                       </div>
                       <div className="mt-1.5 h-1.5 w-full rounded-full bg-[#F4F1E7] overflow-hidden">
                         <div className="h-full rounded-full bg-[#0C6B48] transition-[width] duration-200"
                           style={{ width: (downloadState.total ? (downloadState.done / downloadState.total) * 100 : 0) + '%' }} />
                       </div>
-                      <DockBtn icon={X} label="CANCEL DOWNLOAD" tone="ghost" onClick={cancelDownload} />
+                      <DockBtn icon={X} label={T("CANCEL DOWNLOAD")} tone="ghost" onClick={cancelDownload} />
                     </div>
                   )
                 ) : (
                   <div className="grid grid-cols-1 gap-2.5 mt-3">
-                    <DockBtn icon={Download} label="DOWNLOAD FIELD MAP FOR OFFLINE USE" tone="teal" onClick={downloadFieldMapOffline} />
+                    <DockBtn icon={Download} label={T("DOWNLOAD FIELD MAP FOR OFFLINE USE")} tone="teal" onClick={downloadFieldMapOffline} />
                     {cacheInfo && cacheInfo.tiles > 0 && (
-                      <DockBtn icon={Trash2} label="CLEAR OFFLINE CACHE" tone="ghost" onClick={clearMapCache} />
+                      <DockBtn icon={Trash2} label={T("CLEAR OFFLINE CACHE")} tone="ghost" onClick={clearMapCache} />
                     )}
                   </div>
                 )}
@@ -6106,10 +6431,10 @@ class ErrorBoundary extends React.Component {
     if (!this.state.err) return this.props.children;
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center bg-[#F4F1E7] text-[#24322C]">
-        <p className="font-display text-lg font-bold">Something went wrong</p>
+        <p className="font-display text-lg font-bold">{T("Something went wrong")}</p>
         <p className="font-mono text-[11px] text-[#55655F] max-w-[300px] break-words">{String(this.state.err && this.state.err.message || this.state.err)}</p>
-        <p className="text-xs text-[#55655F] max-w-[300px]">Your mission progress was autosaved — reopening will offer to resume it.</p>
-        <button onClick={() => location.reload()} className="min-h-[48px] px-6 rounded-xl bg-[#0C6B48] text-[#FFFFFF] font-semibold">Reload</button>
+        <p className="text-xs text-[#55655F] max-w-[300px]">{T("Your mission progress was autosaved — reopening will offer to resume it.")}</p>
+        <button onClick={() => location.reload()} className="min-h-[48px] px-6 rounded-xl bg-[#0C6B48] text-[#FFFFFF] font-semibold">{T("Reload")}</button>
       </div>
     );
   }
