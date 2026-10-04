@@ -1318,6 +1318,7 @@ function buildSessionSnapshot({ field, sim, station, phase, opMode, swath, tankC
     simPos: sim.pos, simHeading: sim.heading,
     fieldId: __sessionExtras.fieldId, covBase: __sessionExtras.covBase, tankAreas: __sessionExtras.tankAreas, tankOpen: __sessionExtras.tankOpen,
     recordId: __sessionExtras.recordId, startTs: __sessionExtras.startTs, weatherStart: __sessionExtras.weatherStart,
+    reachedStation: !!__sessionExtras.reachedStation,
     distance: sim.distance, sprayDistance: sim.sprayDistance || 0, elapsed: sim.elapsed,
     sprayedCells: sim.sprayedCells, overlapCells: sim.overlapCells, outsideCells: sim.outsideCells || 0, epoch: sim.epoch,
     cells: sim.passes.length,
@@ -4396,6 +4397,11 @@ function App() {
     const om = saved.opMode === 'spray' || !saved.opMode ? 'spray' : 'toStation';
     opModeRef.current = om; setOpMode(om);
     swathRef.current = saved.swath; setSwath(saved.swath);
+    // a refill trip killed mid-walk (screen off on the way to the tank) still points at the
+    // next lane after the restore: the lanes are rebuilt from the restored grid, and whether
+    // the station was already reached comes back from the save
+    reachedStationRef.current = om === 'toStation' && !!saved.reachedStation;
+    resumeTargetRef.current = om === 'toStation' ? findResumeTarget() : null;
     tankCapacityRef.current = saved.tankCapacity; setTankCapacity(saved.tankCapacity);
     rateLRaiRef.current = saved.rateLRai; setRateLRai(saved.rateLRai);
     tankBaselineAreaRef.current = saved.tankBaselineArea || 0;
@@ -4409,6 +4415,13 @@ function App() {
     // always resume into PAUSED — the operator explicitly taps Resume
     setPhase('paused');
     setTick((n) => n + 1);
+  };
+
+  /** The start of the next unsprayed lane (nextLaneTarget) on the suggested route plan. */
+  const findResumeTarget = () => {
+    const fld = fieldRef.current, rp = routePlanRef.current;
+    const plan = rp ? rp.variants[rp.idx] : (() => { const pl = planSprayRoute(fld.poly, swathRef.current, stationRef.current, areaPerTank(), edgeGapRef.current); return pl && pl.variants[pl.idx]; })();
+    return plan ? nextLaneTarget(plan.segs, fld, stationRef.current) : null;
   };
 
   /** TANK EMPTY — recording off, point at the station. Nothing about the
@@ -4427,9 +4440,7 @@ function App() {
       const sim = simRef.current, fld = fieldRef.current;
       // a SIM tank ends at a lane end, between lanes: no tail to flag (the heading is the walk to the next lane)
       const rem = srcMode === 'sim' ? 0 : markLaneRemainder(sim, fld, swathRef.current, paintCell);
-      const rp = routePlanRef.current;
-      const plan = rp ? rp.variants[rp.idx] : (() => { const pl = planSprayRoute(fld.poly, swathRef.current, stationRef.current, areaPerTank(), edgeGapRef.current); return pl && pl.variants[pl.idx]; })();
-      const tgt = plan ? nextLaneTarget(plan.segs, fld, stationRef.current) : null;
+      const tgt = findResumeTarget();
       resumeTargetRef.current = tgt;
       setResumeWarn(null);
       AgrasLog.add('RESUME', (tgt ? `next lane starts at ${tgt.x.toFixed(1)},${tgt.y.toFixed(1)}, ${Math.round(dist(sim.pos, tgt))}m from the stop` : 'no unsprayed lane left to point at')
@@ -4601,7 +4612,7 @@ function App() {
   };
 
   const sim = simRef.current, field = fieldRef.current;
-  __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current, recordId: missionRecordIdRef.current, startTs: missionStartTsRef.current, weatherStart: weatherStartRef.current };
+  __sessionExtras = { fieldId: activeFieldIdRef.current, covBase: coverageBaseRef.current, tankAreas: tankAreasRef.current, tankOpen: tankOpenRef.current, recordId: missionRecordIdRef.current, startTs: missionStartTsRef.current, weatherStart: weatherStartRef.current, reachedStation: reachedStationRef.current };
   const areaSprayed = sim.sprayedCells * CELL * CELL;
   const coveragePct = Math.min(100, (areaSprayed / field.area) * 100) || 0;
   const modeLockS = Math.ceil(modeLockLeft() / 1000);
