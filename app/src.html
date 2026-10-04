@@ -828,7 +828,11 @@ function nextLaneTarget(segs, field, station) {
 function markLaneRemainder(sim, field, swath, paint) {
   const from = sim.pos;   // where the tank ran out (the last sprayed point, within a second)
   if (!from || !field.poly) return 0;
-  const ux = Math.cos(sim.heading), uy = Math.sin(sim.heading);
+  // the lane's own heading (gpsPassId's smoothed one), not the last fix's: an operator
+  // standing still when the tank runs out turns sim.heading with every bit of GPS jitter,
+  // and a sideways ray would flag the unsprayed lanes beside it red, up to 400 m
+  const h = sim.passHeading != null ? sim.passHeading : sim.heading;
+  const ux = Math.cos(h), uy = Math.sin(h);
   let d = 0;
   while (d < 400 && pointInPoly({ x: from.x + ux * (d + 1), y: from.y + uy * (d + 1) }, field.poly)) d++;
   if (d < RESUME_REMAINDER_MIN_M) return 0;
@@ -4419,7 +4423,7 @@ function App() {
         { to: { ...st }, dur: Math.max(700, dist(sim.pos, st) * SIM_MS_PER_M) },   // walk to the tank
         { to: { ...st }, dur: SIM_MIX_MS },                                      // mix a new tank
         { to: back, dur: Math.max(700, dist(back, st) * SIM_MS_PER_M) },         // walk to the next lane
-      ], idx: 0, prog: 0, from: { ...back }, onDone: () => { if (autoWalkRef.current && srcModeRef.current === 'sim') { modeSwitchAtRef.current = 0; resumeRef.current(); } } };
+      ], idx: 0, prog: 0, from: { ...sim.pos }, onDone: () => { if (autoWalkRef.current && srcModeRef.current === 'sim') { modeSwitchAtRef.current = 0; resumeRef.current(); } } };
       AgrasLog.add('SIM', `tank out at ${sim.pos.x.toFixed(1)},${sim.pos.y.toFixed(1)}: walking to the station`);
     }
     saveSessionNow(); // key-event autosave — operator may set the phone down here to walk to the tank

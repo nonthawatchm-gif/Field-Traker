@@ -37,6 +37,7 @@ Env: `PORT` (default 8080), `CHROME_PATH` (default: playwright's own download).
 | tidy 5-lane job → < 15 % overlap, no missed spots | lane splitting too eagerly at the turns |
 | virgin ground walked while PAUSED → missed > 0.05 rai | the missed-spot gate (BUG 3) |
 | refill round trip → no missed spots | the walk to the tank hatching the map red |
+| tank emptied with a 1 m sideways GPS jitter → only the lane's own tail flagged | the tail flag following the last fix's heading across unsprayed lanes |
 | refill confirmed twice → TANKS USED 2, no 0.00-rai tank | the phantom-tank regression (BUG 1) |
 | geofence: banner, painting halts, auto-resumes | Scenario 2 |
 | reload mid-mission: restored by itself, PAUSED, coverage + breakpoint intact | Scenario 5, automatic restore |
