@@ -109,6 +109,27 @@ async function missed() {
     check('the refill round trip flags only the tail of the lane left, not the walk', ms > 0 && ms <= 0.05, s.match(/MISSED SPOTS \| [^|]+/)?.[0]);
     await browser.close();
   }
+  {
+    // standing still when the tank runs out, the last fix jitters 1 m sideways: the
+    // tail flag must follow the lane (20 m north, 0.03 rai), not that jitter (70 m east
+    // across the unsprayed lanes, 0.11 rai)
+    const { browser, ctx, page } = await boot();
+    await page.waitForTimeout(1200);
+    await makeField(ctx, page);
+    await moveTo(ctx, page, 10, 40, 900);
+    await startSpray(page, 1200);
+    await walk(ctx, page, [10, 40], [10, 60], 2, 100);
+    await walk(ctx, page, [10, 60], [11, 60], 1, 300);
+    await tap(page, 'TANK EMPTY', { wait: 900 });
+    await walk(ctx, page, [11, 60], [-10, -10], 4, 90);
+    await tap(page, 'REFILLED · START SPRAYING', { wait: 900 });
+    await tap(page, 'SAVE & PAUSE', { wait: 900 });
+    await finishAs(page);
+    const s = await summary(page);
+    const ms = parseFloat((s.match(/MISSED SPOTS \| ([\d.]+) rai/) || [])[1] || '9');
+    check('the lane tail follows the lane, not a sideways GPS jitter at the stop', ms > 0 && ms <= 0.05, s.match(/MISSED SPOTS \| [^|]+/)?.[0]);
+    await browser.close();
+  }
 }
 
 /* 4. One physical refill is one tank, however many times the operator taps
@@ -790,13 +811,16 @@ async function simWalk() {
   await page.reload(); await page.waitForTimeout(3000);
   const click = async (t) => { const el = page.locator(`text="${t}"`).locator('visible=true').first(); if (await el.count()) { await el.click({ force: true }); await page.waitForTimeout(400); } };
   await click('DEV'); await click('SIM'); await click('60×');
+  // at 60x the walk from the station to the next lane takes a fraction of a second,
+  // so a once-a-second read misses the chip: latch it in the page instead
+  await page.evaluate(() => { window.__sawChip = false; setInterval(() => { if (/Next lane · \d+ m/.test(document.body.innerText)) window.__sawChip = true; }, 40); });
   await startSpray(page, 500);
-  const t0 = Date.now(); let t = '', sawChip = false;
+  const t0 = Date.now(); let t = '';
   while (Date.now() - t0 < 180000) {
     await page.waitForTimeout(1000); t = await txt(page);
-    sawChip = sawChip || /Next lane · \d+ m/.test(t);
     if (/FINISH · ROUND/.test(t)) break;
   }
+  const sawChip = await page.evaluate(() => window.__sawChip);
   const log = await page.evaluate(() => AgrasLog.lines().join('\n'));
   const tanks = (log.match(/SIM tank out/g) || []).length;
   check('SIM runs out of liquid per tank and walks to the station', tanks === 3, `${tanks} refill trips for 3.75 rai at 1 rai/tank`);
