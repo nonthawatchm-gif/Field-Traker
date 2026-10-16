@@ -851,7 +851,14 @@ so no installed app has it.
 
 ### Thai UI with a language switch (2026-10-04, not yet built)
 
-**Built 2026-10-16 as build-98** (`5a52df7`) together with dark mode and PR #6, on the owner's word; full suite 142/142. Not yet installed on either app.
+**Built 2026-10-16 as build-98** (`5a52df7`) together with dark mode and PR #6, on the owner's word; full suite 142/142. Installed on the test app the same evening
+with the field app's data copied in (`agras_lang` / `agras_theme` are the test app's
+own and stay). Before that, both apps were running a local build of `3197ec9` (Thai +
+dark mode, no PR #6) that the dark-mode session had installed at 11:06, so the
+**field app is on `3197ec9`, not build-91**, and still lacks PR #6. Backups now live
+in `C:\Users\NONTH\agras-backups\<date>_<build>\` (the Temp folder was wiped and
+took the old backups and helper scripts with it; helpers recreated in
+`%TEMP%\agras-tools`).
 
 The owner asked for the UI in Thai and a language switch in Settings. The owner
 translated the strings themselves: `docs/translate/ui-strings-th.csv` (English,
