@@ -851,7 +851,7 @@ so no installed app has it.
 
 ### Thai UI with a language switch (2026-10-04, not yet built)
 
-**Hold the build:** the owner wants it built together with the dark-mode design, once that is done (2026-10-04).
+**Built 2026-10-16 as build-98** (`5a52df7`) together with dark mode and PR #6, on the owner's word; full suite 142/142. Not yet installed on either app.
 
 The owner asked for the UI in Thai and a language switch in Settings. The owner
 translated the strings themselves: `docs/translate/ui-strings-th.csv` (English,
