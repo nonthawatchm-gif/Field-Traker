@@ -923,9 +923,9 @@ Then talk to `http://localhost:9222/json` over CDP. Three things cost time here:
 
 In the order I'd do them.
 
-0. **The UI is mostly English.** The farmer role-play (build-57, scored 6/10)
-   found this the biggest obstacle. The owner chose to leave it for later. Items 2–4
-   from that walk-through are fixed (see below).
+0. ~~**The UI is mostly English.**~~ **RESOLVED (2026-10-14):**
+   - **Thai UI Localization:** Full Thai translation table added (`UI_TH`), with Language toggle (`ไทย` / `English`) in Settings. Defaults to Thai for field operators, persists in `localStorage.agras_lang`.
+   - **Dark Mode / Daylight Theme Switch:** Added theme toggle (`แดดจัด` / `มืด`) in Settings. Defaults to Daylight (`#F4F1E7`, `#0C6B48`), switches smoothly to HUD Dark Mode (`#0A0E10`, `#131A1D`, `#2EE6C7`), persists in `localStorage.agras_theme`, updates `<meta name="theme-color">` (`#0A5238` vs `#0A0E10`), and supports all sheets, modals, and vector canvas ink. Verified with 141/141 checks passing in `app/test/run.js`.
 
 
 1. **Outbound nav-line colour.** The teal this was written about went with the

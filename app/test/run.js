@@ -1292,13 +1292,68 @@ async function nextLaneRestore() {
   await browser.close();
 }
 
+async function themeSwitch() {
+  const { browser, ctx, page } = await boot();
+  await page.waitForTimeout(1200);
+
+  // 1. Initial state: daylight theme
+  let isDarkClass = await page.evaluate(() => document.documentElement.classList.contains('theme-dark'));
+  let metaColor = await page.evaluate(() => {
+    const el = document.querySelector('meta[name="theme-color"]');
+    return el ? el.getAttribute('content') : null;
+  });
+  check('initial default theme is daylight without theme-dark class', !isDarkClass, `isDarkClass=${isDarkClass}`);
+  check('daylight meta theme-color is #0A5238', metaColor === '#0A5238', `metaColor=${metaColor}`);
+
+  // Create field to reach ready phase with Settings button visible
+  await makeField(ctx, page);
+
+  // 2. Open Settings and switch to Dark theme
+  await openSettings(page);
+  await tap(page, 'Dark', { wait: 600 });
+  isDarkClass = await page.evaluate(() => document.documentElement.classList.contains('theme-dark'));
+  metaColor = await page.evaluate(() => {
+    const el = document.querySelector('meta[name="theme-color"]');
+    return el ? el.getAttribute('content') : null;
+  });
+  let savedTheme = await page.evaluate(() => localStorage.getItem('agras_theme'));
+  check('switching to Dark adds theme-dark class to html', isDarkClass === true);
+  check('dark meta theme-color is #0A0E10', metaColor === '#0A0E10', `metaColor=${metaColor}`);
+  check('localStorage stores dark theme', savedTheme === 'dark', `stored=${savedTheme}`);
+
+  // 3. Close settings and check persistence across reload
+  await tap(page, 'DONE', { wait: 500 });
+  await page.reload();
+  await page.waitForTimeout(1200);
+  isDarkClass = await page.evaluate(() => document.documentElement.classList.contains('theme-dark'));
+  savedTheme = await page.evaluate(() => localStorage.getItem('agras_theme'));
+  check('dark theme persists across page reload', isDarkClass === true && savedTheme === 'dark');
+
+  // 4. Switch back to Daylight
+  await openSettings(page);
+  await tap(page, 'Daylight', { wait: 600 });
+  isDarkClass = await page.evaluate(() => document.documentElement.classList.contains('theme-dark'));
+  savedTheme = await page.evaluate(() => localStorage.getItem('agras_theme'));
+  metaColor = await page.evaluate(() => {
+    const el = document.querySelector('meta[name="theme-color"]');
+    return el ? el.getAttribute('content') : null;
+  });
+  check('switching back to Daylight removes theme-dark class', !isDarkClass);
+  check('localStorage stores daylight theme', savedTheme === 'daylight');
+  check('daylight meta theme-color restored to #0A5238', metaColor === '#0A5238');
+  await tap(page, 'DONE', { wait: 500 });
+
+  await browser.close();
+}
+
 // ONLY=manualResume,refillReach node test/run.js  — run a subset by function name
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 (async () => {
-  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex, aiOnlineRace, nextLane, nextLaneRestore }).filter(([n]) => !ONLY || ONLY.includes(n))) {
+  for (const [name, fn] of Object.entries({ overlap, tidyJob, missed, tankCount, geofence, crashRecovery, windReset, complianceLog, overlapSubLine, fieldAutoSave, missionAutoSave, bigFieldResume, refillFlow, tileRefill, rounds, notRecordingAlert, backButton, homeDesign, editBoundary, sprayReport, farmerFixes, sprayTimeOnly, continueField, routeSuggest, simWalk, simToGps, appVariants, cropChecks, perfFixes, boundaryKeepsSpray, oversprayEverySide, modeLock, idleAutosave, uvIndex, aiOnlineRace, nextLane, nextLaneRestore, themeSwitch }).filter(([n]) => !ONLY || ONLY.includes(n))) {
     try { await fn(); } catch (e) { check(name + ' (threw)', false, e.message.split('\n')[0]); }
   }
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   process.exit(failed.length ? 1 : 0);
 })();
+

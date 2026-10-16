@@ -56,6 +56,14 @@ const shot = async (page, name) => {
   await tap(page, 'FIELD DONE \u00b7 CLOSE ROUND 1', { wait: 1400 });
   await shot(page, 'summary');
 
+  // Dark mode captures
+  await tap(page, 'START NEW', { wait: 1200 });
+  await openSettings(page);
+  await tap(page, 'Dark', { wait: 600 });
+  await shot(page, 'dark-settings');
+  await tap(page, 'DONE', { wait: 600 });
+  await shot(page, 'dark-home-ready');
+
   const errs = logs.filter((l) => l.startsWith('[pageerror]'));
   console.log('page errors:', errs.length ? errs : 'none');
   await browser.close();
