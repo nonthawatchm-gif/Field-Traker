@@ -11,7 +11,7 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (123 checks now, all passing). On the owner's phone (2026-10-04): both
+`app/test/run.js` (133 checks now, all passing). On the owner's phone (2026-10-04): both
 apps run `build-91` (`ad57b1a`), and `909dbde` is newer than either.
 
 ## Start here
@@ -20,11 +20,11 @@ apps run `build-91` (`ad57b1a`), and `909dbde` is newer than either.
 cd app
 node build.js                        # regenerate www/ — it is gitignored, so always stale on a fresh clone
 npx http-server www -p 8080
-node test/run.js                     # 123 checks, ~22 min, expect 123/123
+node test/run.js                     # 133 checks, ~20 min, expect 133/133
 ONLY=refillReach,manualResume node test/run.js   # a subset, by function name
 ```
 
-If `test/run.js` is not 123/123 on a clean checkout, something in the fixes below
+If `test/run.js` is not 133/133 on a clean checkout, something in the fixes below
 has regressed — read the table in `app/test/README.md` to see which.
 
 Two notes on running it:
