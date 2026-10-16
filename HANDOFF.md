@@ -855,7 +855,9 @@ so no installed app has it.
 with the field app's data copied in (`agras_lang` / `agras_theme` are the test app's
 own and stay). Before that, both apps were running a local build of `3197ec9` (Thai +
 dark mode, no PR #6) that the dark-mode session had installed at 11:06, so the
-**field app is on `3197ec9`, not build-91**, and still lacks PR #6. Backups now live
+field app was on `3197ec9` (not build-91). The field app then got build-98 too
+(21:12, on the owner's word; its data checked unchanged; the owner had sprayed
+แปลงถั่ว 2 at 18:28 that day, filed before the install). Backups now live
 in `C:\Users\NONTH\agras-backups\<date>_<build>\` (the Temp folder was wiped and
 took the old backups and helper scripts with it; helpers recreated in
 `%TEMP%\agras-tools`).
