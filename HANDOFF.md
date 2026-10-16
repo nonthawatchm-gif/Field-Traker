@@ -1,4 +1,4 @@
-# Handoff — 2026-09-20 (last updated 2026-09-23)
+# Handoff — 2026-09-20 (last updated 2026-10-16)
 
 Written for whoever picks this up next (including Claude Code). Everything below
 was established by running the app, not by reading it: a GPS test harness now
@@ -11,8 +11,8 @@ React over CDN (precompiled into `www/` by `build.js`), no framework, no build
 step while developing. Across three sessions it has had eight bugs found and
 fixed, its spraying screen stripped back (no nav banner, ETA bar or 3D tilt),
 and its save system made fully automatic — each with regression checks in
-`app/test/run.js` (123 checks now, all passing). On the owner's phone (2026-10-01): the test app runs
-`build-84` (`c622b3f`); the field app still runs `05d537f` (2026-09-26).
+`app/test/run.js` (123 checks now, all passing). On the owner's phone (2026-10-04): both
+apps run `build-91` (`ad57b1a`), and `909dbde` is newer than either.
 
 ## Start here
 
@@ -49,7 +49,8 @@ Two notes on running it:
   its data checked unchanged afterwards, backup in `*_prodpre.*`). **Standing rule from the owner:
   whenever a build goes on the test app, copy the field app's data into it
   first.** CI keeps only the 3 newest releases. Next lane is not yet tried in a
-  real field.
+  real field. `909dbde` (next lane survives a restore mid-refill) landed
+  after build-91, so it is on `main` and in neither installed app.
 - **Check which commit a build came from before installing it.** Build numbers
   are the workflow run number, and a docs-only push makes a build too — build-39
   turned out to be the docs commit, not the UI change it was assumed to be, and
@@ -837,6 +838,17 @@ TANK EMPTY button did not respond for about 4 minutes (the owner's memory, the l
 shows the app running normally). No cause found; the tap is not logged, so a next
 occurrence cannot be diagnosed. Logging each tap with its outcome is still open.
 
+### Next lane survives a restore mid-refill (2026-10-04, in no build yet)
+
+Killed on the walk back from the station — screen off, Android reclaims the
+WebView — the restored session came back without the next-lane target and
+without the "station reached" flag, so RESUME pointed the chip back at the
+station (`To station · N m`) instead of at the next lane: the one moment the
+whole feature exists for. The target is now rebuilt from the restored grid
+(the same lanes, `findResumeTarget`) and `reachedStation` is saved with the
+session. Test: `nextLaneRestore`. Landed as `909dbde` (PR #6) after build-91,
+so no installed app has it.
+
 ## Verified on the phone, and what wasn't
 
 `build-37` was driven on a Galaxy S23 Ultra over CDP, in dev/SIM mode, against
@@ -884,9 +896,11 @@ In the order I'd do them.
    from that walk-through are fixed (see below).
 
 
-1. **Outbound nav-line colour.** The leg to the station is teal
-   (`rgba(46,230,199,.85)`); only the return legs are amber. The test plan
-   expected amber outbound. Cosmetic, unclear which is intended.
+1. **Outbound nav-line colour.** The teal this was written about went with the
+   daylight re-theme, and the amber with it. The leg to the station is now dark
+   green (`rgba(10,82,56,.9)`), or white (`rgba(255,255,255,.9)`) once a
+   next-lane target exists, and the return legs are white. The test plan
+   expected amber outbound. Still cosmetic, still unclear which is intended.
 
 2. **BUG 7 has never been seen on real hardware in GPS mode.** The fix is
    right and the GPS-fed test proves it, but nobody has walked a field, tapped
