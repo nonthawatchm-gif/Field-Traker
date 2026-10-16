@@ -251,6 +251,8 @@ const { useState, useRef, useEffect, useCallback } = React;
  * Thai text is the owner's translation (docs/translate/ui-strings-th.csv); a key is
  * the English text with {0} {1} for the values put in. ---- */
 const UI_TH = {
+  "Rain {0}% in 3 h":"ฝน {0}% ใน 3 ชม.",
+  "Rain in 3 h":"ฝนใน 3 ชม.",
   "m² of {0}":"ตร.ม. จาก {0}",
   "{0} check{1} left":"เหลือเช็ก {0} ข้อ",
   "{0} item{1} unchecked":"ยังไม่เช็ก {0} ข้อ",
@@ -1341,7 +1343,9 @@ function saveHistory(list) {
 }
 function fmtDate(ts) {
   const d = new Date(ts);
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' · ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  // dates follow the app's language, not the phone's (the owner's phone is set to English)
+  const loc = UI_LANG === 'th' ? 'th-TH' : undefined;
+  return d.toLocaleDateString(loc, { day: 'numeric', month: 'short' }) + ' · ' + d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
 }
 function fmtBytes(n) {
   if (!n) return '0 MB';
@@ -5670,7 +5674,7 @@ function App() {
                 const wx = sprayWeather;
                 // the amber dot always comes with its reason, weather first
                 const reason = wx && wx.rainNowWarning ? T("Raining now")
-                  : wx && wx.rainSoonWarning ? `Rain ${wx.rainSoonProb != null ? Math.round(wx.rainSoonProb) + '% ' : ''}in 3 h`
+                  : wx && wx.rainSoonWarning ? (wx.rainSoonProb != null ? T("Rain {0}% in 3 h", Math.round(wx.rainSoonProb)) : T("Rain in 3 h"))
                   : wx && wx.windWarning ? T("Wind {0} km/h", Math.round(wx.windKmh || 0))
                   : wx && wx.uvWarning ? T("UV {0} · very high", Math.round(wx.uvIndex))
                   : unchecked > 0 ? T("{0} check{1} left", unchecked, unchecked === 1 ? '' : 's') : null;
