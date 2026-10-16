@@ -857,7 +857,10 @@ own and stay). Before that, both apps were running a local build of `3197ec9` (T
 dark mode, no PR #6) that the dark-mode session had installed at 11:06, so the
 field app was on `3197ec9` (not build-91). The field app then got build-98 too
 (21:12, on the owner's word; its data checked unchanged; the owner had sprayed
-แปลงถั่ว 2 at 18:28 that day, filed before the install). Backups now live
+แปลงถั่ว 2 at 18:28 that day, filed before the install).
+Then build-99 (`5d7c972`: the rain chip and dates in Thai) went on both apps the
+same night, test app first with the field data copied in; backups in
+`agras-backups6-10-16_b99\`. Backups now live
 in `C:\Users\NONTH\agras-backups\<date>_<build>\` (the Temp folder was wiped and
 took the old backups and helper scripts with it; helpers recreated in
 `%TEMP%\agras-tools`).
